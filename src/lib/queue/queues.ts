@@ -24,8 +24,8 @@ const defaultJobOptions: JobsOptions = {
 export const QUEUE_NAMES = {
   /** Phase 0 placeholder: a heartbeat job to confirm worker plumbing. */
   HEARTBEAT: "heartbeat",
-  // Phase 1 will add:
-  //   COMPUTE_SNAPSHOTS_DAILY: "compute-snapshots-daily",
+  /** Phase 1: nightly snapshot for every account into account_snapshots. */
+  COMPUTE_SNAPSHOTS_DAILY: "compute-snapshots-daily",
   // Phase 2:
   //   FETCH_PRICES_DAILY: "fetch-prices-daily",
   // Phase 3:
@@ -37,6 +37,11 @@ export const QUEUE_NAMES = {
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
 export const heartbeatQueue = new Queue(QUEUE_NAMES.HEARTBEAT, {
+  connection: redisConnection,
+  defaultJobOptions,
+});
+
+export const computeSnapshotsDailyQueue = new Queue(QUEUE_NAMES.COMPUTE_SNAPSHOTS_DAILY, {
   connection: redisConnection,
   defaultJobOptions,
 });
