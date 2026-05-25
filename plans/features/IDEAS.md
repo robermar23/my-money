@@ -684,9 +684,11 @@ From the `plaid-fintech` skill and general experience:
 | 8 | Home value | Manual quarterly entry | 🟡 Recommendation | Coarse but honest; avoid scraping ToS issues. |
 | 9 | Market data | yahoo-finance2 (stocks) + CoinGecko (crypto) + Alpha Vantage commodities (metals), all cached daily | 🟡 Recommendation | All free tiers; cache pattern keeps usage under every limit. |
 | 10 | Backups | `pg_dump` nightly → `age`-encrypted → off-host (Backblaze B2 or 2nd disk) | 🟡 Recommendation | History is the product. Quarterly restore tests mandatory. |
-| 11 | Auth library | Lucia vs. Auth.js | ⏳ Deferred | Decide in Phase 0; both work; single-user simplifies. |
-| 12 | Chart library | Recharts vs. Observable Plot | ⏳ Deferred | Decide in Phase 1; trivial swap either way. |
-| 13 | Public exposure | Cloudflare Tunnel vs. Tailscale-only | ⏳ Deferred | Decide at deploy time; depends on whether phone-from-outside-LAN matters. |
+| 11 | Auth library | Lucia vs. Auth.js | ✅ Resolved 2026-05-25 → **see ADR-004** | Lucia deprecated; Auth.js overkill; rolled our own (see ADR-004). |
+| 12 | Chart library | Recharts vs. Observable Plot | ✅ Resolved 2026-05-25 → **see ADR-005** | Recharts picked (see ADR-005). |
+| 13 | Public exposure | Cloudflare Tunnel vs. Tailscale-only | ⏳ Deferred | Decide at deploy time (Phase 6); depends on whether phone-from-outside-LAN matters. Will become ADR-006. |
+| ADR-004 | Auth library | **Roll our own** with `iron-session` + `@node-rs/argon2` (argon2id). One user, one password, no recovery flow. | ✅ Locked 2026-05-25 | Lucia sunset March 2025; Auth.js/Better Auth heavy for single-user; ~80 LoC for total control + zero deprecation risk. Full ADR in [PLAN0_1.md](PLAN0_1.md). |
+| ADR-005 | Chart library | **Recharts**. Client Component island per chart. | ✅ Locked 2026-05-25 | React-native, SVG-based (accessible), lightweight, ships Phase 1 fastest. Sankey deferred to Phase 5 (may pull in `@nivo/sankey` then). Full ADR in [PLAN0_1.md](PLAN0_1.md). |
 | 14 | Update cadence | Daily-EOD / intraday / real-time | **Daily-EOD.** One nightly cron does prices + snapshots + reconciliation. Webhooks process in real-time but don't trigger UI recomputes. | ✅ Locked 2026-05-25 |
 | 15 | Backfill strategy | Backfill / fresh-start / hybrid | **Backfill as much as exports allow.** QFX importers in Phase 3 handle bulk historical statements. Plaid initial sync requests max history (≤24mo). Pre-history `account_snapshots` derived by walking transactions backward from current balance. | ✅ Locked 2026-05-25 |
 | 16 | "Minerals" definition | Physical metals / mining stocks / mined coins | **Physical gold in iTrust IRA.** New `asset_class='physical_metal'` with quantity in troy oz, priced from Alpha Vantage commodities (metals.live as fallback). Mining stocks flow through normal equity tracking. | ✅ Locked 2026-05-25 |

@@ -17,12 +17,15 @@ You are an expert TypeScript developer working on **my-money**, a self-hosted, s
 - **Tests**: Vitest for unit/integration; Playwright for the handful of critical user flows
 - **Deployment**: Docker Compose, self-hosted on the user's home server/NAS/Pi (Linux, possibly ARM64)
 - **Plaid**: official `plaid` Node SDK (the flagship of Plaid's SDKs)
+- **Auth** (ADR-004): roll our own with `iron-session` + `@node-rs/argon2` (argon2id). Single user, one password, no OAuth, no email recovery (CLI re-bootstrap if lost). No external identity providers — ever.
+- **Charts** (ADR-005): Recharts. Each chart is a `'use client'` island; server renders the wrapper. Sankey deferred to Phase 5 (may pull in `@nivo/sankey` at that point).
 
 **Source-of-truth docs** (consult these before making non-trivial design choices):
 
 1. [plans/features/FEATURE.md](plans/features/FEATURE.md) — what we're building and why
-2. [plans/features/IDEAS.md](plans/features/IDEAS.md) — locked ADRs (001 build-from-scratch, 002 web+Postgres, 003 TS/Next/Drizzle), per-institution integration choices, schema sketch, decision log
-3. `plans/features/PLAN.md` (when written) — phased task breakdown
+2. [plans/features/IDEAS.md](plans/features/IDEAS.md) — locked ADRs (001 build-from-scratch, 002 web+Postgres, 003 TS/Next/Drizzle, 004 auth, 005 charts), per-institution integration choices, schema sketch, decision log
+3. [plans/features/SKILLS.md](plans/features/SKILLS.md) — curated skills catalog mapped to project phases
+4. [plans/features/PLAN0_1.md](plans/features/PLAN0_1.md) — Phase 0 (bedrock) + Phase 1 (manual entry + net-worth chart) task breakdown. Future phases get their own `PLAN*.md` files.
 
 **Reference architecture** (read-only inspiration, do NOT copy code from):
 
