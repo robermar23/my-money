@@ -2,6 +2,7 @@ import "server-only";
 
 import { db } from "@/db/client.ts";
 import { accountSnapshots, accounts, liabilities } from "@/db/schema/index.ts";
+import { valueAccountHoldings } from "@/lib/holdings/value.ts";
 import { Money } from "@/lib/money/money.ts";
 import { balanceAtMonth } from "@/lib/mortgage/amortization.ts";
 import { and, desc, eq, lte, sql } from "drizzle-orm";
@@ -74,6 +75,24 @@ export async function computeNetWorth(
         balance: remaining.negate(),
       });
       continue;
+    }
+
+    // For holdings-based accounts, prefer live valuation from cached prices
+    // over the last-written snapshot — gives the user the freshest possible
+    // dashboard value without waiting for the nightly snapshot job.
+    if (account.type === "investment" || account.type === "crypto_ira") {
+      const live = await valueAccountHoldings(account.id, account.currency, asOfIso);
+      if (!live.isZero()) {
+        items.push({
+          accountId: account.id,
+          accountName: account.name,
+          accountType: account.type,
+          currency: account.currency,
+          balance: live,
+        });
+        continue;
+      }
+      // No prices yet: fall through to the snapshot lookup so manual entries still show.
     }
 
     const [latest] = await db
