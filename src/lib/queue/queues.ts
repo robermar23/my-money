@@ -26,8 +26,8 @@ export const QUEUE_NAMES = {
   HEARTBEAT: "heartbeat",
   /** Phase 1: nightly snapshot for every account into account_snapshots. */
   COMPUTE_SNAPSHOTS_DAILY: "compute-snapshots-daily",
-  // Phase 2:
-  //   FETCH_PRICES_DAILY: "fetch-prices-daily",
+  /** Phase 2: daily refresh of `prices` for every distinct held symbol. */
+  FETCH_PRICES_DAILY: "fetch-prices-daily",
   // Phase 3:
   //   PROCESS_QFX_IMPORT: "process-qfx-import",
   // Phase 4:
@@ -42,6 +42,11 @@ export const heartbeatQueue = new Queue(QUEUE_NAMES.HEARTBEAT, {
 });
 
 export const computeSnapshotsDailyQueue = new Queue(QUEUE_NAMES.COMPUTE_SNAPSHOTS_DAILY, {
+  connection: redisConnection,
+  defaultJobOptions,
+});
+
+export const fetchPricesDailyQueue = new Queue(QUEUE_NAMES.FETCH_PRICES_DAILY, {
   connection: redisConnection,
   defaultJobOptions,
 });
