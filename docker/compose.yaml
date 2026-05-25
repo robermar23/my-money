@@ -1,0 +1,117 @@
+# Dev compose stack for my-money.
+#
+# Profiles:
+#   - (default) `postgres`, `redis` — for local `pnpm dev` against containerized data services.
+#   - `prod` adds `app` and `worker` services (defined in P0-14) — for running the full
+#     stack from built images, e.g., on the home server.
+#
+# Usage:
+#   docker compose -f docker/compose.yaml up -d            # postgres + redis only
+#   docker compose -f docker/compose.yaml --profile prod up -d  # everything
+#
+# Per ADR-002 and CLAUDE.md: Postgres is NOT exposed to the host network in production.
+# In dev, we publish 5432/6379 to localhost so `pnpm dev` and `drizzle-kit` can reach them.
+
+name: my-money
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-money}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password_change_me}
+      POSTGRES_DB: ${POSTGRES_DB:-money}
+    ports:
+      # Dev-only: expose to host so drizzle-kit + pnpm dev can reach it.
+      # Mapped to 5433 to avoid collisions with any existing host Postgres on 5432.
+      # The prod profile (P0-14) should bind only to the docker network.
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-money} -d ${POSTGRES_DB:-money}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - money_net
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "1"]
+    ports:
+      # Mapped to 6380 to avoid collisions with any existing host Redis on 6379.
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - money_net
+
+  # ── Application services (prod profile) ────────────────────────────────────
+  # Activate with: docker compose --profile prod up
+  # In production we do NOT publish Postgres/Redis to the host — the app and
+  # worker reach them via the docker network only.
+
+  app:
+    profiles: ["prod"]
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: my-money:latest
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      HOSTNAME: "0.0.0.0"
+      DATABASE_URL: postgres://${POSTGRES_USER:-money}:${POSTGRES_PASSWORD:-dev_password_change_me}@postgres:5432/${POSTGRES_DB:-money}
+      REDIS_URL: redis://redis:6379
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      MONEY_ENCRYPTION_KEY: ${MONEY_ENCRYPTION_KEY:?MONEY_ENCRYPTION_KEY is required}
+    ports:
+      # Bind only to localhost; expose externally via Caddy + Cloudflare Tunnel
+      # or Tailscale at deploy time (ADR-006 — deferred to Phase 6).
+      - "127.0.0.1:4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - money_net
+
+  worker:
+    profiles: ["prod"]
+    image: my-money:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command:
+      ["node", "--experimental-strip-types", "--import", "tsx", "src/worker/index.ts"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-money}:${POSTGRES_PASSWORD:-dev_password_change_me}@postgres:5432/${POSTGRES_DB:-money}
+      REDIS_URL: redis://redis:6379
+      MONEY_ENCRYPTION_KEY: ${MONEY_ENCRYPTION_KEY:?MONEY_ENCRYPTION_KEY is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - money_net
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  money_net:
+    driver: bridge
