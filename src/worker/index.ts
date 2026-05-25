@@ -1,6 +1,7 @@
 import { redisConnection } from "@/lib/queue/connection.ts";
-import { QUEUE_NAMES, heartbeatQueue } from "@/lib/queue/queues.ts";
+import { QUEUE_NAMES, computeSnapshotsDailyQueue, heartbeatQueue } from "@/lib/queue/queues.ts";
 import { Worker } from "bullmq";
+import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
 import { heartbeatProcessor } from "./jobs/heartbeat.ts";
 
 /**
@@ -23,6 +24,15 @@ heartbeatWorker.on("failed", (job, err) => {
   console.error(`[worker] heartbeat job ${job?.id} failed:`, err);
 });
 
+const computeSnapshotsWorker = new Worker(
+  QUEUE_NAMES.COMPUTE_SNAPSHOTS_DAILY,
+  computeSnapshotsDailyProcessor,
+  { connection: redisConnection, concurrency: 1 },
+);
+computeSnapshotsWorker.on("failed", (job, err) => {
+  console.error(`[worker] compute-snapshots-daily job ${job?.id} failed:`, err);
+});
+
 // Ensure a single heartbeat repeatable job exists. Removing first guards against
 // pattern duplication across restarts.
 await heartbeatQueue.removeJobScheduler("heartbeat-tick").catch(() => {
@@ -34,13 +44,25 @@ await heartbeatQueue.upsertJobScheduler(
   { name: "heartbeat-tick", data: {} },
 );
 
+// Nightly snapshot job: every day at 02:00 local. Cron pattern "0 2 * * *".
+await computeSnapshotsDailyQueue.removeJobScheduler("compute-snapshots-daily-cron").catch(() => {
+  /* first run */
+});
+await computeSnapshotsDailyQueue.upsertJobScheduler(
+  "compute-snapshots-daily-cron",
+  { pattern: "0 2 * * *" },
+  { name: "compute-snapshots-daily", data: {} },
+);
+
 /**
  * Graceful shutdown per bullmq-specialist guidance. Process SIGTERM and SIGINT,
  * stop accepting new jobs, drain in-flight, then close the Redis connection.
  */
 async function shutdown(_signal: string): Promise<void> {
   await heartbeatWorker.close();
+  await computeSnapshotsWorker.close();
   await heartbeatQueue.close();
+  await computeSnapshotsDailyQueue.close();
   await redisConnection.quit();
   process.exit(0);
 }
