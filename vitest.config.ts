@@ -17,6 +17,11 @@ export default defineConfig({
     setupFiles: ["./vitest.setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
     exclude: ["**/node_modules/**", "**/.next/**", "e2e/**", "**/*.spec.ts"],
+    // Force single-fork sequential execution: several test files truncate
+    // shared Postgres tables in `beforeEach`. Parallel runs deadlock and race.
+    pool: "forks",
+    poolOptions: { forks: { singleFork: true } },
+    fileParallelism: false,
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
