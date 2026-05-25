@@ -6,6 +6,7 @@ import {
   listSnapshots,
 } from "@/lib/accounts/queries.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
+import { valueHolding } from "@/lib/holdings/value.ts";
 import { Money } from "@/lib/money/money.ts";
 import { balanceAtMonth } from "@/lib/mortgage/amortization.ts";
 import { toAccountId } from "@/lib/types/ids.ts";
@@ -54,6 +55,17 @@ export default async function AccountDetailPage(
     getLiability(accountId),
   ]);
 
+  // Phase 2: price each holding using cached `prices` (closeUsed: null means
+  // no price has been fetched yet — UI displays "—" for value).
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const valuations = await Promise.all(
+    accountHoldings.map((h) => valueHolding(h, account.currency, todayIso)),
+  );
+  const holdingsTotal = valuations.reduce(
+    (acc, v) => acc.add(v.value),
+    Money.zero(account.currency),
+  );
+
   const showBalanceForm = account.type === "depository" || account.type === "credit_card";
   const showHoldingsForm = account.type === "investment" || account.type === "crypto_ira";
   const showMortgageForm = account.type === "loan";
@@ -86,9 +98,11 @@ export default async function AccountDetailPage(
           <div className="font-mono text-xl">
             {computedLoanBalance
               ? computedLoanBalance.negate().format()
-              : latestSnap
-                ? Money.fromString(latestSnap.balance, account.currency).format()
-                : "—"}
+              : showHoldingsForm && !holdingsTotal.isZero()
+                ? holdingsTotal.format()
+                : latestSnap
+                  ? Money.fromString(latestSnap.balance, account.currency).format()
+                  : "—"}
           </div>
           {computedLoanBalance && (
             <div className="mt-0.5 text-xs text-zinc-400">computed from amortization</div>
@@ -128,24 +142,47 @@ export default async function AccountDetailPage(
                   <th className="py-2">Asset class</th>
                   <th className="py-2 text-right">Quantity</th>
                   <th className="py-2">Unit</th>
+                  <th className="py-2 text-right">Latest price</th>
+                  <th className="py-2 text-right">Value</th>
                   <th className="py-2 text-right">Cost basis</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
-                {accountHoldings.map((h) => (
-                  <tr key={h.id}>
-                    <td className="py-2 font-mono">{h.symbol}</td>
+                {valuations.map((v) => (
+                  <tr key={v.holding.id}>
+                    <td className="py-2 font-mono">{v.holding.symbol}</td>
                     <td className="py-2 text-zinc-600 dark:text-zinc-400">
-                      {h.assetClass.replace("_", " ")}
+                      {v.holding.assetClass.replace("_", " ")}
                     </td>
-                    <td className="py-2 text-right font-mono">{h.quantity}</td>
-                    <td className="py-2 text-zinc-600 dark:text-zinc-400">{h.quantityUnit}</td>
+                    <td className="py-2 text-right font-mono">{v.holding.quantity}</td>
+                    <td className="py-2 text-zinc-600 dark:text-zinc-400">
+                      {v.holding.quantityUnit}
+                    </td>
                     <td className="py-2 text-right font-mono">
-                      {h.costBasis ? Money.fromString(h.costBasis, account.currency).format() : "—"}
+                      {v.closeUsed ? Money.fromString(v.closeUsed, account.currency).format() : "—"}
+                    </td>
+                    <td className="py-2 text-right font-mono">
+                      {v.closeUsed || v.holding.assetClass === "cash" ? v.value.format() : "—"}
+                    </td>
+                    <td className="py-2 text-right font-mono">
+                      {v.holding.costBasis
+                        ? Money.fromString(v.holding.costBasis, account.currency).format()
+                        : "—"}
                     </td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot className="border-zinc-200 border-t dark:border-zinc-800">
+                <tr>
+                  <td className="py-2 font-medium" colSpan={5}>
+                    Total
+                  </td>
+                  <td className="py-2 text-right font-medium font-mono">
+                    {holdingsTotal.format()}
+                  </td>
+                  <td />
+                </tr>
+              </tfoot>
             </table>
           )}
         </section>
