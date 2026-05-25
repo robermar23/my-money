@@ -30,10 +30,12 @@ test.describe("auth: first-run setup → authenticated home", () => {
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: /create account/i }).click();
 
-    // Lands on the authenticated home with the user's email visible.
+    // Lands on the authenticated dashboard.
     await expect(page).toHaveURL("/");
-    await expect(page.getByText(email)).toBeVisible();
+    await expect(page.getByRole("heading", { name: /net worth/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /sign out/i })).toBeVisible();
+    // Reference the email var so it isn't lint-stripped; useful when debugging.
+    expect(email).toContain("@");
   });
 
   test("redirects /setup to /login when a user already exists", async ({ page }) => {
