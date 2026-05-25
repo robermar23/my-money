@@ -7,15 +7,18 @@
  *
  * Supported job names:
  *   - compute-snapshots-daily
+ *   - fetch-prices-daily
  *   - heartbeat
  */
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
+import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
 import { heartbeatProcessor } from "./jobs/heartbeat.ts";
 
 const jobName = process.argv[2];
 
-const PROCESSORS: Record<string, (job: never) => Promise<void>> = {
+const PROCESSORS: Record<string, (job: never) => Promise<unknown>> = {
   "compute-snapshots-daily": computeSnapshotsDailyProcessor as never,
+  "fetch-prices-daily": (async (job: never) => fetchPricesDailyProcessor(job)) as never,
   heartbeat: heartbeatProcessor as never,
 };
 

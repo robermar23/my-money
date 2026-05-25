@@ -1,5 +1,6 @@
 import { db } from "@/db/client.ts";
 import { accountSnapshots, accounts, liabilities } from "@/db/schema/index.ts";
+import { valueAccountHoldings } from "@/lib/holdings/value.ts";
 import { Money } from "@/lib/money/money.ts";
 import { balanceAtMonth } from "@/lib/mortgage/amortization.ts";
 import type { Job } from "bullmq";
@@ -47,9 +48,27 @@ export async function computeSnapshotsDailyProcessor(_job: Job): Promise<void> {
         Math.max(0, months),
       );
       balance = remaining.negate().toString();
+    } else if (account.type === "investment" || account.type === "crypto_ira") {
+      // Phase 2: value the account's holdings using today's cached prices.
+      // If no prices have been fetched yet OR the account has no holdings, fall
+      // back to the carry-forward behavior so manual-only setups still work.
+      const holdingsValue = await valueAccountHoldings(account.id, account.currency, today);
+      if (!holdingsValue.isZero()) {
+        balance = holdingsValue.toString();
+      } else {
+        const [prior] = await db
+          .select({ balance: accountSnapshots.balance })
+          .from(accountSnapshots)
+          .where(eq(accountSnapshots.accountId, account.id))
+          .orderBy(desc(accountSnapshots.date))
+          .limit(1);
+        if (!prior) continue;
+        balance = prior.balance;
+      }
     } else {
-      // Carry forward the most-recent prior snapshot. If there isn't one yet,
-      // skip this account — no data means no snapshot.
+      // depository / credit_card / property: carry forward the most-recent prior
+      // snapshot. The user enters these manually; the job preserves the trend
+      // line on days where no manual entry happens.
       const [prior] = await db
         .select({ balance: accountSnapshots.balance })
         .from(accountSnapshots)
