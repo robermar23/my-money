@@ -1,0 +1,7 @@
+allowBuilds:
+  '@biomejs/biome': true
+  '@node-rs/argon2-win32-x64-msvc': true
+  '@tailwindcss/oxide': true
+  esbuild: true
+  msgpackr-extract: true
+  sharp: true
