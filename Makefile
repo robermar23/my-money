@@ -1,0 +1,257 @@
+# my-money -- common operations
+#
+# Run `make` or `make help` to see all targets.
+# Works on Windows (cmd.exe via native make) and Unix (bash/sh).
+
+.DEFAULT_GOAL := help
+
+# Always run docker compose with the same compose file + env file.
+# `--env-file .env.local` is required even for the default profile because the
+# compose file declares prod-profile vars as required-or-error.
+COMPOSE := docker compose -f docker/compose.yaml --env-file .env.local
+
+# Domain tables for `db-reset`. Schema stays intact; only the rows go.
+DOMAIN_TABLES := users, accounts, holdings, account_snapshots, liabilities, prices
+
+# ---------------------------------------------------------------------------
+# Help (cross-platform; plain @echo lines so cmd.exe + bash both render OK)
+# ---------------------------------------------------------------------------
+
+.PHONY: help
+help:
+	@echo my-money -- run "make <target>". Available targets:
+	@echo ----------------------------------------------------------
+	@echo SETUP
+	@echo   install         Install dependencies (pnpm install)
+	@echo   setup           First-time: install + up + migrate
+	@echo ----------------------------------------------------------
+	@echo DOCKER STACK (data only -- Postgres + Redis)
+	@echo   up              Start Postgres + Redis in background
+	@echo   down            Stop containers (data preserved)
+	@echo   nuke            Stop + WIPE volumes (destroys all DB data)
+	@echo   restart         Stop and restart data containers
+	@echo   ps              Show container status
+	@echo   logs            Tail Postgres + Redis logs
+	@echo   psql            Open psql shell in Postgres container
+	@echo   redis-cli       Open redis-cli in Redis container
+	@echo ----------------------------------------------------------
+	@echo DOCKER STACK (full prod-style -- adds app + worker)
+	@echo   prod-build      Build the app + worker images
+	@echo   prod-up         Start the full stack from images
+	@echo   prod-down       Stop the full stack
+	@echo   prod-logs       Tail app + worker logs
+	@echo ----------------------------------------------------------
+	@echo APP (local dev)
+	@echo   dev             Next.js dev server (http://127.0.0.1:4000)
+	@echo   worker          BullMQ worker (heartbeat + cron jobs)
+	@echo   build           Production Next.js build
+	@echo   start           Run the production build
+	@echo ----------------------------------------------------------
+	@echo TESTS
+	@echo   test            Vitest unit + integration
+	@echo   test-watch      Vitest in watch mode
+	@echo   e2e             Playwright E2E specs
+	@echo   e2e-headed      Playwright with visible browser
+	@echo   e2e-ui          Playwright interactive UI mode
+	@echo ----------------------------------------------------------
+	@echo CODE QUALITY
+	@echo   check           Biome + tsc --noEmit
+	@echo   lint            Biome lint (no fix)
+	@echo   format          Biome auto-fix + format
+	@echo   typecheck       tsc --noEmit only
+	@echo ----------------------------------------------------------
+	@echo DATABASE (Drizzle)
+	@echo   db-generate     Generate SQL migration from schema
+	@echo   db-migrate      Apply pending migrations
+	@echo   db-push         Push schema directly (dev iteration)
+	@echo   db-studio       Drizzle Studio (visual DB browser)
+	@echo   db-reset        Truncate domain tables (keep schema)
+	@echo ----------------------------------------------------------
+	@echo WORKERS (run one job once -- no scheduling)
+	@echo   job-snapshots   Run compute-snapshots-daily once
+	@echo   job-prices      Run fetch-prices-daily once (real APIs!)
+	@echo   job-heartbeat   Run heartbeat once (smoke test)
+
+# ---------------------------------------------------------------------------
+# Setup
+# ---------------------------------------------------------------------------
+
+.PHONY: install
+install:
+	pnpm install
+
+# .env.local existence check is done via node so it works on both cmd and bash.
+.PHONY: setup
+setup:
+	@node -e "if (!require('fs').existsSync('.env.local')) { console.error('ERROR: copy .env.example to .env.local first, then fill in secrets.'); process.exit(1) }"
+	$(MAKE) install
+	$(MAKE) up
+	$(MAKE) db-migrate
+	@echo Setup complete.
+	@echo   Start the app:    make dev
+	@echo   Start the worker: make worker  (in a separate terminal)
+
+# ---------------------------------------------------------------------------
+# Docker stack -- data services only
+# ---------------------------------------------------------------------------
+
+.PHONY: up
+up:
+	$(COMPOSE) up -d
+	@echo Postgres ready on 127.0.0.1:5433, Redis on 127.0.0.1:6380.
+
+.PHONY: down
+down:
+	$(COMPOSE) down
+
+.PHONY: nuke
+nuke:
+	@echo About to WIPE all Postgres + Redis data. Ctrl-C within 3 seconds to abort.
+	@node -e "setTimeout(() => {}, 3000)"
+	$(COMPOSE) down -v
+
+.PHONY: restart
+restart:
+	$(MAKE) down
+	$(MAKE) up
+
+.PHONY: ps
+ps:
+	$(COMPOSE) ps
+
+.PHONY: logs
+logs:
+	$(COMPOSE) logs -f postgres redis
+
+.PHONY: psql
+psql:
+	$(COMPOSE) exec postgres psql -U money -d money
+
+.PHONY: redis-cli
+redis-cli:
+	$(COMPOSE) exec redis redis-cli
+
+# ---------------------------------------------------------------------------
+# Docker stack -- full prod-style
+# ---------------------------------------------------------------------------
+
+.PHONY: prod-build
+prod-build:
+	$(COMPOSE) --profile prod build
+
+.PHONY: prod-up
+prod-up:
+	$(COMPOSE) --profile prod up -d
+
+.PHONY: prod-down
+prod-down:
+	$(COMPOSE) --profile prod down
+
+.PHONY: prod-logs
+prod-logs:
+	$(COMPOSE) --profile prod logs -f app worker
+
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
+
+.PHONY: dev
+dev:
+	pnpm dev
+
+.PHONY: worker
+worker:
+	pnpm worker
+
+.PHONY: build
+build:
+	pnpm build
+
+.PHONY: start
+start:
+	pnpm start
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+
+.PHONY: test
+test:
+	pnpm test
+
+.PHONY: test-watch
+test-watch:
+	pnpm test:watch
+
+.PHONY: e2e
+e2e:
+	pnpm test:e2e
+
+.PHONY: e2e-headed
+e2e-headed:
+	pnpm exec playwright test --headed
+
+.PHONY: e2e-ui
+e2e-ui:
+	pnpm exec playwright test --ui
+
+# ---------------------------------------------------------------------------
+# Code quality
+# ---------------------------------------------------------------------------
+
+.PHONY: check
+check:
+	pnpm check
+
+.PHONY: lint
+lint:
+	pnpm exec biome check
+
+.PHONY: format
+format:
+	pnpm format
+
+.PHONY: typecheck
+typecheck:
+	pnpm exec tsc --noEmit
+
+# ---------------------------------------------------------------------------
+# Database (Drizzle)
+# ---------------------------------------------------------------------------
+
+.PHONY: db-generate
+db-generate:
+	pnpm db:generate
+
+.PHONY: db-migrate
+db-migrate:
+	pnpm db:migrate
+
+.PHONY: db-push
+db-push:
+	pnpm db:push
+
+.PHONY: db-studio
+db-studio:
+	pnpm db:studio
+
+.PHONY: db-reset
+db-reset:
+	@echo Truncating: $(DOMAIN_TABLES)
+	$(COMPOSE) exec -T postgres psql -U money -d money -c "TRUNCATE $(DOMAIN_TABLES) CASCADE;"
+
+# ---------------------------------------------------------------------------
+# Workers -- run one job once
+# ---------------------------------------------------------------------------
+
+.PHONY: job-snapshots
+job-snapshots:
+	pnpm worker:once compute-snapshots-daily
+
+.PHONY: job-prices
+job-prices:
+	pnpm worker:once fetch-prices-daily
+
+.PHONY: job-heartbeat
+job-heartbeat:
+	pnpm worker:once heartbeat
