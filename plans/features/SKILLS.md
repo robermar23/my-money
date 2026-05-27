@@ -20,7 +20,7 @@ These shaped existing artifacts; their guidance is already encoded in the docs.
 | `plan-writing` | Will drive PLAN.md format |
 | `concise-planning` | Will drive PLAN.md task atomicity |
 | `plaid-fintech` | Source of CRITICAL/ERROR rules in CLAUDE.md → §Plaid Safety Rules |
-| `alpha-vantage` | Source of "cache nightly" pattern; locked as the metals price feed in IDEAS.md §5.3 |
+| `alpha-vantage` | Source of "cache nightly" pattern (still in use). AV itself was dropped 2026-05-27 — metals now use Yahoo. See IDEAS.md §5.3. |
 
 ---
 
@@ -130,7 +130,7 @@ Invoke skills at the moment they pay off — not preemptively. This map shows wh
 ### Phase 2 — Market data
 
 - `bullmq-specialist` — daily price-fetch job
-- `zod-validation-expert` — parse responses from yahoo-finance2 / CoinGecko / Alpha Vantage at the boundary
+- `zod-validation-expert` — parse responses from yahoo-finance2 (equities + metals) / CoinGecko at the boundary
 
 ### Phase 3 — QFX/CSV import
 
