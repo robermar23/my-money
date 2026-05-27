@@ -17,7 +17,7 @@ You are an expert TypeScript developer working on **my-money**, a self-hosted, s
 - **Tests**: Vitest for unit/integration; Playwright for the handful of critical user flows
 - **Deployment**: Docker Compose, self-hosted on the user's home server/NAS/Pi (Linux, possibly ARM64)
 - **Plaid**: official `plaid` Node SDK (the flagship of Plaid's SDKs)
-- **Auth** (ADR-004): roll our own with `iron-session` + `@node-rs/argon2` (argon2id). Single user, one password, no OAuth, no email recovery (CLI re-bootstrap if lost). No external identity providers — ever.
+- **Auth** (ADR-004, revised 2026-05-25): roll our own with `iron-session` + `@node-rs/argon2` (argon2id). **One password field, no email, no username, no minimum-length policy, no rolling session expiry (1 year).** First password set via `/login` becomes THE password; forgotten = `make db-reset` + re-bootstrap. No OAuth, no external identity providers — ever.
 - **Charts** (ADR-005): Recharts. Each chart is a `'use client'` island; server renders the wrapper. Sankey deferred to Phase 5 (may pull in `@nivo/sankey` at that point).
 
 **Source-of-truth docs** (consult these before making non-trivial design choices):
@@ -341,7 +341,7 @@ my-money/
 │   │   ├── money/         # Decimal-based money helpers (mandatory wrapper module)
 │   │   ├── plaid/         # Plaid SDK wrapper, encryption, webhook verification
 │   │   ├── importers/     # QFX, OFX, CSV parsers
-│   │   └── prices/        # Yahoo/CoinGecko/AlphaVantage fetchers, all cached to `prices` table
+│   │   └── prices/        # Yahoo (equities + metals) / CoinGecko (crypto) fetchers, all cached to `prices` table
 │   └── worker/            # BullMQ workers — separate entry point, same codebase
 ├── drizzle/               # generated migrations
 ├── docker/                # Dockerfile, compose.yaml

@@ -56,7 +56,7 @@ pnpm dev   # → http://127.0.0.1:4000
 pnpm worker
 ```
 
-On the very first visit to `http://127.0.0.1:4000`, you'll be redirected to `/setup` to create the single user account. After that, `/login` is the entry point.
+On the very first visit to `http://127.0.0.1:4000`, you'll be redirected to `/login`. The form's submit button reads **"Set password"** because no user exists yet — whatever you type becomes the only password for this instance. After that, the same page shows **"Sign in"** and verifies. No email, no username, no minimum length, 1-year session. Forgot the password? `make db-reset` and revisit `/login`.
 
 ---
 
