@@ -104,7 +104,7 @@ This document was shaped by these skills under `C:\Users\Robert\AppData\Roaming\
 | `brainstorming` | Structure: Understanding Lock → assumptions → alternatives → decision log. No implementation yet. |
 | `multi-agent-brainstorming` | Built in a "Skeptic" pass and a "Constraint Guardian" pass per option. |
 | `plaid-fintech` | Real-world Plaid pricing, sandbox vs. prod gotchas, item-error/reauth UX, sync cursor model. |
-| `alpha-vantage` | Free market-data tier as a baseline; 25 req/day limit shaped the "cache nightly" pattern below. |
+| `alpha-vantage` | The "cache nightly" pattern (free-tier-friendly) shaped §5. AV itself was dropped 2026-05-27 after they removed metals from the free tier; the cache pattern stuck. |
 | `plan-writing` | Phased rollout (Phase 1 manual → Phase 2 aggregator → Phase 3 enrichment). |
 
 ---
@@ -288,7 +288,7 @@ Columns: **automation route**, **realistic cost**, **expected effort**, **what y
 
 **Recommendation (locked)**: **Manual quarterly entry of physical metal quantity (oz) + crypto unit counts.** Daily auto-revaluation via:
 
-- Gold spot price → Alpha Vantage commodities or metals.live
+- Gold spot price → Yahoo Finance (`GC=F` front-month COMEX futures; revised 2026-05-27, see §5.3)
 - Crypto unit prices → CoinGecko
 
 Schema implication (see §6): `holdings` table needs an `asset_class` discriminator and a `quantity_unit` field. For physical gold, `asset_class='physical_metal'`, `symbol='XAU'`, `quantity_unit='troy_oz'`.
@@ -346,7 +346,7 @@ Schema implication (see §6): `holdings` table needs an `asset_class` discrimina
 | **Polygon.io** | Free tier | 5 calls/min, 2yr history | Becomes expensive fast for real-time. |
 | **IEX Cloud** | Shut down Aug 2024 | — | RIP. |
 
-**Recommendation**: **`yfinance` (free) for prices** + **Tiingo (free) as a fallback when yfinance breaks** + **Alpha Vantage for fundamentals** (cached daily).
+**Recommendation (locked)**: **`yahoo-finance2` (Node port of yfinance, free, no key) for prices.** Tiingo remains a documented fallback if Yahoo breaks; we'll wire it in only when that happens. Fundamentals (P/E, dividends, etc.) are a Phase 5+ concern and out of scope here.
 
 ### 5.2 Crypto
 
@@ -364,12 +364,13 @@ The user's specific need: **value the physical gold held in their iTrust Capital
 
 | Source | Cost | Notes |
 |---|---|---|
-| **metals.live** | Free, no key | Spot prices for gold/silver/platinum/palladium. Simple JSON. **No signup — fastest to integrate.** |
+| **Yahoo Finance** | Free, no key | Front-month COMEX futures (`GC=F` gold, `SI=F` silver, `PL=F` platinum, `PA=F` palladium). Tracks spot within a fraction of a percent — fine for personal net-worth tracking. |
+| **metals.live** | Free, no key | Spot prices for gold/silver/platinum/palladium. Simple JSON. |
 | **MetalpriceAPI** | Free tier: 100 req/mo | Spot + historical. 100/mo is plenty for daily-snapshot use. |
 | **GoldAPI.io** | Free tier with email signup | Plenty for daily-snapshot use. |
-| **Alpha Vantage** | Free, in same skill | Commodity endpoints cover gold/silver/oil/etc. Already a vendor for stock fundamentals. |
+| **Alpha Vantage** | ~~Free, in same skill~~ | ~~Commodity endpoints cover gold/silver/oil/etc.~~ ❌ **Removed metals from free tier in 2026** — `CURRENCY_EXCHANGE_RATE` for XAU now returns `"Invalid API call"`. Cheapest paid plan that restores access ≈ $50/mo. |
 
-**Recommendation (locked)**: **Alpha Vantage commodities** as primary (one fewer vendor than introducing metals.live; we'll already be using AV for stock fundamentals). **metals.live as fallback** when AV rate-limits or returns stale data. Both are cached daily in the same `prices(symbol, date, close, source)` table, keyed by `symbol='XAU'` for gold.
+**Recommendation (locked 2026-05-25, revised 2026-05-27)**: **Yahoo Finance** for metals, via the same `yahoo-finance2` library used for equities. The fetcher translates the user-facing canonical metal symbol (`XAU`/`XAG`/`XPT`/`XPD`) to Yahoo's futures ticker (`GC=F`/`SI=F`/`PL=F`/`PA=F`) at the boundary and stores the price back under the canonical symbol, so the `prices` table is keyed by `symbol='XAU'` regardless of source. metals.live and GoldAPI.io remain documented fallbacks if Yahoo ever breaks. **Why not AV (original pick):** AV dropped metals from the free tier in early 2026; their cheapest plan that restores access is ~$50/mo, disproportionate for one daily fetch.
 
 **Historical fill**: iTrust statements typically show end-of-month bullion value. When importing past statements, also backfill `prices` for those month-end dates so historical net-worth snapshots reflect actual gold valuations at the time.
 
@@ -606,7 +607,7 @@ For comparison: Monarch is $100/yr, Empower is "free" (they sell your data and t
 - Daily cron job fetches prices for held symbols:
   - Stocks/ETFs: `yfinance`-equivalent (Node has `yahoo-finance2`) with Tiingo fallback
   - Crypto: CoinGecko free tier
-  - Metals: Alpha Vantage commodity endpoints OR metals.live
+  - Metals: Yahoo Finance front-month COMEX futures (`GC=F` etc.); see §5.3 for why not AV
 - All prices cached in `prices(symbol, date, close, source)` table
 - Holdings auto-revalue nightly using cached prices
 - Charts now show *real* movement, not just manual snapshots
@@ -682,16 +683,16 @@ From the `plaid-fintech` skill and general experience:
 | 6 | iTrust Capital ingestion | Manual quarterly holdings entry | 🟡 Recommendation | No Plaid coverage; low trade frequency. |
 | 7 | Sunwest Mortgage | Deterministic amortization schedule + monthly reconciliation | 🟡 Recommendation | Free, exact, no third-party dependency. |
 | 8 | Home value | Manual quarterly entry | 🟡 Recommendation | Coarse but honest; avoid scraping ToS issues. |
-| 9 | Market data | yahoo-finance2 (stocks) + CoinGecko (crypto) + Alpha Vantage commodities (metals), all cached daily | 🟡 Recommendation | All free tiers; cache pattern keeps usage under every limit. |
+| 9 | Market data | yahoo-finance2 (stocks AND metals via `GC=F` etc.) + CoinGecko (crypto), all cached daily | ✅ Locked 2026-05-25, revised 2026-05-27 (metals provider: AV → Yahoo, since AV dropped metals from its free tier; see §5.3) | All free tiers, zero API keys; cache pattern keeps usage under every limit. |
 | 10 | Backups | `pg_dump` nightly → `age`-encrypted → off-host (Backblaze B2 or 2nd disk) | 🟡 Recommendation | History is the product. Quarterly restore tests mandatory. |
 | 11 | Auth library | Lucia vs. Auth.js | ✅ Resolved 2026-05-25 → **see ADR-004** | Lucia deprecated; Auth.js overkill; rolled our own (see ADR-004). |
 | 12 | Chart library | Recharts vs. Observable Plot | ✅ Resolved 2026-05-25 → **see ADR-005** | Recharts picked (see ADR-005). |
 | 13 | Public exposure | Cloudflare Tunnel vs. Tailscale-only | ⏳ Deferred | Decide at deploy time (Phase 6); depends on whether phone-from-outside-LAN matters. Will become ADR-006. |
-| ADR-004 | Auth library | **Roll our own** with `iron-session` + `@node-rs/argon2` (argon2id). One user, one password, no recovery flow. | ✅ Locked 2026-05-25 | Lucia sunset March 2025; Auth.js/Better Auth heavy for single-user; ~80 LoC for total control + zero deprecation risk. Full ADR in [PLAN0_1.md](PLAN0_1.md). |
+| ADR-004 | Auth library + UX | **Roll our own** with `iron-session` + `@node-rs/argon2` (argon2id). **Revised 2026-05-25 (same day)**: single `/login` page, one password field, no email, no username, no min-length policy, 1-year session. First submit sets the password; subsequent submits verify. Forgotten = `make db-reset` + re-bootstrap. | ✅ Locked 2026-05-25 (revised same day) | Lucia sunset March 2025; Auth.js/Better Auth heavy for single-user. Initial design imported generic-SaaS UX patterns (email field, min-length, rolling expiry) — stripped out because they add zero security on a single-user self-hosted box behind Tailscale, just friction. Full ADR in [PLAN0_1.md](PLAN0_1.md). |
 | ADR-005 | Chart library | **Recharts**. Client Component island per chart. | ✅ Locked 2026-05-25 | React-native, SVG-based (accessible), lightweight, ships Phase 1 fastest. Sankey deferred to Phase 5 (may pull in `@nivo/sankey` then). Full ADR in [PLAN0_1.md](PLAN0_1.md). |
 | 14 | Update cadence | Daily-EOD / intraday / real-time | **Daily-EOD.** One nightly cron does prices + snapshots + reconciliation. Webhooks process in real-time but don't trigger UI recomputes. | ✅ Locked 2026-05-25 |
 | 15 | Backfill strategy | Backfill / fresh-start / hybrid | **Backfill as much as exports allow.** QFX importers in Phase 3 handle bulk historical statements. Plaid initial sync requests max history (≤24mo). Pre-history `account_snapshots` derived by walking transactions backward from current balance. | ✅ Locked 2026-05-25 |
-| 16 | "Minerals" definition | Physical metals / mining stocks / mined coins | **Physical gold in iTrust IRA.** New `asset_class='physical_metal'` with quantity in troy oz, priced from Alpha Vantage commodities (metals.live as fallback). Mining stocks flow through normal equity tracking. | ✅ Locked 2026-05-25 |
+| 16 | "Minerals" definition | Physical metals / mining stocks / mined coins | **Physical gold in iTrust IRA.** New `asset_class='physical_metal'` with quantity in troy oz, priced from Yahoo Finance front-month COMEX futures (`GC=F`); fetcher maps canonical `XAU` ↔ `GC=F` at the boundary. metals.live as documented fallback. Mining stocks flow through normal equity tracking. | ✅ Locked 2026-05-25, revised 2026-05-27 (provider only — `asset_class` unchanged; AV dropped metals from free tier) |
 | 17 | Hosting target | Decide later / VPS / home box | **Home server/NAS/Pi already owned.** Linux + Docker Compose target. ARM64 considered if it's a Pi. Tailscale or Cloudflare Tunnel decided at deploy time. | ✅ Locked 2026-05-25 |
 
 ---

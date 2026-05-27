@@ -19,7 +19,7 @@ Two decisions deferred in IDEAS.md (rows 11 and 12 of the Decision Log) were res
 
 ### ADR-004 — Auth library: roll our own with `iron-session` + `argon2id`
 
-**Status**: ✅ Locked 2026-05-25
+**Status**: ✅ Locked 2026-05-25 — **UX revised same day** (see "UX revision" below)
 
 **Context**:
 my-money is single-user (per FEATURE.md and CLAUDE.md §Domain Scope). The `users` table will have exactly one row. We need: a password login form, a server-side session cookie, CSRF protection, password hashing. We do NOT need: OAuth providers, magic links, multi-tenant org modeling, RBAC, account recovery flows, email verification, social login.
@@ -49,6 +49,23 @@ For one user with one password, "roll our own" is genuinely ~80 lines of code: `
 | Auth.js (NextAuth v5) | Heavy, OAuth-centric. Overkill for one password. |
 | Better Auth | Modern and good, but its value is the feature set (orgs, 2FA, magic links) we explicitly don't want. |
 | Clerk / Auth0 / Supabase Auth | Third-party hosted = privacy violation per CLAUDE.md |
+
+#### UX revision (same day as initial lock)
+
+The library choice stayed, but the UX I initially shipped (email field + `.email()` validation + 12-char minimum password + `/setup` wizard separate from `/login` + 30-day rolling session) was reflexive generic-SaaS pattern. The actual app is single-user, self-hosted, behind Tailscale, never publicly registered. Every one of those defaults adds friction with zero security gain.
+
+**Replaced with**:
+
+- Single `/login` page (the `/setup` route was deleted).
+- One password field. No email. No username.
+- No minimum length policy. The argon2id hash carries the security weight; a single user on their own hardware can pick whatever password they want.
+- First submission with an empty `users` table sets the password (first-run bootstrap). Subsequent submissions verify.
+- Session lasts **1 year**, no rolling expiry. You log in once a year, max.
+- `users` table dropped the `email` column entirely — there's no second field, and nothing is ever emailed.
+
+**Forgot password recovery**: `make db-reset` (wipes domain rows including the user) → revisit `/login` → first-run flow re-triggers.
+
+**Schema migration applied**: `drizzle/0002_smart_bug.sql` drops `users.email`.
 
 ---
 
@@ -181,7 +198,7 @@ Per [SKILLS.md](SKILLS.md), invoke these skills at the moments below. Don't load
 
 ## Open Items (out of scope for this plan, captured for future PLAN docs)
 
-- **Phase 2** (market data): `src/worker/jobs/fetch-prices-daily.ts` + `prices` table population from yahoo-finance2 / CoinGecko / Alpha Vantage. Will update `computeNetWorth` to use prices for holdings.
+- **Phase 2** (market data): `src/worker/jobs/fetch-prices-daily.ts` + `prices` table population from yahoo-finance2 (equities + metals via `GC=F` etc.) / CoinGecko. Will update `computeNetWorth` to use prices for holdings.
 - **Phase 3** (QFX/CSV import): file upload UI + parser + dedupe via `(account_id, fitid)` + import-preview UI.
 - **Phase 4** (Plaid push): the big one. Link flow, encrypted token store, webhook handler, sync jobs. Re-read `plaid-fintech` skill and the CLAUDE.md §Plaid Safety Rules before starting. Trigger `threat-modeling-expert` STRIDE pass before exposing webhook publicly.
 - **Phase 5** (investments depth): lot-level cost basis, dividend tracking, allocation chart.
