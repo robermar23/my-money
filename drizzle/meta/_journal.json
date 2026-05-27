@@ -15,6 +15,13 @@
       "when": 1779736393087,
       "tag": "0001_round_chimera",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779760244969,
+      "tag": "0002_smart_bug",
+      "breakpoints": true
     }
   ]
 }

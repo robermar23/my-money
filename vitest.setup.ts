@@ -1,3 +1,6 @@
+// Marker export to make this file a module (TS top-level await requires it).
+export {};
+
 // Load .env.local before any test code (including module-level db client init) runs.
 // Node 22+ built-in; no dotenv dependency.
 try {
