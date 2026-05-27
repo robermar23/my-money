@@ -1,7 +1,7 @@
-import { AlphaVantageFetcher } from "./alpha-vantage.ts";
 import { CoinGeckoFetcher } from "./coingecko.ts";
 import type { PriceFetcher } from "./types.ts";
 import { YahooFinanceFetcher } from "./yahoo-finance.ts";
+import { YahooMetalsFetcher } from "./yahoo-metals.ts";
 
 /**
  * Routes a holding's `asset_class` to the price source we use for that class.
@@ -37,12 +37,12 @@ export function fetcherFor(router: PriceRouter, assetClass: FetchableAssetClass)
 
 /**
  * Production router. Constructed lazily so tests can substitute mocks before
- * any fetcher tries to read its env var (AlphaVantage requires an API key).
+ * any fetcher's constructor runs.
  */
 export function defaultRouter(): PriceRouter {
   return {
     equity: new YahooFinanceFetcher(),
     crypto: new CoinGeckoFetcher(),
-    physicalMetal: new AlphaVantageFetcher(),
+    physicalMetal: new YahooMetalsFetcher(),
   };
 }

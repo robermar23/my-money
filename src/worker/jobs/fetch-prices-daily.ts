@@ -12,7 +12,8 @@ import type { Job } from "bullmq";
  *
  * Strategy:
  *   1. Walk `holdings` for the distinct (symbol, asset_class) set.
- *   2. Route each to its source via `PriceRouter` (Yahoo / CoinGecko / AV).
+ *   2. Route each to its source via `PriceRouter` (Yahoo for equities + metals,
+ *      CoinGecko for crypto).
  *   3. Upsert into `prices(symbol, date, close, source)` — idempotent per
  *      (symbol, date), so re-running the job on the same day overwrites with
  *      the latest close.
