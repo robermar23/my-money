@@ -25,14 +25,15 @@ help:
 	@echo   install         Install dependencies (pnpm install)
 	@echo   setup           First-time: install + up + migrate
 	@echo ----------------------------------------------------------
-	@echo DOCKER STACK (data only -- Postgres + Redis)
-	@echo   up              Start Postgres + Redis in background
+	@echo DOCKER STACK (data only -- dev + test Postgres + Redis)
+	@echo   up              Start dev + test Postgres + Redis in background
 	@echo   down            Stop containers (data preserved)
 	@echo   nuke            Stop + WIPE volumes (destroys all DB data)
 	@echo   restart         Stop and restart data containers
 	@echo   ps              Show container status
 	@echo   logs            Tail Postgres + Redis logs
-	@echo   psql            Open psql shell in Postgres container
+	@echo   psql            Open psql shell in dev Postgres
+	@echo   psql-test       Open psql shell in test Postgres
 	@echo   redis-cli       Open redis-cli in Redis container
 	@echo ----------------------------------------------------------
 	@echo DOCKER STACK (full prod-style -- adds app + worker)
@@ -98,7 +99,7 @@ setup:
 .PHONY: up
 up:
 	$(COMPOSE) up -d
-	@echo Postgres ready on 127.0.0.1:5433, Redis on 127.0.0.1:6380.
+	@echo Dev Postgres on 127.0.0.1:5433, test Postgres on 127.0.0.1:5434, Redis on 127.0.0.1:6380.
 
 .PHONY: down
 down:
@@ -126,6 +127,10 @@ logs:
 .PHONY: psql
 psql:
 	$(COMPOSE) exec postgres psql -U money -d money
+
+.PHONY: psql-test
+psql-test:
+	$(COMPOSE) exec postgres_test psql -U money -d money_test
 
 .PHONY: redis-cli
 redis-cli:
