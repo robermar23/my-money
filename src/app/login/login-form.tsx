@@ -1,28 +1,19 @@
 "use client";
 
 import { useActionState } from "react";
-import { type LoginResult, login } from "./actions.ts";
+import { type LoginResult, loginOrBootstrap } from "./actions.ts";
 
-const initialState: LoginResult = {};
+const initial: LoginResult = {};
 
-export function LoginForm(): React.JSX.Element {
-  const [state, formAction, pending] = useActionState(login, initialState);
+interface Props {
+  readonly isFirstRun: boolean;
+}
+
+export function LoginForm({ isFirstRun }: Props): React.JSX.Element {
+  const [state, action, pending] = useActionState(loginOrBootstrap, initial);
 
   return (
-    <form action={formAction} className="space-y-4">
-      <div>
-        <label htmlFor="email" className="block font-medium text-sm">
-          Email
-        </label>
-        <input
-          id="email"
-          name="email"
-          type="email"
-          required
-          autoComplete="email"
-          className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
-        />
-      </div>
+    <form action={action} className="space-y-4">
       <div>
         <label htmlFor="password" className="block font-medium text-sm">
           Password
@@ -32,7 +23,9 @@ export function LoginForm(): React.JSX.Element {
           name="password"
           type="password"
           required
-          autoComplete="current-password"
+          // biome-ignore lint/a11y/noAutofocus: single-field form; cursor belongs here
+          autoFocus
+          autoComplete={isFirstRun ? "new-password" : "current-password"}
           className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
         />
       </div>
@@ -46,7 +39,7 @@ export function LoginForm(): React.JSX.Element {
         disabled={pending}
         className="w-full rounded-md bg-zinc-900 px-4 py-2 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
       >
-        {pending ? "Signing in…" : "Sign in"}
+        {pending ? "..." : isFirstRun ? "Set password" : "Sign in"}
       </button>
     </form>
   );

@@ -1,15 +1,18 @@
 import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 
 /**
- * Users table.
+ * Users table — exactly one row, ever.
  *
- * my-money is single-user (per CLAUDE.md §Domain Scope). This table will have
- * exactly one row — created via the /setup wizard on first run, never via signup.
- * Password is hashed with argon2id at the application layer (see src/lib/auth/password.ts).
+ * Per CLAUDE.md §Domain Scope, my-money is single-user. There is no email,
+ * no username, no signup, no recovery flow, no notifications. The first
+ * password set via /login becomes THE password. Forgotten? `make db-reset`
+ * and re-bootstrap.
+ *
+ * `id` exists only so the session cookie has something stable to point at;
+ * with one row the value is functionally irrelevant.
  */
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
-  email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),

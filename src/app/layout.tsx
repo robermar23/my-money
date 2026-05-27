@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { AppNav } from "@/components/app-nav.tsx";
-import { db } from "@/db/client.ts";
-import { users } from "@/db/schema/index.ts";
+import { getSession } from "@/lib/auth/session.ts";
 
 export const metadata: Metadata = {
   title: "my-money",
@@ -16,11 +15,11 @@ interface RootLayoutProps {
 export default async function RootLayout({
   children,
 }: RootLayoutProps): Promise<React.JSX.Element> {
-  // Lightweight gate: if there are no users yet (first-run), or no session, the
-  // nav stays hidden. Pages handle their own auth redirects; this just decides
-  // whether to render chrome.
-  const userCount = await db.select({ id: users.id }).from(users);
-  const showNav = userCount.length > 0;
+  // Render the nav only when the request carries a valid session cookie.
+  // Anonymous visits to /login don't get the nav (it would just bounce them
+  // right back to /login anyway).
+  const session = await getSession();
+  const showNav = Boolean(session.userId);
 
   return (
     <html lang="en">

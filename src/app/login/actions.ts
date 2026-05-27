@@ -1,16 +1,14 @@
 "use server";
 
 import { db } from "@/db/client.ts";
-import { users } from "@/db/schema/users.ts";
-import { verifyPassword } from "@/lib/auth/password.ts";
+import { users } from "@/db/schema/index.ts";
+import { hashPassword, verifyPassword } from "@/lib/auth/password.ts";
 import { getSession } from "@/lib/auth/session.ts";
-import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 
-const loginSchema = z.object({
-  email: z.string().email().max(254),
-  password: z.string().min(1).max(1024),
+const schema = z.object({
+  password: z.string().min(1, "Password is required").max(1024),
 });
 
 export interface LoginResult {
@@ -18,37 +16,48 @@ export interface LoginResult {
 }
 
 /**
- * Server action: verify credentials and start a session.
+ * Single auth action.
  *
- * Uses a deliberately generic error message so timing/error differences don't
- * leak which field was wrong (email vs. password). The argon2 verify call
- * always runs even when the user lookup fails, to keep timing uniform.
+ *   - If no user row exists yet: this submission SETS the password
+ *     (first-run bootstrap) and signs in.
+ *   - If a user row exists: this submission VERIFIES against the stored
+ *     argon2id hash and signs in.
+ *
+ * No email, no username — there is exactly one user. The session lasts a
+ * year (see session.ts); logout is via POST /logout.
  */
-export async function login(_prev: LoginResult, formData: FormData): Promise<LoginResult> {
-  const parsed = loginSchema.safeParse({
-    email: formData.get("email"),
-    password: formData.get("password"),
-  });
+export async function loginOrBootstrap(
+  _prev: LoginResult,
+  formData: FormData,
+): Promise<LoginResult> {
+  const parsed = schema.safeParse({ password: formData.get("password") });
   if (!parsed.success) {
-    return { error: "Invalid email or password" };
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
 
-  const [user] = await db.select().from(users).where(eq(users.email, parsed.data.email)).limit(1);
+  const [existing] = await db.select().from(users).limit(1);
 
-  // Dummy hash so we still spend ~50ms on argon2 verify when the user doesn't exist —
-  // prevents timing-based user enumeration. The hash itself never matches anything.
-  const hashToCheck =
-    user?.passwordHash ??
-    "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-  const ok = await verifyPassword(hashToCheck, parsed.data.password);
+  if (!existing) {
+    // First-time: this password becomes THE password.
+    const passwordHash = await hashPassword(parsed.data.password);
+    const [created] = await db.insert(users).values({ passwordHash }).returning({ id: users.id });
+    if (!created) {
+      return { error: "Failed to create user" };
+    }
+    const session = await getSession();
+    session.userId = created.id;
+    await session.save();
+    redirect("/");
+  }
 
-  if (!user || !ok) {
-    return { error: "Invalid email or password" };
+  // Returning visit: verify.
+  const ok = await verifyPassword(existing.passwordHash, parsed.data.password);
+  if (!ok) {
+    return { error: "Wrong password" };
   }
 
   const session = await getSession();
-  session.userId = user.id;
+  session.userId = existing.id;
   await session.save();
-
   redirect("/");
 }

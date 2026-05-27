@@ -7,8 +7,8 @@ import { cookies } from "next/headers";
  * Shape of the iron-session payload.
  *
  * Kept minimal: the session is just "is this request authenticated as our one user?"
- * We store the user id so we can fetch the user row when needed; no need for roles,
- * tenant ids, or scopes — there's only one user.
+ * We store the user id so the request can confirm the row still exists; no need
+ * for roles, tenant ids, or scopes — there's only one user.
  */
 export interface SessionData {
   userId?: string;
@@ -21,6 +21,11 @@ if (!sessionSecret || sessionSecret.length < 32) {
   );
 }
 
+// One year. You're the only user. You set up the box. Forcing periodic re-auth
+// on yourself is friction with no security gain — if someone has your laptop
+// + your unlocked browser, the password is not what's protecting your data.
+const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365;
+
 export const sessionOptions: SessionOptions = {
   cookieName: "money_session",
   password: sessionSecret,
@@ -29,8 +34,7 @@ export const sessionOptions: SessionOptions = {
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    // 30-day rolling session — single user, low security event count, no need for short lifetimes.
-    maxAge: 60 * 60 * 24 * 30,
+    maxAge: ONE_YEAR_SECONDS,
   },
 };
 

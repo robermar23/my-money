@@ -1,8 +1,7 @@
-import { requireUser, userCount } from "@/lib/auth/require-user.ts";
+import { requireUser } from "@/lib/auth/require-user.ts";
 import { Money } from "@/lib/money/money.ts";
 import { computeNetWorth, netWorthSeries } from "@/lib/net-worth/compute.ts";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { NetWorthChart } from "./net-worth-chart.tsx";
 
 const TYPE_LABEL: Record<string, string> = {
@@ -15,9 +14,9 @@ const TYPE_LABEL: Record<string, string> = {
 };
 
 export default async function HomePage(): Promise<React.JSX.Element> {
-  if ((await userCount()) === 0) {
-    redirect("/setup");
-  }
+  // requireUser handles both unauthenticated AND first-run cases by redirecting
+  // to /login, which then detects "no user row exists" and renders the
+  // first-run "Set a password" copy.
   await requireUser();
 
   const baseCurrency = "USD";

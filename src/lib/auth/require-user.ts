@@ -31,12 +31,3 @@ export async function requireUser(): Promise<User> {
 
   return user;
 }
-
-/**
- * Returns the user count without authentication. Used by the setup wizard to
- * detect "first run".
- */
-export async function userCount(): Promise<number> {
-  const rows = await db.select({ id: users.id }).from(users);
-  return rows.length;
-}
