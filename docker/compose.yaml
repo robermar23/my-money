@@ -37,6 +37,31 @@ services:
     networks:
       - money_net
 
+  # Dedicated Postgres for the Vitest suite. The test specs TRUNCATE shared
+  # tables to achieve isolation — pointing them at the dev DB wipes real data.
+  # This service runs alongside the dev DB on a separate port + volume so
+  # `npm test` can never touch development data again. Wired via
+  # TEST_DATABASE_URL in .env.local; vitest.setup.ts overrides DATABASE_URL
+  # to point here.
+  postgres_test:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-money}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dev_password_change_me}
+      POSTGRES_DB: ${POSTGRES_TEST_DB:-money_test}
+    ports:
+      - "127.0.0.1:5434:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-money} -d ${POSTGRES_TEST_DB:-money_test}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - money_net
+
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -110,6 +135,7 @@ services:
 
 volumes:
   postgres_data:
+  postgres_test_data:
   redis_data:
 
 networks:
