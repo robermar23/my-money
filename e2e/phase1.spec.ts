@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import postgres from "postgres";
 
 /**
- * Phase 1 critical flow: setup → login → create checking account → enter balance
+ * Phase 1 critical flow: bootstrap → create checking account → enter balance
  * → create mortgage → see net worth on the dashboard.
  *
  * Truncates domain tables before running so this spec is independent of any
@@ -28,14 +28,11 @@ test.describe("phase 1: manual entry → net worth on dashboard", () => {
   });
 
   test("walks the full Phase 1 happy path", async ({ page }) => {
-    // ── 1. First-run setup ──────────────────────────────────────────────────
+    // ── 1. Bootstrap (set password) ─────────────────────────────────────────
     await page.goto("/");
-    await expect(page).toHaveURL(/\/setup$/);
-    const email = `owner+${Date.now()}@my-money.local`;
-    const password = "correct-horse-battery-staple";
-    await page.getByLabel("Email").fill(email);
-    await page.getByLabel("Password").fill(password);
-    await page.getByRole("button", { name: /create account/i }).click();
+    await expect(page).toHaveURL(/\/login$/);
+    await page.getByLabel("Password").fill("hunter2");
+    await page.getByRole("button", { name: /set password/i }).click();
     await expect(page).toHaveURL("/");
     await expect(page.getByRole("heading", { name: /net worth/i })).toBeVisible();
 
@@ -89,10 +86,6 @@ test.describe("phase 1: manual entry → net worth on dashboard", () => {
     // ── 5. Dashboard shows the combined net worth ───────────────────────────
     await page.getByRole("link", { name: "Dashboard" }).click();
     await expect(page).toHaveURL("/");
-
-    // Net worth should be cash ($5,000) minus current loan balance (~$192k from
-    // partial amortization since Jan 2024). The exact value depends on test date
-    // so we just check the table is populated and the headline isn't $0 anymore.
     await expect(page.locator("table")).toContainText("M&T Checking");
     await expect(page.locator("table")).toContainText("Sunwest Mortgage");
     await expect(page.getByText("$5,000.00")).toBeVisible();

@@ -29,13 +29,11 @@ test.describe("phase 2: cached prices → live holding valuations", () => {
   });
 
   test("dashboard reflects holdings × prices for investment accounts", async ({ page }) => {
-    // ── Setup the single user ───────────────────────────────────────────────
+    // ── Bootstrap (set password) ────────────────────────────────────────────
     await page.goto("/");
-    await expect(page).toHaveURL(/\/setup$/);
-    const email = `owner+${Date.now()}@my-money.local`;
-    await page.getByLabel("Email").fill(email);
-    await page.getByLabel("Password").fill("correct-horse-battery-staple");
-    await page.getByRole("button", { name: /create account/i }).click();
+    await expect(page).toHaveURL(/\/login$/);
+    await page.getByLabel("Password").fill("hunter2");
+    await page.getByRole("button", { name: /set password/i }).click();
     await expect(page).toHaveURL("/");
 
     // ── Create a Fidelity investment account and add a holding ──────────────
@@ -78,7 +76,6 @@ test.describe("phase 2: cached prices → live holding valuations", () => {
     await page.reload();
     // 10 × $234.56 = $2,345.60
     await expect(page.getByText("$2,345.60").first()).toBeVisible();
-    // Holdings table also shows the per-share latest price.
     await expect(page.getByText("$234.56").first()).toBeVisible();
 
     // ── Dashboard: net worth picks up the live holdings valuation ───────────

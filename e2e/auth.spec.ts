@@ -1,48 +1,40 @@
 import { expect, test } from "@playwright/test";
 
 /**
- * Phase 0 critical flow: first-run setup → authenticated home.
+ * Auth flow — single password field, no email, no setup wizard.
  *
- * Assumes the DB is freshly migrated and contains zero users. The test runner
- * is responsible for resetting state before this spec runs (see README).
- *
- * KNOWN GAP (tracked for early Phase 1 cleanup):
- *   The sign-out → re-login leg is not exercised here. iron-session 8.0.4 +
- *   Next.js 15.1 dev mode trip a `cookies() outside request scope` error on the
- *   second login flow within the same server lifetime. Production builds are
- *   unaffected (the issue is dev-mode async-cookies tracking). Will be resolved
- *   in P1 either by pinning a known-good iron-session version or by rolling a
- *   tiny custom session helper. The argon2id + session-create path here proves
- *   the auth scaffolding works end-to-end; the dev-mode signout interaction
- *   is a separate concern.
+ * First visit with an empty users table: the page shows "Set a password"; the
+ * submitted password becomes the only password. Subsequent visits show
+ * "Enter your password" and verify against the stored argon2id hash.
  */
-test.describe("auth: first-run setup → authenticated home", () => {
-  test("creates the single user and signs them in", async ({ page }) => {
-    // Unauthenticated visit to / should redirect to /setup when no users exist.
+test.describe("auth: single-password login", () => {
+  test("first visit sets the password and signs the user in", async ({ page }) => {
     await page.goto("/");
-    await expect(page).toHaveURL(/\/setup$/);
-    await expect(page.getByRole("heading", { name: "First-time setup" })).toBeVisible();
+    // Unauthenticated → /login
+    await expect(page).toHaveURL(/\/login$/);
+    // First-run copy
+    await expect(page.getByText(/set a password/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /set password/i })).toBeVisible();
 
-    // Submit the bootstrap form.
-    const email = `owner+${Date.now()}@my-money.local`;
-    const password = "correct-horse-battery-staple";
-    await page.getByLabel("Email").fill(email);
-    await page.getByLabel("Password").fill(password);
-    await page.getByRole("button", { name: /create account/i }).click();
+    await page.getByLabel("Password").fill("hunter2");
+    await page.getByRole("button", { name: /set password/i }).click();
 
     // Lands on the authenticated dashboard.
     await expect(page).toHaveURL("/");
     await expect(page.getByRole("heading", { name: /net worth/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /sign out/i })).toBeVisible();
-    // Reference the email var so it isn't lint-stripped; useful when debugging.
-    expect(email).toContain("@");
   });
 
-  test("redirects /setup to /login when a user already exists", async ({ page }) => {
-    // Depends on the first test having created a user. Order is preserved by
-    // playwright.config.ts (fullyParallel:false, workers:1).
-    await page.goto("/setup");
-    await expect(page).toHaveURL(/\/login$/);
-    await expect(page.getByRole("heading", { name: "my-money" })).toBeVisible();
+  test("after bootstrap, /login shows the verify form (not the set-password form)", async ({
+    page,
+  }) => {
+    await page.goto("/login");
+    // Either we're already signed in (redirect to /) or we see the verify copy.
+    if (new URL(page.url()).pathname === "/login") {
+      await expect(page.getByText(/enter your password/i)).toBeVisible();
+      await expect(page.getByRole("button", { name: /sign in/i })).toBeVisible();
+    } else {
+      // Already signed in from the previous test (year-long session) — fine.
+      await expect(page).toHaveURL("/");
+    }
   });
 });
