@@ -82,6 +82,16 @@
           }
         }
       }
+    },
+    {
+      "include": ["scripts/**/*.ts", "scripts/**/*.mjs"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsoleLog": "off"
+          }
+        }
+      }
     }
   ]
 }
