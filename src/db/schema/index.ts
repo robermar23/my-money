@@ -16,3 +16,4 @@ export * from "./transactions.ts";
 export * from "./category-rules.ts";
 export * from "./plaid-items.ts";
 export * from "./webhook-log.ts";
+export * from "./plaid-sync-runs.ts";

@@ -50,6 +50,13 @@
       "when": 1780263415532,
       "tag": "0006_yummy_mandarin",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780263780768,
+      "tag": "0007_redundant_raider",
+      "breakpoints": true
     }
   ]
 }
