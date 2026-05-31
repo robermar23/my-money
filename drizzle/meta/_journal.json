@@ -43,6 +43,13 @@
       "when": 1780263160163,
       "tag": "0005_freezing_zarda",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780263415532,
+      "tag": "0006_yummy_mandarin",
+      "breakpoints": true
     }
   ]
 }
