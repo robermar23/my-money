@@ -11,3 +11,6 @@ export * from "./snapshots.ts";
 export * from "./liabilities.ts";
 export * from "./prices.ts";
 export * from "./fx-rates.ts";
+export * from "./import-batches.ts";
+export * from "./transactions.ts";
+export * from "./category-rules.ts";
