@@ -20,6 +20,9 @@ export function AppNav(): React.JSX.Element {
           <Link href="/accounts" className="hover:underline">
             Accounts
           </Link>
+          <Link href="/settings/categories" className="hover:underline">
+            Categories
+          </Link>
           <form action="/logout" method="post">
             <button
               type="submit"

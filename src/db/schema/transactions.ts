@@ -63,10 +63,9 @@ export const transactions = pgTable(
      * onDelete: set null because deleting an import batch should NOT lose data
      * already in the ledger.
      */
-    importBatchId: uuid("import_batch_id").references(
-      (): AnyPgColumn => importBatches.id,
-      { onDelete: "set null" },
-    ),
+    importBatchId: uuid("import_batch_id").references((): AnyPgColumn => importBatches.id, {
+      onDelete: "set null",
+    }),
     /** Original payload from the parser for debug + re-derivation. */
     raw: jsonb("raw"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
