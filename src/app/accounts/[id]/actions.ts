@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/db/client.ts";
-import { accountSnapshots, holdings, liabilities } from "@/db/schema/index.ts";
+import { accountSnapshots, holdings, liabilities, transactions } from "@/db/schema/index.ts";
 import { getAccount } from "@/lib/accounts/queries.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { Money } from "@/lib/money/money.ts";
@@ -240,5 +240,29 @@ export async function loanBalanceNow(accountIdRaw: string): Promise<Money | null
   );
 }
 
-// Keep `and` referenced to avoid auto-cleanup; used in future filtered queries.
-void and;
+/**
+ * Inline category override for a single transaction. Used by the transactions
+ * table on the account detail page.
+ */
+export async function setTransactionCategoryAction(
+  accountIdRaw: string,
+  transactionIdRaw: string,
+  rawCategory: string,
+): Promise<ActionResult> {
+  await requireUser();
+  const accountId = toAccountId(accountIdRaw);
+  if (!/^[0-9a-f-]{36}$/i.test(transactionIdRaw)) {
+    return { error: "Invalid transaction id" };
+  }
+  const trimmed = rawCategory.trim();
+  await db
+    .update(transactions)
+    .set({
+      category: trimmed.length === 0 ? null : trimmed,
+      categoryOverriddenAt: new Date(),
+    })
+    .where(and(eq(transactions.id, transactionIdRaw), eq(transactions.accountId, accountId)));
+
+  revalidatePath(`/accounts/${accountIdRaw}`);
+  return { ok: true };
+}

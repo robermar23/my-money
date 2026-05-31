@@ -9,6 +9,7 @@ import { requireUser } from "@/lib/auth/require-user.ts";
 import { valueHolding } from "@/lib/holdings/value.ts";
 import { Money } from "@/lib/money/money.ts";
 import { balanceAtMonth } from "@/lib/mortgage/amortization.ts";
+import { distinctCategories, listTransactions } from "@/lib/transactions/queries.ts";
 import { toAccountId } from "@/lib/types/ids.ts";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -16,9 +17,12 @@ import { BalanceForm } from "./balance-form.tsx";
 import { HoldingForm } from "./holding-form.tsx";
 import { MortgageForm } from "./mortgage-form.tsx";
 import { PropertyForm } from "./property-form.tsx";
+import { ReconciliationBanner } from "./reconciliation-banner.tsx";
+import { TransactionsSection } from "./transactions-section.tsx";
 
 interface AccountPageProps {
   readonly params: Promise<{ id: string }>;
+  readonly searchParams?: Promise<{ page?: string; imported?: string }>;
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -44,16 +48,29 @@ export default async function AccountDetailPage(
 ): Promise<React.JSX.Element> {
   await requireUser();
   const { id } = await props.params;
+  const search = (await props.searchParams) ?? {};
+  const page = search.page ? Math.max(1, Number.parseInt(search.page, 10)) : 1;
+  const justImported = search.imported ? Number.parseInt(search.imported, 10) : null;
   const accountId = toAccountId(id);
   const account = await getAccount(accountId);
   if (!account) notFound();
 
-  const [latestSnap, snapshots, accountHoldings, liability] = await Promise.all([
-    getLatestSnapshot(accountId),
-    listSnapshots(accountId),
-    listHoldings(accountId),
-    getLiability(accountId),
-  ]);
+  const showTransactions =
+    account.type === "depository" ||
+    account.type === "credit_card" ||
+    account.type === "investment";
+
+  const [latestSnap, snapshots, accountHoldings, liability, txnResult, categorySuggestions] =
+    await Promise.all([
+      getLatestSnapshot(accountId),
+      listSnapshots(accountId),
+      listHoldings(accountId),
+      getLiability(accountId),
+      showTransactions
+        ? listTransactions({ accountId, page })
+        : Promise.resolve({ rows: [], totalCount: 0, page: 1, pageSize: 50, totalPages: 1 }),
+      showTransactions ? distinctCategories() : Promise.resolve([] as string[]),
+    ]);
 
   // Phase 2: price each holding using cached `prices` (closeUsed: null means
   // no price has been fetched yet — UI displays "—" for value).
@@ -109,6 +126,16 @@ export default async function AccountDetailPage(
           )}
         </div>
       </div>
+
+      {justImported !== null && justImported > 0 && (
+        <div className="mt-4 rounded-md border border-emerald-300 bg-emerald-50 p-3 text-emerald-800 text-sm dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
+          Imported {justImported} transaction{justImported === 1 ? "" : "s"}.
+        </div>
+      )}
+
+      {(account.type === "depository" || account.type === "credit_card") && (
+        <ReconciliationBanner accountId={account.id} currency={account.currency} />
+      )}
 
       {/* Conditional entry forms by account type */}
       {showBalanceForm && (
@@ -212,6 +239,20 @@ export default async function AccountDetailPage(
             <PropertyForm accountId={account.id} />
           </div>
         </section>
+      )}
+
+      {/* Transactions table for cash + credit + investment accounts */}
+      {showTransactions && (
+        <TransactionsSection
+          accountId={account.id}
+          accountCurrency={account.currency}
+          flipSign={account.type === "credit_card"}
+          rows={txnResult.rows}
+          suggestions={categorySuggestions}
+          page={txnResult.page}
+          totalPages={txnResult.totalPages}
+          totalCount={txnResult.totalCount}
+        />
       )}
 
       {/* Snapshot history */}
