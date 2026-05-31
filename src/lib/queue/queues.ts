@@ -32,8 +32,8 @@ export const QUEUE_NAMES = {
   PROCESS_IMPORT: "process-import",
   /** Phase 3: re-evaluate category rules over existing (non-overridden) transactions. */
   RECATEGORIZE_ALL: "recategorize-all",
-  // Phase 4:
-  //   SYNC_PLAID_ITEM: "sync-plaid-item",
+  /** Phase 4: pull /transactions/sync for a single plaid Item (webhook | manual | cron | initial). */
+  SYNC_PLAID_ITEM: "sync-plaid-item",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -59,6 +59,11 @@ export const processImportQueue = new Queue(QUEUE_NAMES.PROCESS_IMPORT, {
 });
 
 export const recategorizeAllQueue = new Queue(QUEUE_NAMES.RECATEGORIZE_ALL, {
+  connection: redisConnection,
+  defaultJobOptions,
+});
+
+export const syncPlaidItemQueue = new Queue(QUEUE_NAMES.SYNC_PLAID_ITEM, {
   connection: redisConnection,
   defaultJobOptions,
 });
