@@ -36,6 +36,7 @@
     "postgres": "3.4.5",
     "react": "19.0.0",
     "react-dom": "19.0.0",
+    "react-plaid-link": "^4.1.1",
     "recharts": "2.15.0",
     "yahoo-finance2": "2.13.3",
     "zod": "3.24.1"
