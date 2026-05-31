@@ -10,7 +10,13 @@ See [plans/features/FEATURE.md](plans/features/FEATURE.md) for the why, [plans/f
 
 **Phase 0 (bedrock) — complete.** Next.js 15 + TypeScript + Tailwind v4 + Postgres + Redis + Drizzle + BullMQ + auth (iron-session + argon2id) + Vitest + Playwright + Docker Compose. The app boots, the single-user flow works, the worker emits heartbeats.
 
-**Phase 1 (manual entry + net-worth chart) — not started.** See [plans/features/PLAN0_1.md](plans/features/PLAN0_1.md).
+**Phase 1 (manual entry + net-worth chart) — complete.** Manual accounts, balances, holdings, mortgage amortization, daily snapshot job, dashboard with Recharts net-worth line.
+
+**Phase 2 (daily prices) — complete.** Yahoo Finance / CoinGecko / Alpha Vantage fetchers wired through a cache-on-write `prices` table; nightly cron at 01:30.
+
+**Phase 3 (QFX / CSV import) — complete.** Drop a `.qfx` from your bank or credit card on the account page → preview → confirm. Re-importing is safe (deduped by FITID). Regex-based category rules at `/settings/categories`. See [docs/IMPORT.md](docs/IMPORT.md).
+
+**Phase 4 (Plaid push) — not started.** See [plans/features/IDEAS.md](plans/features/IDEAS.md) §4 and the `plaid-fintech` skill before starting.
 
 ---
 
@@ -57,6 +63,20 @@ pnpm worker
 ```
 
 On the very first visit to `http://127.0.0.1:4000`, you'll be redirected to `/login`. The form's submit button reads **"Set password"** because no user exists yet — whatever you type becomes the only password for this instance. After that, the same page shows **"Sign in"** and verifies. No email, no username, no minimum length, 1-year session. Forgot the password? `make db-reset` and revisit `/login`.
+
+---
+
+## Monthly ritual (Phase 3)
+
+For each cash or credit-card account each month:
+
+1. Log into the bank's online portal.
+2. Download the statement export — `.qfx`, `.ofx`, or `.csv`.
+3. Open the my-money account page → click **Import file**.
+4. Drag the file onto the upload form, click **Upload & preview**.
+5. Skim the preview (counts + reconciliation banner), click **Confirm**.
+
+Re-importing the same file is always safe (deduped by FITID). See [docs/IMPORT.md](docs/IMPORT.md) for CSV column mapping and reconciliation troubleshooting. Manage category rules at **/settings/categories**.
 
 ---
 
