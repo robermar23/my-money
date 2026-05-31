@@ -22,7 +22,9 @@ export default async function globalSetup(): Promise<void> {
 
   const sql = postgres(databaseUrl, { max: 1 });
   try {
-    await sql.unsafe("TRUNCATE users, accounts, holdings, account_snapshots, liabilities CASCADE");
+    await sql.unsafe(
+      "TRUNCATE users, accounts, holdings, account_snapshots, liabilities, transactions, import_batches, category_rules CASCADE",
+    );
   } finally {
     await sql.end();
   }
