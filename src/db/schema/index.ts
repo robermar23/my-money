@@ -15,3 +15,4 @@ export * from "./import-batches.ts";
 export * from "./transactions.ts";
 export * from "./category-rules.ts";
 export * from "./plaid-items.ts";
+export * from "./webhook-log.ts";
