@@ -1,9 +1,11 @@
 import "server-only";
 
-import { db } from "@/db/client.ts";
+import { type Db, db } from "@/db/client.ts";
 import { plaidItems } from "@/db/schema/index.ts";
 import { decrypt, encrypt } from "@/lib/crypto/aead.ts";
 import { eq } from "drizzle-orm";
+
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /**
  * Encrypted Plaid access-token storage.
@@ -29,15 +31,51 @@ import { eq } from "drizzle-orm";
 /**
  * Encrypt an access token into its on-disk ciphertext envelope.
  *
- * Exposed for the `/item/public_token/exchange` path (P4-12), which needs to
- * embed the ciphertext directly in an INSERT statement (the column is NOT
- * NULL, so the row can't exist without it). Pure function; does no DB work.
+ * Internal — `createPlaidItem` is the surface callers use to write a token,
+ * so callers do not handle the raw envelope directly. Pure function.
  */
-export function encryptAccessToken(accessToken: string): Buffer {
+function encryptAccessToken(accessToken: string): Buffer {
   if (accessToken.length === 0) {
     throw new Error("encryptAccessToken: refusing to encrypt an empty token");
   }
   return encrypt(Buffer.from(accessToken, "utf8"));
+}
+
+/**
+ * Insert a new plaid_items row, encrypting the access_token before it ever
+ * touches the database driver. This is the ONLY allowed insert path for the
+ * row; the column literal is intentionally scoped to this file so the
+ * visibility regression in tokens.test.ts can hold a strong invariant.
+ *
+ * Pass an existing transaction (e.g. the one in `exchangePublicTokenAction`)
+ * via `txOrDb` to participate in an atomic outer operation.
+ *
+ * @returns the newly-inserted row's `id` (our internal UUID, not Plaid's).
+ */
+export async function createPlaidItem(
+  row: {
+    plaidItemId: string;
+    institutionId: string;
+    institutionName: string;
+    accessToken: string;
+    productsConsented: string[];
+  },
+  txOrDb: Tx | Db = db,
+): Promise<string> {
+  const ciphertext = encryptAccessToken(row.accessToken);
+  const [inserted] = await txOrDb
+    .insert(plaidItems)
+    .values({
+      plaidItemId: row.plaidItemId,
+      institutionId: row.institutionId,
+      institutionName: row.institutionName,
+      accessTokenCiphertext: ciphertext,
+      productsConsented: row.productsConsented,
+      status: "active",
+    })
+    .returning({ id: plaidItems.id });
+  if (!inserted) throw new Error("createPlaidItem: insert returned no row");
+  return inserted.id;
 }
 
 /**

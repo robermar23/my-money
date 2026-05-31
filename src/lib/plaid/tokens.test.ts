@@ -6,12 +6,7 @@ import { plaidItems } from "@/db/schema/index.ts";
 import { CryptoDecryptError, encrypt } from "@/lib/crypto/aead.ts";
 import { eq, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
-import {
-  encryptAccessToken,
-  loadAccessToken,
-  rotateEncryption,
-  storeAccessToken,
-} from "./tokens.ts";
+import { createPlaidItem, loadAccessToken, rotateEncryption, storeAccessToken } from "./tokens.ts";
 
 async function clearPlaidItems(): Promise<void> {
   await db.execute(sql`TRUNCATE plaid_items, plaid_sync_runs CASCADE`);
@@ -21,36 +16,44 @@ async function insertItem(opts: {
   plaidItemId: string;
   accessToken: string;
 }): Promise<string> {
-  const ciphertext = encryptAccessToken(opts.accessToken);
-  const [row] = await db
-    .insert(plaidItems)
-    .values({
-      plaidItemId: opts.plaidItemId,
-      institutionId: "ins_test",
-      institutionName: "Test Bank",
-      accessTokenCiphertext: ciphertext,
-      productsConsented: ["transactions"],
-    })
-    .returning({ id: plaidItems.id });
-  if (!row) throw new Error("insertItem failed");
-  return row.id;
+  return createPlaidItem({
+    plaidItemId: opts.plaidItemId,
+    institutionId: "ins_test",
+    institutionName: "Test Bank",
+    accessToken: opts.accessToken,
+    productsConsented: ["transactions"],
+  });
 }
 
-describe("plaid/tokens — encryptAccessToken (pure)", () => {
-  it("returns a versioned envelope decryptable via the aead helper", () => {
-    const blob = encryptAccessToken("access-sandbox-abc-123");
-    expect(blob[0]).toBe(0x01); // version byte
-    expect(blob.length).toBeGreaterThan(1 + 12 + 16); // header + min ct + tag
+describe("plaid/tokens — createPlaidItem (encrypt + insert)", () => {
+  beforeEach(async () => {
+    await clearPlaidItems();
   });
 
-  it("rejects an empty token", () => {
-    expect(() => encryptAccessToken("")).toThrow(/empty token/i);
+  it("rejects an empty token", async () => {
+    await expect(
+      createPlaidItem({
+        plaidItemId: "x",
+        institutionId: "y",
+        institutionName: "z",
+        accessToken: "",
+        productsConsented: ["transactions"],
+      }),
+    ).rejects.toThrow(/empty token/i);
   });
 
-  it("produces a different envelope each call (fresh nonce)", () => {
-    const a = encryptAccessToken("access-sandbox-same");
-    const b = encryptAccessToken("access-sandbox-same");
-    expect(a.equals(b)).toBe(false);
+  it("produces a different on-disk ciphertext each call (fresh nonce)", async () => {
+    const a = await insertItem({ plaidItemId: "nonce-a", accessToken: "same-token" });
+    const b = await insertItem({ plaidItemId: "nonce-b", accessToken: "same-token" });
+    const [rowA] = await db
+      .select({ ct: plaidItems.accessTokenCiphertext })
+      .from(plaidItems)
+      .where(eq(plaidItems.id, a));
+    const [rowB] = await db
+      .select({ ct: plaidItems.accessTokenCiphertext })
+      .from(plaidItems)
+      .where(eq(plaidItems.id, b));
+    expect(rowA?.ct.equals(rowB?.ct ?? Buffer.alloc(0))).toBe(false);
   });
 });
 
