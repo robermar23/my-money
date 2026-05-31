@@ -13,6 +13,8 @@
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
 import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
 import { heartbeatProcessor } from "./jobs/heartbeat.ts";
+import { processImportProcessor } from "./jobs/process-import.ts";
+import { recategorizeAllProcessor } from "./jobs/recategorize-all.ts";
 
 const jobName = process.argv[2];
 
@@ -20,6 +22,8 @@ const PROCESSORS: Record<string, (job: never) => Promise<unknown>> = {
   "compute-snapshots-daily": computeSnapshotsDailyProcessor as never,
   "fetch-prices-daily": (async (job: never) => fetchPricesDailyProcessor(job)) as never,
   heartbeat: heartbeatProcessor as never,
+  "process-import": processImportProcessor as never,
+  "recategorize-all": recategorizeAllProcessor as never,
 };
 
 if (!jobName || !PROCESSORS[jobName]) {

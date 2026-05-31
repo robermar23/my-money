@@ -4,11 +4,15 @@ import {
   computeSnapshotsDailyQueue,
   fetchPricesDailyQueue,
   heartbeatQueue,
+  processImportQueue,
+  recategorizeAllQueue,
 } from "@/lib/queue/queues.ts";
 import { Worker } from "bullmq";
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
 import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
 import { heartbeatProcessor } from "./jobs/heartbeat.ts";
+import { processImportProcessor } from "./jobs/process-import.ts";
+import { recategorizeAllProcessor } from "./jobs/recategorize-all.ts";
 
 /**
  * BullMQ worker entrypoint.
@@ -52,6 +56,22 @@ fetchPricesWorker.on("failed", (job, err) => {
   console.error(`[worker] fetch-prices-daily job ${job?.id} failed:`, err);
 });
 
+const processImportWorker = new Worker(QUEUE_NAMES.PROCESS_IMPORT, processImportProcessor, {
+  connection: redisConnection,
+  concurrency: 2,
+});
+processImportWorker.on("failed", (job, err) => {
+  console.error(`[worker] process-import job ${job?.id} failed:`, err);
+});
+
+const recategorizeAllWorker = new Worker(QUEUE_NAMES.RECATEGORIZE_ALL, recategorizeAllProcessor, {
+  connection: redisConnection,
+  concurrency: 1,
+});
+recategorizeAllWorker.on("failed", (job, err) => {
+  console.error(`[worker] recategorize-all job ${job?.id} failed:`, err);
+});
+
 // Ensure a single heartbeat repeatable job exists. Removing first guards against
 // pattern duplication across restarts.
 await heartbeatQueue.removeJobScheduler("heartbeat-tick").catch(() => {
@@ -92,9 +112,13 @@ async function shutdown(_signal: string): Promise<void> {
   await heartbeatWorker.close();
   await computeSnapshotsWorker.close();
   await fetchPricesWorker.close();
+  await processImportWorker.close();
+  await recategorizeAllWorker.close();
   await heartbeatQueue.close();
   await computeSnapshotsDailyQueue.close();
   await fetchPricesDailyQueue.close();
+  await processImportQueue.close();
+  await recategorizeAllQueue.close();
   await redisConnection.quit();
   process.exit(0);
 }

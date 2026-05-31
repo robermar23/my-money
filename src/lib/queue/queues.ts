@@ -28,8 +28,10 @@ export const QUEUE_NAMES = {
   COMPUTE_SNAPSHOTS_DAILY: "compute-snapshots-daily",
   /** Phase 2: daily refresh of `prices` for every distinct held symbol. */
   FETCH_PRICES_DAILY: "fetch-prices-daily",
-  // Phase 3:
-  //   PROCESS_QFX_IMPORT: "process-qfx-import",
+  /** Phase 3: parse an uploaded QFX/CSV file into `parsed_payload` (preview-ready). */
+  PROCESS_IMPORT: "process-import",
+  /** Phase 3: re-evaluate category rules over existing (non-overridden) transactions. */
+  RECATEGORIZE_ALL: "recategorize-all",
   // Phase 4:
   //   SYNC_PLAID_ITEM: "sync-plaid-item",
 } as const;
@@ -47,6 +49,16 @@ export const computeSnapshotsDailyQueue = new Queue(QUEUE_NAMES.COMPUTE_SNAPSHOT
 });
 
 export const fetchPricesDailyQueue = new Queue(QUEUE_NAMES.FETCH_PRICES_DAILY, {
+  connection: redisConnection,
+  defaultJobOptions,
+});
+
+export const processImportQueue = new Queue(QUEUE_NAMES.PROCESS_IMPORT, {
+  connection: redisConnection,
+  defaultJobOptions,
+});
+
+export const recategorizeAllQueue = new Queue(QUEUE_NAMES.RECATEGORIZE_ALL, {
   connection: redisConnection,
   defaultJobOptions,
 });
