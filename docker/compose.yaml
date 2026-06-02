@@ -133,6 +133,34 @@ services:
     networks:
       - money_net
 
+  # ── Public webhook ingress (P4-29, ADR-010) ────────────────────────────────
+  # Cloudflare Tunnel sidecar. Plaid POSTs https://<your-domain>/api/plaid/webhook
+  # → cloudflared (here) → app:4000/api/plaid/webhook (over money_net).
+  #
+  # No inbound ports are opened on the host — cloudflared dials OUT to
+  # Cloudflare's edge and accepts traffic over that outbound tunnel. The home
+  # router stays closed; TLS terminates at Cloudflare's edge.
+  #
+  # Token-mode tunnel: generate the token at
+  #   https://one.dash.cloudflare.com → Networks → Tunnels → Create a tunnel
+  # then set CLOUDFLARED_TOKEN in .env.local. See docs/DEPLOY.md for the
+  # full ritual including the public hostname → http://app:4000 route mapping.
+  cloudflared:
+    profiles: ["prod"]
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    # `--no-autoupdate` keeps cloudflared from restarting itself mid-webhook
+    # delivery; we'd rather take updates via `docker compose pull`.
+    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARED_TOKEN}"]
+    environment:
+      # Crash at boot if unset rather than running a silently-broken tunnel.
+      TUNNEL_TOKEN: ${CLOUDFLARED_TOKEN:?CLOUDFLARED_TOKEN is required for the prod profile}
+    depends_on:
+      app:
+        condition: service_started
+    networks:
+      - money_net
+
 volumes:
   postgres_data:
   postgres_test_data:
