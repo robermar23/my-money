@@ -249,6 +249,56 @@ export async function finalizeReauthAction(plaidItemPk: string): Promise<Finaliz
 }
 
 /* ---------------------------------------------------------------------------
+ * P4-28 — forceSyncAction
+ * --------------------------------------------------------------------------- */
+
+export interface ForceSyncResult {
+  error?: string;
+}
+
+/**
+ * P4-28 — Manually trigger a `/transactions/sync` for an Item.
+ *
+ * Used by the connections page's "Force sync now" button. Behaves identically
+ * to a webhook-triggered sync: the worker loads the cursor and pulls whatever
+ * Plaid has waiting. Useful when:
+ *   - The user just enabled a new account at their bank and wants it pulled
+ *     before the next webhook fires (Plaid sometimes batches up to ~30 min).
+ *   - A previous sync errored and we want to retry on demand instead of
+ *     waiting for the 03:00 cron (P4-27).
+ *
+ * The jobId is Date.now-suffixed so successive clicks each enqueue a separate
+ * job (cron + reauth use the same pattern). The worker's concurrency=1 +
+ * cursor-based idempotency means a queued backlog drains safely.
+ */
+export async function forceSyncAction(plaidItemPk: string): Promise<ForceSyncResult> {
+  await requireUser();
+  if (!UUID_RE.test(plaidItemPk)) {
+    return { error: "Invalid plaidItemPk" };
+  }
+
+  const [item] = await db
+    .select({ id: plaidItems.id, status: plaidItems.status })
+    .from(plaidItems)
+    .where(eq(plaidItems.id, plaidItemPk))
+    .limit(1);
+  if (!item) return { error: "Plaid Item not found" };
+  if (item.status === "removed") return { error: "Item is disconnected" };
+  if (item.status === "login_required" || item.status === "revoked") {
+    return { error: "Reconnect this Item before forcing a sync" };
+  }
+
+  await syncPlaidItemQueue.add(
+    "sync-plaid-item",
+    { plaidItemPk, trigger: "manual" },
+    { jobId: `sync-plaid-item-manual-${plaidItemPk}-${Date.now()}` },
+  );
+
+  revalidatePath("/settings/connections");
+  return {};
+}
+
+/* ---------------------------------------------------------------------------
  * P4-26 — disconnectItemAction
  * --------------------------------------------------------------------------- */
 

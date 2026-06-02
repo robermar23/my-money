@@ -81,6 +81,7 @@ const {
   exchangePublicTokenAction,
   finalizeReauthAction,
   disconnectItemAction,
+  forceSyncAction,
 } = await import("./actions.ts");
 const { mapAccountsAction } = await import("./map-actions.ts");
 
@@ -528,5 +529,68 @@ describe("disconnectItemAction (P4-26)", () => {
       .where(eq(plaidItems.id, plaidItemPk));
     expect(after?.status).toBe("removed");
     expect(await isAccessTokenStored(plaidItemPk)).toBe(false);
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * P4-28 — forceSyncAction
+ * --------------------------------------------------------------------------- */
+
+describe("forceSyncAction (P4-28)", () => {
+  it("enqueues a manual sync job on an active Item", async () => {
+    const plaidItemPk = await seedItem();
+
+    const result = await forceSyncAction(plaidItemPk);
+    expect(result.error).toBeUndefined();
+
+    expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+    const call = mockQueueAdd.mock.calls[0];
+    expect(call?.[0]).toBe("sync-plaid-item");
+    expect(call?.[1]?.plaidItemPk).toBe(plaidItemPk);
+    expect(call?.[1]?.trigger).toBe("manual");
+    // jobId is Date.now-suffixed so successive clicks each enqueue distinctly.
+    expect(call?.[2]?.jobId).toMatch(new RegExp(`^sync-plaid-item-manual-${plaidItemPk}-\\d+$`));
+  });
+
+  it("refuses to enqueue on login_required (user must reconnect first)", async () => {
+    const plaidItemPk = await seedItem();
+    await db
+      .update(plaidItems)
+      .set({ status: "login_required" })
+      .where(eq(plaidItems.id, plaidItemPk));
+
+    const result = await forceSyncAction(plaidItemPk);
+    expect(result.error).toMatch(/reconnect/i);
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("refuses to enqueue on revoked Items", async () => {
+    const plaidItemPk = await seedItem();
+    await db.update(plaidItems).set({ status: "revoked" }).where(eq(plaidItems.id, plaidItemPk));
+
+    const result = await forceSyncAction(plaidItemPk);
+    expect(result.error).toMatch(/reconnect/i);
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("refuses to enqueue on removed (disconnected) Items", async () => {
+    const plaidItemPk = await seedItem();
+    await db.update(plaidItems).set({ status: "removed" }).where(eq(plaidItems.id, plaidItemPk));
+
+    const result = await forceSyncAction(plaidItemPk);
+    expect(result.error).toMatch(/disconnected/i);
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("returns an error when the Item does not exist", async () => {
+    const result = await forceSyncAction("00000000-0000-0000-0000-000000000000");
+    expect(result.error).toMatch(/not found/i);
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("returns an error for malformed plaidItemPk (defense in depth)", async () => {
+    const result = await forceSyncAction("not-a-uuid");
+    expect(result.error).toMatch(/invalid/i);
+    expect(mockQueueAdd).not.toHaveBeenCalled();
   });
 });
