@@ -6,6 +6,7 @@ import {
   heartbeatQueue,
   processImportQueue,
   recategorizeAllQueue,
+  syncPlaidItemQueue,
 } from "@/lib/queue/queues.ts";
 import { Worker } from "bullmq";
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
@@ -13,6 +14,7 @@ import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
 import { heartbeatProcessor } from "./jobs/heartbeat.ts";
 import { processImportProcessor } from "./jobs/process-import.ts";
 import { recategorizeAllProcessor } from "./jobs/recategorize-all.ts";
+import { syncPlaidItemProcessor } from "./jobs/sync-plaid-item.ts";
 
 /**
  * BullMQ worker entrypoint.
@@ -72,6 +74,16 @@ recategorizeAllWorker.on("failed", (job, err) => {
   console.error(`[worker] recategorize-all job ${job?.id} failed:`, err);
 });
 
+// Phase 4: Plaid sync. concurrency=1 so a webhook burst doesn't blow Plaid's
+// rate limit (their app-wide budget is shared across all in-flight calls).
+const syncPlaidItemWorker = new Worker(QUEUE_NAMES.SYNC_PLAID_ITEM, syncPlaidItemProcessor, {
+  connection: redisConnection,
+  concurrency: 1,
+});
+syncPlaidItemWorker.on("failed", (job, err) => {
+  console.error(`[worker] sync-plaid-item job ${job?.id} failed:`, err);
+});
+
 // Ensure a single heartbeat repeatable job exists. Removing first guards against
 // pattern duplication across restarts.
 await heartbeatQueue.removeJobScheduler("heartbeat-tick").catch(() => {
@@ -114,11 +126,13 @@ async function shutdown(_signal: string): Promise<void> {
   await fetchPricesWorker.close();
   await processImportWorker.close();
   await recategorizeAllWorker.close();
+  await syncPlaidItemWorker.close();
   await heartbeatQueue.close();
   await computeSnapshotsDailyQueue.close();
   await fetchPricesDailyQueue.close();
   await processImportQueue.close();
   await recategorizeAllQueue.close();
+  await syncPlaidItemQueue.close();
   await redisConnection.quit();
   process.exit(0);
 }
