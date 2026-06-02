@@ -121,7 +121,46 @@ export async function loadAccessToken(plaidItemPk: string): Promise<string> {
   if (!row) {
     throw new Error(`loadAccessToken: no plaid_items row with id=${plaidItemPk}`);
   }
+  if (!row.ciphertext) {
+    // Disconnected Item — the dead token was wiped by P4-26.
+    throw new Error(`loadAccessToken: plaid_items row id=${plaidItemPk} has no stored token`);
+  }
   return decrypt(row.ciphertext).toString("utf8");
+}
+
+/**
+ * Test-helper / audit helper: does this Item have an access token stored?
+ *
+ * Returns true if the encryption barrier holds a usable ciphertext, false
+ * after disconnect (P4-26) wipes it. Useful in tests that want to assert the
+ * disconnect post-condition WITHOUT importing the column literal — keeps the
+ * "single reader" visibility invariant intact.
+ */
+export async function isAccessTokenStored(plaidItemPk: string): Promise<boolean> {
+  const [row] = await db
+    .select({ ciphertext: plaidItems.accessTokenCiphertext })
+    .from(plaidItems)
+    .where(eq(plaidItems.id, plaidItemPk))
+    .limit(1);
+  return row?.ciphertext != null;
+}
+
+/**
+ * P4-26 — wipe the dead access_token_ciphertext after `/item/remove`.
+ *
+ * Plaid's /item/remove invalidates the access_token on Plaid's side; the
+ * ciphertext we hold is dead weight from that moment on. Wiping it removes
+ * a small security smell ("why are we still storing a credential to a
+ * connection we explicitly tore down?") and makes the disconnect flow's
+ * intent legible in the data.
+ *
+ * Idempotent: calling on a row that already has NULL is a no-op.
+ */
+export async function clearAccessToken(plaidItemPk: string): Promise<void> {
+  await db
+    .update(plaidItems)
+    .set({ accessTokenCiphertext: null, updatedAt: new Date() })
+    .where(eq(plaidItems.id, plaidItemPk));
 }
 
 /**

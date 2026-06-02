@@ -53,7 +53,10 @@ describe("plaid/tokens — createPlaidItem (encrypt + insert)", () => {
       .select({ ct: plaidItems.accessTokenCiphertext })
       .from(plaidItems)
       .where(eq(plaidItems.id, b));
-    expect(rowA?.ct.equals(rowB?.ct ?? Buffer.alloc(0))).toBe(false);
+    // Both rows just landed with a freshly-encrypted token; column is non-null here.
+    expect(rowA?.ct).not.toBeNull();
+    expect(rowB?.ct).not.toBeNull();
+    expect(rowA?.ct?.equals(rowB?.ct ?? Buffer.alloc(0))).toBe(false);
   });
 });
 
