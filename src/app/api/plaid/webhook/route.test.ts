@@ -253,6 +253,115 @@ describe("POST /api/plaid/webhook — rejection paths", () => {
   });
 });
 
+describe("POST /api/plaid/webhook — P4-24 ITEM webhook status mapping", () => {
+  it("ITEM/ERROR with ITEM_LOGIN_REQUIRED flips status to 'login_required' and SKIPS the sync enqueue", async () => {
+    const pk = await createPlaidItem({
+      plaidItemId: "item-login-required",
+      institutionId: "ins_login",
+      institutionName: "Login Bank",
+      accessToken: "tok-login",
+      productsConsented: ["transactions"],
+    });
+    const km = await makeKey("kid-item-err");
+    mockKeyGet.mockResolvedValueOnce({ data: { key: km.jwk, request_id: "rid" } });
+
+    const rawBody = JSON.stringify({
+      webhook_type: "ITEM",
+      webhook_code: "ERROR",
+      item_id: "item-login-required",
+      error: {
+        error_code: "ITEM_LOGIN_REQUIRED",
+        error_message: "Please reauthenticate at the bank",
+      },
+    });
+    const jwt = await signJWT({ km, rawBody });
+
+    const res = await POST(buildRequest({ rawBody, jwt, forwardedFor: "30.0.0.1" }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok: boolean; statusUpdated?: boolean };
+    expect(body.statusUpdated).toBe(true);
+
+    // Item status reflects the synchronous update.
+    const [after] = await db
+      .select({ status: plaidItems.status, errorCode: plaidItems.errorCode })
+      .from(plaidItems)
+      .where(eq(plaidItems.id, pk));
+    expect(after?.status).toBe("login_required");
+    expect(after?.errorCode).toBe("ITEM_LOGIN_REQUIRED");
+
+    // No sync job enqueued — running it would only re-fail.
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+
+    // webhook_log marked processed (audit-clean).
+    const [logRow] = await db.select().from(webhookLog);
+    expect(logRow?.status).toBe("processed");
+  });
+
+  it("ITEM/USER_PERMISSION_REVOKED flips status to 'revoked'", async () => {
+    await createPlaidItem({
+      plaidItemId: "item-revoked",
+      institutionId: "ins_rev",
+      institutionName: "Rev Bank",
+      accessToken: "tok-rev",
+      productsConsented: ["transactions"],
+    });
+    const km = await makeKey("kid-rev");
+    mockKeyGet.mockResolvedValueOnce({ data: { key: km.jwk, request_id: "rid" } });
+
+    const rawBody = JSON.stringify({
+      webhook_type: "ITEM",
+      webhook_code: "USER_PERMISSION_REVOKED",
+      item_id: "item-revoked",
+    });
+    const jwt = await signJWT({ km, rawBody });
+
+    const res = await POST(buildRequest({ rawBody, jwt, forwardedFor: "31.0.0.1" }));
+    expect(res.status).toBe(200);
+
+    const [after] = await db
+      .select({ status: plaidItems.status })
+      .from(plaidItems)
+      .where(eq(plaidItems.plaidItemId, "item-revoked"));
+    expect(after?.status).toBe("revoked");
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("ITEM/LOGIN_REPAIRED returns status='active' (reauth confirmed) and DOES enqueue a sync to confirm recovery", async () => {
+    // Pre-existing item already in login_required state.
+    const pk = await createPlaidItem({
+      plaidItemId: "item-repaired",
+      institutionId: "ins_rep",
+      institutionName: "Rep Bank",
+      accessToken: "tok-rep",
+      productsConsented: ["transactions"],
+    });
+    await db
+      .update(plaidItems)
+      .set({ status: "login_required", errorCode: "ITEM_LOGIN_REQUIRED" })
+      .where(eq(plaidItems.id, pk));
+
+    const km = await makeKey("kid-rep");
+    mockKeyGet.mockResolvedValueOnce({ data: { key: km.jwk, request_id: "rid" } });
+    const rawBody = JSON.stringify({
+      webhook_type: "ITEM",
+      webhook_code: "LOGIN_REPAIRED",
+      item_id: "item-repaired",
+    });
+    const jwt = await signJWT({ km, rawBody });
+
+    const res = await POST(buildRequest({ rawBody, jwt, forwardedFor: "32.0.0.1" }));
+    expect(res.status).toBe(200);
+
+    const [after] = await db
+      .select({ status: plaidItems.status })
+      .from(plaidItems)
+      .where(eq(plaidItems.id, pk));
+    expect(after?.status).toBe("active");
+    // After repair, sync IS enqueued to catch up.
+    expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("POST /api/plaid/webhook — P4-16 hardening", () => {
   it("returns 429 after 100 reqs/min from the same IP", async () => {
     // No need to mock the Plaid client — rate limit fires BEFORE verification.
