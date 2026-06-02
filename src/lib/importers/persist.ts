@@ -4,7 +4,6 @@ import { db } from "@/db/client.ts";
 import {
   type CategoryRule,
   type NewTransaction,
-  accountSnapshots,
   accounts,
   categoryRules,
   importBatches,
@@ -12,6 +11,7 @@ import {
 } from "@/db/schema/index.ts";
 import { matchCategory, sortRules } from "@/lib/categorization/match.ts";
 import { seedDefaultRulesIfEmpty } from "@/lib/categorization/seed.ts";
+import { upsertSnapshots } from "@/lib/snapshots/upsert.ts";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { NormalizedBatch, NormalizedTransaction } from "./normalize.ts";
 import { computeRunningBalances, reconcile } from "./reconcile.ts";
@@ -156,27 +156,14 @@ export async function persistImportBatch(batchId: string): Promise<PersistResult
     }
 
     // Snapshot upserts — one per distinct posted_at + the statement_end row.
-    for (const [date, balance] of runningBalances.entries()) {
-      await tx
-        .insert(accountSnapshots)
-        .values({ accountId: batch.accountId, date, balance })
-        .onConflictDoUpdate({
-          target: [accountSnapshots.accountId, accountSnapshots.date],
-          set: { balance },
-        });
-    }
+    // Both pass through the shared helper in src/lib/snapshots/upsert.ts.
+    await upsertSnapshots(batch.accountId, runningBalances, tx);
     if (batch.statementEnd && batch.statementEndingBalance) {
-      await tx
-        .insert(accountSnapshots)
-        .values({
-          accountId: batch.accountId,
-          date: batch.statementEnd,
-          balance: batch.statementEndingBalance,
-        })
-        .onConflictDoUpdate({
-          target: [accountSnapshots.accountId, accountSnapshots.date],
-          set: { balance: batch.statementEndingBalance },
-        });
+      await upsertSnapshots(
+        batch.accountId,
+        new Map([[batch.statementEnd, batch.statementEndingBalance]]),
+        tx,
+      );
     }
 
     await tx
