@@ -2,6 +2,7 @@ import { redisConnection } from "@/lib/queue/connection.ts";
 import {
   QUEUE_NAMES,
   computeSnapshotsDailyQueue,
+  enqueuePlaidSyncsDailyQueue,
   fetchPricesDailyQueue,
   heartbeatQueue,
   processImportQueue,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/queue/queues.ts";
 import { Worker } from "bullmq";
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
+import { enqueuePlaidSyncsDailyProcessor } from "./jobs/enqueue-plaid-syncs-daily.ts";
 import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
 import { heartbeatProcessor } from "./jobs/heartbeat.ts";
 import { processImportProcessor } from "./jobs/process-import.ts";
@@ -84,6 +86,18 @@ syncPlaidItemWorker.on("failed", (job, err) => {
   console.error(`[worker] sync-plaid-item job ${job?.id} failed:`, err);
 });
 
+// P4-27: 03:00 daily fan-out — enqueues a cron sync for every active Item.
+// Lightweight; runs in series with the heavier sync queue so we don't race the
+// snapshot or price jobs that just finished at 02:00.
+const enqueuePlaidSyncsDailyWorker = new Worker(
+  QUEUE_NAMES.ENQUEUE_PLAID_SYNCS_DAILY,
+  enqueuePlaidSyncsDailyProcessor,
+  { connection: redisConnection, concurrency: 1 },
+);
+enqueuePlaidSyncsDailyWorker.on("failed", (job, err) => {
+  console.error(`[worker] enqueue-plaid-syncs-daily job ${job?.id} failed:`, err);
+});
+
 // Ensure a single heartbeat repeatable job exists. Removing first guards against
 // pattern duplication across restarts.
 await heartbeatQueue.removeJobScheduler("heartbeat-tick").catch(() => {
@@ -116,6 +130,18 @@ await computeSnapshotsDailyQueue.upsertJobScheduler(
   { name: "compute-snapshots-daily", data: {} },
 );
 
+// P4-27 — Daily Plaid safety-net fan-out at 03:00 local. Runs AFTER the snapshot
+// job so any cron-triggered sync that produces snapshot drift is captured by
+// the next day's snapshot run.
+await enqueuePlaidSyncsDailyQueue.removeJobScheduler("enqueue-plaid-syncs-daily-cron").catch(() => {
+  /* first run */
+});
+await enqueuePlaidSyncsDailyQueue.upsertJobScheduler(
+  "enqueue-plaid-syncs-daily-cron",
+  { pattern: "0 3 * * *" },
+  { name: "enqueue-plaid-syncs-daily", data: {} },
+);
+
 /**
  * Graceful shutdown per bullmq-specialist guidance. Process SIGTERM and SIGINT,
  * stop accepting new jobs, drain in-flight, then close the Redis connection.
@@ -127,12 +153,14 @@ async function shutdown(_signal: string): Promise<void> {
   await processImportWorker.close();
   await recategorizeAllWorker.close();
   await syncPlaidItemWorker.close();
+  await enqueuePlaidSyncsDailyWorker.close();
   await heartbeatQueue.close();
   await computeSnapshotsDailyQueue.close();
   await fetchPricesDailyQueue.close();
   await processImportQueue.close();
   await recategorizeAllQueue.close();
   await syncPlaidItemQueue.close();
+  await enqueuePlaidSyncsDailyQueue.close();
   await redisConnection.quit();
   process.exit(0);
 }
