@@ -57,6 +57,13 @@
       "when": 1780263780768,
       "tag": "0007_redundant_raider",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780365597214,
+      "tag": "0008_mean_black_cat",
+      "breakpoints": true
     }
   ]
 }

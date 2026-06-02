@@ -1,0 +1,1 @@
+ALTER TABLE "plaid_items" ALTER COLUMN "access_token_ciphertext" DROP NOT NULL;
