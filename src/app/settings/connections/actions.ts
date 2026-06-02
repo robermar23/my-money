@@ -2,10 +2,13 @@
 
 import { db } from "@/db/client.ts";
 import { plaidItems } from "@/db/schema/index.ts";
+import { accounts } from "@/db/schema/index.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { plaidClient } from "@/lib/plaid/client.ts";
-import { createPlaidItem, loadAccessToken } from "@/lib/plaid/tokens.ts";
+import { clearAccessToken, createPlaidItem, loadAccessToken } from "@/lib/plaid/tokens.ts";
+import { syncPlaidItemQueue } from "@/lib/queue/queues.ts";
 import { eq } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { CountryCode, type LinkTokenCreateRequest, Products } from "plaid";
 
@@ -195,4 +198,140 @@ export async function assertItemExists(plaidItemPk: string): Promise<void> {
   if (rows.length === 0) {
     throw new Error(`No plaid_items row with id=${plaidItemPk}`);
   }
+}
+
+/* ---------------------------------------------------------------------------
+ * P4-25 — finalizeReauthAction
+ * --------------------------------------------------------------------------- */
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export interface FinalizeReauthResult {
+  error?: string;
+}
+
+/**
+ * P4-25 — called from the client after Plaid Link finishes in UPDATE mode.
+ *
+ * No `public_token` is delivered in update mode — the existing access_token
+ * stays valid. All we need to do is flip the local status back to 'active',
+ * clear the error fields, and enqueue a sync to confirm transactions resume
+ * flowing.
+ */
+export async function finalizeReauthAction(plaidItemPk: string): Promise<FinalizeReauthResult> {
+  await requireUser();
+  if (!UUID_RE.test(plaidItemPk)) {
+    return { error: "Invalid plaidItemPk" };
+  }
+
+  const updated = await db
+    .update(plaidItems)
+    .set({
+      status: "active",
+      errorCode: null,
+      errorMessage: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(plaidItems.id, plaidItemPk))
+    .returning({ id: plaidItems.id });
+  if (updated.length === 0) {
+    return { error: "Plaid Item not found" };
+  }
+
+  await syncPlaidItemQueue.add(
+    "sync-plaid-item",
+    { plaidItemPk, trigger: "manual" },
+    { jobId: `sync-plaid-item-reauth-${plaidItemPk}-${Date.now()}` },
+  );
+
+  revalidatePath("/settings/connections");
+  return {};
+}
+
+/* ---------------------------------------------------------------------------
+ * P4-26 — disconnectItemAction
+ * --------------------------------------------------------------------------- */
+
+export interface DisconnectItemResult {
+  error?: string;
+}
+
+/**
+ * Tear down a Plaid Item.
+ *
+ *   1. Call Plaid `/item/remove`. Best-effort — if Plaid errors, log + continue.
+ *      The local state is what matters; we never want a Plaid hiccup to leave
+ *      the user stuck on a half-disconnected Item.
+ *   2. UPDATE plaid_items SET status='removed' and call clearAccessToken to
+ *      wipe the now-dead ciphertext (see src/lib/plaid/tokens.ts).
+ *   3. For every account linked to this Item: NULL out plaid_item_id,
+ *      plaid_account_id, plaid_mask. The `transactions` and
+ *      `account_snapshots` rows STAY — preserving history is the whole product
+ *      (CLAUDE.md §Domain Scope).
+ *
+ * The connections page subsequently filters out `status='removed'` rows but
+ * keeps the tombstone for audit. Future webhooks for the removed item_id are
+ * handled by the route's `unknownItem` path (we no longer have the live FK).
+ */
+export async function disconnectItemAction(plaidItemPk: string): Promise<DisconnectItemResult> {
+  await requireUser();
+  if (!UUID_RE.test(plaidItemPk)) {
+    return { error: "Invalid plaidItemPk" };
+  }
+
+  // Step 1: best-effort Plaid /item/remove. Load the token before we wipe it.
+  let accessToken: string | null = null;
+  try {
+    accessToken = await loadAccessToken(plaidItemPk);
+  } catch {
+    // Already missing — the Item may have been partially disconnected before.
+    // Continue with the local cleanup; nothing to revoke on Plaid's side.
+  }
+  if (accessToken) {
+    try {
+      await plaidClient.itemRemove({ access_token: accessToken });
+    } catch (err) {
+      // Plaid couldn't process the remove (token already invalid, transient
+      // 5xx, etc.). Log to the local error_message and proceed with the
+      // local state change — that's what the user actually cares about.
+      console.error(
+        `[disconnectItemAction] Plaid /item/remove failed for ${plaidItemPk}: ${
+          (err as Error).message
+        }`,
+      );
+    }
+  }
+
+  // Step 2 + 3: local state in a single transaction.
+  try {
+    await db.transaction(async (tx) => {
+      await tx
+        .update(plaidItems)
+        .set({
+          status: "removed",
+          errorCode: null,
+          errorMessage: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(plaidItems.id, plaidItemPk));
+      await tx
+        .update(accounts)
+        .set({
+          plaidItemId: null,
+          plaidAccountId: null,
+          plaidMask: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(accounts.plaidItemId, plaidItemPk));
+    });
+    // Wipe the dead ciphertext after the transaction so a row-update error
+    // doesn't leave us with a no-status, no-token Item.
+    await clearAccessToken(plaidItemPk);
+  } catch (err) {
+    return { error: `Failed to disconnect Item: ${(err as Error).message}` };
+  }
+
+  revalidatePath("/settings/connections");
+  revalidatePath("/");
+  return {};
 }
