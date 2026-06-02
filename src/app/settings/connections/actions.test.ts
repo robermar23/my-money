@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { db } from "@/db/client.ts";
 import { accounts, plaidItems, users } from "@/db/schema/index.ts";
-import { loadAccessToken } from "@/lib/plaid/tokens.ts";
+import { isAccessTokenStored, loadAccessToken } from "@/lib/plaid/tokens.ts";
 import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -35,6 +35,7 @@ const mockPlaid = {
   itemGet: vi.fn(),
   institutionsGetById: vi.fn(),
   accountsGet: vi.fn(),
+  itemRemove: vi.fn(),
 };
 vi.mock("@/lib/plaid/client.ts", () => ({
   plaidClient: mockPlaid,
@@ -61,8 +62,26 @@ vi.mock("next/cache", () => ({
   revalidatePath: vi.fn(),
 }));
 
+// P4-22 verification: mapAccountsAction must enqueue an initial sync on commit.
+interface JobAddArgs {
+  data: { plaidItemPk?: string; trigger?: string };
+  opts: { jobId?: string };
+}
+const mockQueueAdd = vi.fn<
+  (name: string, data: JobAddArgs["data"], opts: JobAddArgs["opts"]) => Promise<{ id: string }>
+>(async () => ({ id: "test-job-id" }));
+vi.mock("@/lib/queue/queues.ts", () => ({
+  QUEUE_NAMES: { SYNC_PLAID_ITEM: "sync-plaid-item" },
+  syncPlaidItemQueue: { add: mockQueueAdd },
+}));
+
 // Import AFTER mocks are registered.
-const { createLinkTokenAction, exchangePublicTokenAction } = await import("./actions.ts");
+const {
+  createLinkTokenAction,
+  exchangePublicTokenAction,
+  finalizeReauthAction,
+  disconnectItemAction,
+} = await import("./actions.ts");
 const { mapAccountsAction } = await import("./map-actions.ts");
 
 async function resetDomain(): Promise<void> {
@@ -81,6 +100,8 @@ beforeEach(async () => {
   mockPlaid.itemGet.mockReset();
   mockPlaid.institutionsGetById.mockReset();
   mockPlaid.accountsGet.mockReset();
+  mockPlaid.itemRemove.mockReset();
+  mockQueueAdd.mockClear();
 });
 
 afterEach(() => {
@@ -285,6 +306,15 @@ describe("mapAccountsAction (P4-13)", () => {
       .from(accounts)
       .where(eq(accounts.plaidAccountId, PLAID_ACCOUNTS_TWO[1]?.account_id ?? ""));
     expect(skipped).toBeUndefined();
+
+    // P4-22: an initial sync job was enqueued with our internal UUID.
+    expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+    const call = mockQueueAdd.mock.calls[0];
+    expect(call?.[0]).toBe("sync-plaid-item");
+    expect(call?.[1]?.plaidItemPk).toBe(plaidItemPk);
+    expect(call?.[1]?.trigger).toBe("initial");
+    // Double-submit guard: pinned jobId keeps a re-run from spawning a second initial sync.
+    expect(call?.[2]?.jobId).toBe(`sync-plaid-item-initial-${plaidItemPk}`);
   });
 
   it("CREATE inserts a fresh account with type='depository' from a Plaid 'checking' account", async () => {
@@ -363,5 +393,140 @@ describe("mapAccountsAction (P4-13)", () => {
 
     const result = await mapAccountsAction(plaidItemPk, form);
     expect(result.error).toMatch(/no my-money equivalent/);
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * P4-25 — finalizeReauthAction
+ * --------------------------------------------------------------------------- */
+
+describe("finalizeReauthAction (P4-25)", () => {
+  it("flips a login_required Item back to active, clears errors, enqueues a sync", async () => {
+    const plaidItemPk = await seedItem();
+    await db
+      .update(plaidItems)
+      .set({
+        status: "login_required",
+        errorCode: "ITEM_LOGIN_REQUIRED",
+        errorMessage: "Please reauthenticate",
+      })
+      .where(eq(plaidItems.id, plaidItemPk));
+
+    const result = await finalizeReauthAction(plaidItemPk);
+    expect(result.error).toBeUndefined();
+
+    const [after] = await db
+      .select({
+        status: plaidItems.status,
+        errorCode: plaidItems.errorCode,
+        errorMessage: plaidItems.errorMessage,
+      })
+      .from(plaidItems)
+      .where(eq(plaidItems.id, plaidItemPk));
+    expect(after?.status).toBe("active");
+    expect(after?.errorCode).toBeNull();
+    expect(after?.errorMessage).toBeNull();
+
+    expect(mockQueueAdd).toHaveBeenCalledTimes(1);
+    const call = mockQueueAdd.mock.calls[0];
+    expect(call?.[1]?.plaidItemPk).toBe(plaidItemPk);
+    expect(call?.[1]?.trigger).toBe("manual");
+  });
+
+  it("returns an error when the Item does not exist", async () => {
+    const result = await finalizeReauthAction("00000000-0000-0000-0000-000000000000");
+    expect(result.error).toMatch(/not found/i);
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * P4-26 — disconnectItemAction
+ * --------------------------------------------------------------------------- */
+
+describe("disconnectItemAction (P4-26)", () => {
+  it("calls Plaid /item/remove, marks the Item removed, wipes the ciphertext, NULLs the account FKs, but leaves transactions + snapshots in place", async () => {
+    const plaidItemPk = await seedItem();
+    mockPlaid.itemRemove.mockResolvedValueOnce({ data: { request_id: "req-rm" } });
+
+    // Map an account to the item + give it some history.
+    const [acct] = await db
+      .insert(accounts)
+      .values({
+        name: "Disconnect Test",
+        institution: "Test Bank",
+        type: "depository",
+        currency: "USD",
+        plaidItemId: plaidItemPk,
+        plaidAccountId: "PLAID-acct-disconnect",
+        plaidMask: "1234",
+      })
+      .returning({ id: accounts.id });
+    if (!acct) throw new Error("seed account");
+
+    const { transactions, accountSnapshots } = await import("@/db/schema/index.ts");
+    await db.insert(transactions).values({
+      accountId: acct.id,
+      postedAt: "2026-04-01",
+      amount: "-10.00",
+      name: "Pre-existing",
+      fitid: "preserved-1",
+      source: "plaid",
+    });
+    await db.insert(accountSnapshots).values({
+      accountId: acct.id,
+      date: "2026-04-01",
+      balance: "-10.00",
+    });
+
+    const result = await disconnectItemAction(plaidItemPk);
+    expect(result.error).toBeUndefined();
+
+    // Plaid was called.
+    expect(mockPlaid.itemRemove).toHaveBeenCalledTimes(1);
+
+    // Item is tombstoned + ciphertext wiped (no column literal — use the
+    // tokens.ts helper to honor the visibility regression).
+    const [after] = await db
+      .select({ status: plaidItems.status })
+      .from(plaidItems)
+      .where(eq(plaidItems.id, plaidItemPk));
+    expect(after?.status).toBe("removed");
+    expect(await isAccessTokenStored(plaidItemPk)).toBe(false);
+
+    // Account's Plaid linkage is severed.
+    const [accountAfter] = await db.select().from(accounts).where(eq(accounts.id, acct.id));
+    expect(accountAfter?.plaidItemId).toBeNull();
+    expect(accountAfter?.plaidAccountId).toBeNull();
+    expect(accountAfter?.plaidMask).toBeNull();
+
+    // History stays.
+    const txns = await db
+      .select({ fitid: transactions.fitid })
+      .from(transactions)
+      .where(eq(transactions.accountId, acct.id));
+    expect(txns.map((t) => t.fitid)).toEqual(["preserved-1"]);
+
+    const snaps = await db
+      .select({ date: accountSnapshots.date })
+      .from(accountSnapshots)
+      .where(eq(accountSnapshots.accountId, acct.id));
+    expect(snaps.map((s) => s.date)).toEqual(["2026-04-01"]);
+  });
+
+  it("proceeds with local cleanup even if Plaid /item/remove fails", async () => {
+    const plaidItemPk = await seedItem();
+    mockPlaid.itemRemove.mockRejectedValueOnce(new Error("Plaid 502"));
+
+    const result = await disconnectItemAction(plaidItemPk);
+    // No surfaced error — Plaid failure is logged + ignored.
+    expect(result.error).toBeUndefined();
+
+    const [after] = await db
+      .select({ status: plaidItems.status })
+      .from(plaidItems)
+      .where(eq(plaidItems.id, plaidItemPk));
+    expect(after?.status).toBe("removed");
+    expect(await isAccessTokenStored(plaidItemPk)).toBe(false);
   });
 });
