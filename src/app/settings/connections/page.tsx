@@ -3,6 +3,7 @@ import { accounts, plaidItems } from "@/db/schema/index.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { desc, inArray, ne } from "drizzle-orm";
 import Link from "next/link";
+import { DisconnectForm } from "./disconnect-form.tsx";
 import { LinkButton } from "./link-button.tsx";
 
 /**
@@ -153,6 +154,14 @@ export default async function ConnectionsPage(): Promise<React.JSX.Element> {
                       Last webhook:{" "}
                       {item.lastWebhookAt ? new Date(item.lastWebhookAt).toLocaleString() : "never"}
                     </p>
+                  </div>
+                  <div className="ml-4 flex shrink-0 flex-col items-end gap-2">
+                    {/* P4-25 — amber Reconnect button when the Item needs reauth. */}
+                    {item.status === "login_required" && (
+                      <LinkButton mode="update" plaidItemPk={item.id} variant="amber" />
+                    )}
+                    {/* P4-26 — Disconnect button is always available. */}
+                    <DisconnectForm plaidItemPk={item.id} />
                   </div>
                 </div>
               </li>
