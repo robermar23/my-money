@@ -180,8 +180,7 @@ export async function mapAccountsAction(
 
   revalidatePath("/settings/connections");
   revalidatePath("/");
-  // P4-23 will swap this for `/settings/connections/${item.id}/progress` (the
-  // polling page). For now the listing page is the right landing — it shows
-  // status + lets the user verify the connection took.
-  redirect("/settings/connections");
+  // Land on the polling progress page (P4-23) so the user sees the initial
+  // sync tick up to completion before bouncing to the dashboard.
+  redirect(`/settings/connections/${item.id}/progress`);
 }
