@@ -58,8 +58,16 @@ export const plaidItems = pgTable(
     institutionId: text("institution_id").notNull(),
     /** Display name, e.g. 'M&T Bank'. */
     institutionName: text("institution_name").notNull(),
-    /** AES-256-GCM envelope per ADR-009. NEVER logged. NEVER returned from server actions. */
-    accessTokenCiphertext: bytea("access_token_ciphertext").notNull(),
+    /**
+     * AES-256-GCM envelope per ADR-009. NEVER logged. NEVER returned from
+     * server actions.
+     *
+     * Nullable so that disconnected Items (status='removed') can have the
+     * dead token wiped — Plaid's `/item/remove` invalidates the access_token,
+     * and continuing to store the ciphertext is dead weight + a small
+     * security smell (P4-26).
+     */
+    accessTokenCiphertext: bytea("access_token_ciphertext"),
     /** Plaid `/transactions/sync` cursor. NULL → initial sync owed. */
     transactionsCursor: text("transactions_cursor"),
     /** Plaid products we consented to, e.g. `['transactions']`. */
