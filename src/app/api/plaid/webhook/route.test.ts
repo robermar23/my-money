@@ -402,4 +402,40 @@ describe("POST /api/plaid/webhook — P4-16 hardening", () => {
     // check inside the handler catches it.
     expect([400, 413]).toContain(res.status);
   });
+
+  // P4-31 contract: the signature is computed over the raw bytes Plaid sent.
+  // If the handler ever round-tripped the body through JSON.parse + stringify,
+  // unusual-but-valid JSON whitespace would canonicalize away — and the JWT's
+  // request_body_sha256 claim would no longer match the recomputed hash. A
+  // verified 200 here proves that path is intact.
+  it("preserves raw body bytes (signature verifies against non-canonical JSON whitespace)", async () => {
+    await createPlaidItem({
+      plaidItemId: "item-raw-bytes",
+      institutionId: "ins_109508",
+      institutionName: "Test Bank",
+      accessToken: "access-sandbox-raw",
+      productsConsented: ["transactions"],
+    });
+
+    const km = await makeKey("kid-raw");
+    mockKeyGet.mockResolvedValueOnce({ data: { key: km.jwk, request_id: "rid" } });
+
+    // Intentional non-canonical formatting: indented, extra spaces, key order
+    // that Node's JSON.stringify would not produce by default. The signature
+    // is over THESE bytes — round-tripping through JSON.parse changes them.
+    const rawBody = `{
+  "item_id"     : "item-raw-bytes",
+  "webhook_code": "SYNC_UPDATES_AVAILABLE",
+  "webhook_type": "TRANSACTIONS"
+}`;
+    const jwt = await signJWT({ km, rawBody });
+
+    const res = await POST(buildRequest({ rawBody, jwt, forwardedFor: "12.0.0.1" }));
+    expect(res.status).toBe(200);
+
+    // Defense-in-depth: confirm the hash we signed is exactly what verifyWebhook
+    // would recompute over the raw bytes — sanity-checks the fixture itself.
+    const canonicalRoundTrip = JSON.stringify(JSON.parse(rawBody));
+    expect(sha256Hex(rawBody)).not.toBe(sha256Hex(canonicalRoundTrip));
+  });
 });
