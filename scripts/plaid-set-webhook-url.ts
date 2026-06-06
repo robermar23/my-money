@@ -8,14 +8,11 @@
  *
  * Usage:
  *   # Read URL from PLAID_WEBHOOK_URL in .env.local.
- *   node --env-file=.env.local --import tsx \
- *     --import ./scripts/loaders/register.mjs \
- *     scripts/plaid-set-webhook-url.ts [--dry-run]
+ *   pnpm plaid:set-webhook-url -- --dry-run
+ *   pnpm plaid:set-webhook-url
  *
- *   # Override the URL inline.
- *   node --env-file=.env.local --import tsx \
- *     --import ./scripts/loaders/register.mjs \
- *     scripts/plaid-set-webhook-url.ts --url https://money.example.com/api/plaid/webhook
+ *   # Override the URL inline (note the leading -- to pass args through pnpm).
+ *   pnpm plaid:set-webhook-url -- --url https://money.example.com/api/plaid/webhook
  *
  * Per CLAUDE.md §Plaid Safety Rules: this script does not log the access
  * token. Plaid item_ids ARE logged for diff visibility — they're not secret

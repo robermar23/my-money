@@ -8,10 +8,9 @@
  * shell history.
  *
  * Run with:
- *   pnpm exec node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/plaid-ping.ts
+ *   pnpm plaid:ping
  *
- * Or via the convenience npm script if you wire one up later. Refuses to run
- * unless PLAID_ENV='sandbox'.
+ * Refuses to run unless PLAID_ENV='sandbox'.
  */
 
 import { Products } from "plaid";
