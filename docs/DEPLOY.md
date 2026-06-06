@@ -140,18 +140,15 @@ First, set `PLAID_WEBHOOK_URL` in `.env.local` (or export it inline). Then:
 
 ```sh
 # Dry run first — prints what would change, no Plaid calls.
-node --env-file=.env.local --import tsx \
-  --import ./scripts/loaders/register.mjs \
-  scripts/plaid-set-webhook-url.ts --dry-run
+pnpm plaid:set-webhook-url -- --dry-run
 
 # Commit.
-node --env-file=.env.local --import tsx \
-  --import ./scripts/loaders/register.mjs \
-  scripts/plaid-set-webhook-url.ts
+pnpm plaid:set-webhook-url
 ```
 
-You can override the URL per-run with `--url https://other.example.com/api/plaid/webhook`
-without touching `.env.local`.
+You can override the URL per-run with `-- --url https://other.example.com/api/plaid/webhook`
+without touching `.env.local`. (The leading `--` is the pnpm convention for
+"pass the rest to the script.")
 
 Verify in the Plaid dashboard → Items → each Item's "Webhook" field.
 

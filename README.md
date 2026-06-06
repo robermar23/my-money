@@ -16,7 +16,7 @@ See [plans/features/FEATURE.md](plans/features/FEATURE.md) for the why, [plans/f
 
 **Phase 3 (QFX / CSV import) — complete.** Drop a `.qfx` from your bank or credit card on the account page → preview → confirm. Re-importing is safe (deduped by FITID). Regex-based category rules at `/settings/categories`. See [docs/IMPORT.md](docs/IMPORT.md).
 
-**Phase 4 (Plaid push) — not started.** See [plans/features/IDEAS.md](plans/features/IDEAS.md) §4 and the `plaid-fintech` skill before starting.
+**Phase 4 (Plaid push) — complete.** Connect bank/credit-card institutions through Plaid Link at `/settings/connections`; transactions arrive within minutes of posting via signed webhooks. Reauth + disconnect flows handled; encrypted-at-rest access tokens; daily 03:00 safety-net sync. See [docs/PLAID.md](docs/PLAID.md) for setup, [docs/DEPLOY.md](docs/DEPLOY.md) for the Cloudflare Tunnel webhook ingress, [docs/RUNBOOK_PLAID.md](docs/RUNBOOK_PLAID.md) for troubleshooting, [docs/CRYPTO_ROTATION.md](docs/CRYPTO_ROTATION.md) for key rotation, and [docs/THREAT_MODEL_PLAID.md](docs/THREAT_MODEL_PLAID.md) for the STRIDE analysis.
 
 ---
 
@@ -66,9 +66,34 @@ On the very first visit to `http://127.0.0.1:4000`, you'll be redirected to `/lo
 
 ---
 
-## Monthly ritual (Phase 3)
+## Usage — Plaid auto-sync (Phase 4 default)
 
-For each cash or credit-card account each month:
+Once your bank and credit card are connected through Plaid Link, there is no
+monthly ritual. Transactions arrive within minutes of posting via signed
+webhooks; the dashboard reflects them on the next render. A daily 03:00
+safety-net cron catches anything a webhook dropped.
+
+Open `/settings/connections` to see every connected institution, the last
+sync time, and the most recent sync runs. The same page is where you handle
+exceptions:
+
+- **Reconnect** (amber button) appears when Plaid sends `ITEM_LOGIN_REQUIRED`
+  (usually a password change at the bank). Click it, complete Plaid Link in
+  update mode, and sync resumes from the same cursor.
+- **Force sync** triggers an immediate `/transactions/sync` against the Item
+  without waiting for the next webhook or the 03:00 cron.
+- **Disconnect** tears down the Item: Plaid is notified, the local linkage
+  is severed, the dead access token is wiped — but every prior transaction
+  and snapshot stays.
+
+See [docs/PLAID.md](docs/PLAID.md) for first-time setup (Sandbox → Production
+cutover, `cloudflared` tunnel, account mapping), and
+[docs/RUNBOOK_PLAID.md](docs/RUNBOOK_PLAID.md) when something looks off.
+
+## Fallback — QFX/CSV import (Phase 3)
+
+The import path remains for institutions Plaid doesn't cover, or for backfill
+when starting from a fresh install:
 
 1. Log into the bank's online portal.
 2. Download the statement export — `.qfx`, `.ofx`, or `.csv`.

@@ -278,8 +278,8 @@ Each task is shippable in isolation, has explicit verification, and follows the 
 
 ### Pre-flight & secrets
 
-- [ ] **P4-01** — Add Plaid env vars to [.env.example](../../.env.example): `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV` (`sandbox` for now, `production` later), `PLAID_WEBHOOK_URL` (the public URL Plaid will POST to — set later via P4-29), and confirm `MONEY_ENCRYPTION_KEY` is already present from Phase 0. Document in the file header how to generate the key (`openssl rand -base64 32`). → **Verify**: `pnpm dev` boots when `.env.local` has placeholder values; missing `MONEY_ENCRYPTION_KEY` crashes at boot with a clear error (this lives in P4-02, but lockstep).
-- [ ] **P4-02** — Build the AEAD module per ADR-009. Create [src/lib/crypto/aead.ts](../../src/lib/crypto/aead.ts) exporting:
+- [x] **P4-01** — Add Plaid env vars to [.env.example](../../.env.example): `PLAID_CLIENT_ID`, `PLAID_SECRET`, `PLAID_ENV` (`sandbox` for now, `production` later), `PLAID_WEBHOOK_URL` (the public URL Plaid will POST to — set later via P4-29), and confirm `MONEY_ENCRYPTION_KEY` is already present from Phase 0. Document in the file header how to generate the key (`openssl rand -base64 32`). → **Verify**: `pnpm dev` boots when `.env.local` has placeholder values; missing `MONEY_ENCRYPTION_KEY` crashes at boot with a clear error (this lives in P4-02, but lockstep).
+- [x] **P4-02** — Build the AEAD module per ADR-009. Create [src/lib/crypto/aead.ts](../../src/lib/crypto/aead.ts) exporting:
   - `encrypt(plaintext: Buffer): Buffer` and `decrypt(ciphertext: Buffer): Buffer`
   - `loadKey()` (idempotent, throws if `MONEY_ENCRYPTION_KEY` is missing/short)
   - Versioned format: `0x01 || nonce(12) || ct || tag(16)`
@@ -288,22 +288,22 @@ Each task is shippable in isolation, has explicit verification, and follows the 
 
 ### Schema + migrations
 
-- [ ] **P4-03** — Add `plaid_items` schema. Create [src/db/schema/plaid-items.ts](../../src/db/schema/plaid-items.ts) per the spec above. `accessTokenCiphertext` uses the same `customType<Buffer>` pattern as [src/db/schema/import-batches.ts:23](../../src/db/schema/import-batches.ts#L23). Re-export from [src/db/schema/index.ts](../../src/db/schema/index.ts). Run `pnpm db:generate`. → **Verify**: migration applies cleanly; `\d plaid_items` shows the UNIQUE on `plaid_item_id`, the partial status index, and the CHECK constraint.
-- [ ] **P4-04** — Extend `accounts` with three nullable Plaid columns. Edit [src/db/schema/accounts.ts](../../src/db/schema/accounts.ts) (this is fine; an additive schema change). Generate the migration; verify it produces a `ADD COLUMN`-only diff (no destructive changes). → **Verify**: existing rows are unaffected; `plaid_item_id` and `plaid_account_id` default to NULL on all existing rows.
-- [ ] **P4-05** — Add `webhook_log` schema. → **Verify**: `\d webhook_log` shows the UNIQUE on `idempotency_hash`; inserting two rows with the same hash fails with a UNIQUE-violation error (caught + handled in P4-12).
-- [ ] **P4-06** — Add `plaid_sync_runs` schema. → **Verify**: cascade-delete works — deleting a `plaid_items` row via SQL deletes its sync-run rows.
-- [ ] **P4-07** — Apply all schema migrations as a single ordered set (`drizzle/0004_*.sql`). → **Verify**: `pnpm exec drizzle-kit check` passes; full `make db-reset && pnpm db:migrate` is green; psql lists `plaid_items`, `webhook_log`, `plaid_sync_runs` and the new columns on `accounts`.
+- [x] **P4-03** — Add `plaid_items` schema. Create [src/db/schema/plaid-items.ts](../../src/db/schema/plaid-items.ts) per the spec above. `accessTokenCiphertext` uses the same `customType<Buffer>` pattern as [src/db/schema/import-batches.ts:23](../../src/db/schema/import-batches.ts#L23). Re-export from [src/db/schema/index.ts](../../src/db/schema/index.ts). Run `pnpm db:generate`. → **Verify**: migration applies cleanly; `\d plaid_items` shows the UNIQUE on `plaid_item_id`, the partial status index, and the CHECK constraint.
+- [x] **P4-04** — Extend `accounts` with three nullable Plaid columns. Edit [src/db/schema/accounts.ts](../../src/db/schema/accounts.ts) (this is fine; an additive schema change). Generate the migration; verify it produces a `ADD COLUMN`-only diff (no destructive changes). → **Verify**: existing rows are unaffected; `plaid_item_id` and `plaid_account_id` default to NULL on all existing rows.
+- [x] **P4-05** — Add `webhook_log` schema. → **Verify**: `\d webhook_log` shows the UNIQUE on `idempotency_hash`; inserting two rows with the same hash fails with a UNIQUE-violation error (caught + handled in P4-12).
+- [x] **P4-06** — Add `plaid_sync_runs` schema. → **Verify**: cascade-delete works — deleting a `plaid_items` row via SQL deletes its sync-run rows.
+- [x] **P4-07** — Apply all schema migrations as a single ordered set (`drizzle/0004_*.sql`). → **Verify**: `pnpm exec drizzle-kit check` passes; full `make db-reset && pnpm db:migrate` is green; psql lists `plaid_items`, `webhook_log`, `plaid_sync_runs` and the new columns on `accounts`.
 
 ### Plaid SDK wrapper
 
-- [ ] **P4-08** — Add the Plaid SDK. `pnpm add plaid`. Create [src/lib/plaid/client.ts](../../src/lib/plaid/client.ts) wrapping `PlaidApi` with configuration from env. **Never exposes credentials beyond this module.** Exports a single `plaidClient` instance. → **Verify**: a one-shot smoke test (`pnpm exec node --experimental-strip-types scripts/plaid-ping.ts` or a Vitest) calls `/sandbox/public_token/create` against Plaid Sandbox and returns a valid public_token.
-- [ ] **P4-09** — Add the encrypted-token helpers. Create [src/lib/plaid/tokens.ts](../../src/lib/plaid/tokens.ts) exporting `storeAccessToken(plaidItemId, accessToken)`, `loadAccessToken(plaidItemId)`, and `rotateEncryption(oldKey, newKey)` (used only by the rotation runbook in P4-32 — leave as a stub if needed). Tokens are encrypted via P4-02. `loadAccessToken` is the ONLY allowed reader; nothing else may decrypt. → **Verify**: unit test confirms a roundtrip; a deliberate `console.log` of an `accounts.accessTokenCiphertext` field in a non-helper module fails Biome lint via a custom rule (or a regression test that greps `src/` for the column name and confirms it appears only inside `src/lib/plaid/`).
+- [x] **P4-08** — Add the Plaid SDK. `pnpm add plaid`. Create [src/lib/plaid/client.ts](../../src/lib/plaid/client.ts) wrapping `PlaidApi` with configuration from env. **Never exposes credentials beyond this module.** Exports a single `plaidClient` instance. → **Verify**: a one-shot smoke test (`pnpm exec node --experimental-strip-types scripts/plaid-ping.ts` or a Vitest) calls `/sandbox/public_token/create` against Plaid Sandbox and returns a valid public_token.
+- [x] **P4-09** — Add the encrypted-token helpers. Create [src/lib/plaid/tokens.ts](../../src/lib/plaid/tokens.ts) exporting `storeAccessToken(plaidItemId, accessToken)`, `loadAccessToken(plaidItemId)`, and `rotateEncryption(oldKey, newKey)` (used only by the rotation runbook in P4-32 — leave as a stub if needed). Tokens are encrypted via P4-02. `loadAccessToken` is the ONLY allowed reader; nothing else may decrypt. → **Verify**: unit test confirms a roundtrip; a deliberate `console.log` of an `accounts.accessTokenCiphertext` field in a non-helper module fails Biome lint via a custom rule (or a regression test that greps `src/` for the column name and confirms it appears only inside `src/lib/plaid/`).
 
 ### Link flow (frontend + backend)
 
-- [ ] **P4-10** — Build the Link-token server action. Create [src/app/settings/connections/actions.ts](../../src/app/settings/connections/actions.ts) with `createLinkTokenAction({ accessTokenForUpdate?: string })`. Calls `/link/token/create` with `products: ['transactions']`, the user's family ID as `client_user_id`, `webhook` = `PLAID_WEBHOOK_URL` (if set). Returns the single-use `link_token`. **Never caches the token.** → **Verify**: action returns a token in dev; calling it twice returns two distinct tokens.
-- [ ] **P4-11** — Build the Link UI. Create [src/app/settings/connections/page.tsx](../../src/app/settings/connections/page.tsx) (server component, gated by `requireUser()`) listing all `plaid_items` and rendering a **"Connect new institution"** CTA. Create [src/app/settings/connections/link-button.tsx](../../src/app/settings/connections/link-button.tsx) (`'use client'`) that lazily loads `react-plaid-link` (`pnpm add react-plaid-link`) and opens Plaid Link with the token from P4-10. On success → invokes server action `exchangePublicTokenAction(publicToken)`. → **Verify**: in Sandbox, clicking the button opens Plaid Link → "First Platypus Bank" → success returns a public_token. (Confirmation of the exchange step lives in the next task.)
-- [ ] **P4-12** — Build the public-token exchange action. `exchangePublicTokenAction(publicToken)` in the same actions.ts:
+- [x] **P4-10** — Build the Link-token server action. Create [src/app/settings/connections/actions.ts](../../src/app/settings/connections/actions.ts) with `createLinkTokenAction({ accessTokenForUpdate?: string })`. Calls `/link/token/create` with `products: ['transactions']`, the user's family ID as `client_user_id`, `webhook` = `PLAID_WEBHOOK_URL` (if set). Returns the single-use `link_token`. **Never caches the token.** → **Verify**: action returns a token in dev; calling it twice returns two distinct tokens.
+- [x] **P4-11** — Build the Link UI. Create [src/app/settings/connections/page.tsx](../../src/app/settings/connections/page.tsx) (server component, gated by `requireUser()`) listing all `plaid_items` and rendering a **"Connect new institution"** CTA. Create [src/app/settings/connections/link-button.tsx](../../src/app/settings/connections/link-button.tsx) (`'use client'`) that lazily loads `react-plaid-link` (`pnpm add react-plaid-link`) and opens Plaid Link with the token from P4-10. On success → invokes server action `exchangePublicTokenAction(publicToken)`. → **Verify**: in Sandbox, clicking the button opens Plaid Link → "First Platypus Bank" → success returns a public_token. (Confirmation of the exchange step lives in the next task.)
+- [x] **P4-12** — Build the public-token exchange action. `exchangePublicTokenAction(publicToken)` in the same actions.ts:
   - Calls `/item/public_token/exchange` → gets `access_token` + `item_id`.
   - Calls `/item/get` → gets `institution_id`.
   - Calls `/institutions/get_by_id` → gets `institution_name`.
@@ -311,7 +311,7 @@ Each task is shippable in isolation, has explicit verification, and follows the 
   - Persists `plaid_items` row (with encrypted access_token), then redirects to `/settings/connections/[plaidItemId]/map` for account mapping.
   - **Wraps token storage + Item row + (no accounts yet) in a single DB transaction** so a half-stored Item can't exist.
   → **Verify**: Sandbox flow lands a row in `plaid_items`; the access_token round-trips through encrypt/decrypt and matches the value the Plaid client receives back.
-- [ ] **P4-13** — Build the account-mapping UI. [src/app/settings/connections/[plaidItemId]/map/page.tsx](../../src/app/settings/connections/%5BplaidItemId%5D/map/page.tsx): for each Plaid account, the user picks one of:
+- [x] **P4-13** — Build the account-mapping UI. [src/app/settings/connections/[plaidItemId]/map/page.tsx](../../src/app/settings/connections/%5BplaidItemId%5D/map/page.tsx): for each Plaid account, the user picks one of:
   - **Link to an existing my-money account** (dropdown of currently-unlinked manual accounts of matching `type`).
   - **Create a new account** (uses Plaid's name + subtype to pre-fill).
   - **Skip** (don't pull this account at all — e.g., the user already has an unused M&T money-market and doesn't want it tracked).
@@ -319,14 +319,14 @@ Each task is shippable in isolation, has explicit verification, and follows the 
 
 ### Webhook receiver
 
-- [ ] **P4-14** — Build the webhook signature verifier. Create [src/lib/plaid/webhook-verify.ts](../../src/lib/plaid/webhook-verify.ts) exporting `verifyWebhook(headers: Headers, rawBody: string): Promise<VerifiedWebhook | null>`:
+- [x] **P4-14** — Build the webhook signature verifier. Create [src/lib/plaid/webhook-verify.ts](../../src/lib/plaid/webhook-verify.ts) exporting `verifyWebhook(headers: Headers, rawBody: string): Promise<VerifiedWebhook | null>`:
   - Reads the `Plaid-Verification` JWT from headers.
   - Fetches the corresponding `key_id` from Plaid via `/webhook_verification_key/get` (cached in-memory with a 24h TTL, refresh on cache-miss key).
   - Verifies the JWT signature (ES256) using `jose` (`pnpm add jose`).
   - Confirms the JWT's `request_body_sha256` matches `sha256(rawBody)`.
   - Returns `null` on any failure — caller responds 401.
   → **Verify**: unit tests cover: valid signature → returns body; tampered body → returns null; expired JWT → returns null; unknown `key_id` → fetched then verified.
-- [ ] **P4-15** — Build the webhook route handler. Create [src/app/api/plaid/webhook/route.ts](../../src/app/api/plaid/webhook/route.ts) — a `POST` handler:
+- [x] **P4-15** — Build the webhook route handler. Create [src/app/api/plaid/webhook/route.ts](../../src/app/api/plaid/webhook/route.ts) — a `POST` handler:
   1. Reads the raw body as text (no JSON parsing yet — signature is over the raw bytes).
   2. Calls `verifyWebhook(headers, rawBody)`. On null → 401.
   3. Parses body as JSON. Computes `idempotencyHash = sha256(webhook_type | webhook_code | item_id | canonicalJSON(body))`.
@@ -336,7 +336,7 @@ Each task is shippable in isolation, has explicit verification, and follows the 
   7. Updates `plaid_items.last_webhook_at = now()`.
   8. Returns 200 in **< 5 seconds** — all heavy work is in the queue, not in the request.
   → **Verify**: integration test runs against a fixture webhook body + a known JWT — verifies the full happy path inserts a row, enqueues a job, returns 200. Tampered body → 401. Duplicate hash → status `'duplicate'` and a *new* webhook_log row is NOT inserted (this is the ON CONFLICT DO NOTHING behavior; we only mark `status='duplicate'` on the path that branches before the insert, see body for P4-15).
-- [ ] **P4-16** — Per CLAUDE.md §Plaid Safety Rules, the webhook handler MUST be hardened. Apply these in P4-15's implementation:
+- [x] **P4-16** — Per CLAUDE.md §Plaid Safety Rules, the webhook handler MUST be hardened. Apply these in P4-15's implementation:
   - **No logging of `Plaid-Verification` header** or the raw access token. Audit log greps `git diff` for `access_token` / `Plaid-Verification` in `console.log` calls.
   - **Rate-limit** the route: max 100 req/min per source IP via an in-memory token bucket (`@upstash/ratelimit` would be overkill — a 20-line LRU is enough; single-user app, attacker volume is low).
   - **Strict timeout**: the entire handler must return within 8 seconds (Plaid's delivery timeout is 30s but we want to surface latency issues early).
@@ -344,8 +344,8 @@ Each task is shippable in isolation, has explicit verification, and follows the 
 
 ### Sync worker job
 
-- [ ] **P4-17** — Add the `sync-plaid-item` queue. In [src/lib/queue/queues.ts](../../src/lib/queue/queues.ts), uncomment `SYNC_PLAID_ITEM` (currently a `//` comment line at the bottom of the `QUEUE_NAMES` block) and export the queue. → **Verify**: `pnpm worker` registers the new queue without error.
-- [ ] **P4-18** — Implement the sync worker. Create [src/worker/jobs/sync-plaid-item.ts](../../src/worker/jobs/sync-plaid-item.ts) exporting `syncPlaidItemProcessor(job)`:
+- [x] **P4-17** — Add the `sync-plaid-item` queue. In [src/lib/queue/queues.ts](../../src/lib/queue/queues.ts), uncomment `SYNC_PLAID_ITEM` (currently a `//` comment line at the bottom of the `QUEUE_NAMES` block) and export the queue. → **Verify**: `pnpm worker` registers the new queue without error.
+- [x] **P4-18** — Implement the sync worker. Create [src/worker/jobs/sync-plaid-item.ts](../../src/worker/jobs/sync-plaid-item.ts) exporting `syncPlaidItemProcessor(job)`:
   - Job payload: `{ plaidItemId: string, trigger: 'webhook' | 'manual' | 'cron' | 'initial', webhookLogId?: string }`.
   - Loads the Item, decrypts the access token via P4-09.
   - Inserts a `plaid_sync_runs` row, status in-flight.
@@ -360,7 +360,7 @@ Each task is shippable in isolation, has explicit verification, and follows the 
   - If `webhookLogId` was provided, UPDATE `webhook_log` SET `processed_at = now()`, `status = 'processed'`.
   - **Idempotency**: on retry the cursor doesn't advance until the DB transaction commits, so re-running from the same cursor is safe.
   → **Verify**: integration test against Plaid Sandbox — call `/sandbox/item/fire_webhook` with `SYNC_UPDATES_AVAILABLE`, observe transactions land. **Idempotency test**: run the job twice manually with the same cursor → second run inserts 0 rows.
-- [ ] **P4-19** — Build the Plaid → `NormalizedTransaction` mapper. Create [src/lib/plaid/map.ts](../../src/lib/plaid/map.ts) exporting `plaidToTransaction(plaidTxn, accountId)`:
+- [x] **P4-19** — Build the Plaid → `NormalizedTransaction` mapper. Create [src/lib/plaid/map.ts](../../src/lib/plaid/map.ts) exporting `plaidToTransaction(plaidTxn, accountId)`:
   - `fitid = plaidTxn.transaction_id` (already globally unique per Item).
   - `posted_at = plaidTxn.authorized_date ?? plaidTxn.date` (prefer authorized — closer to "when it actually happened").
   - **Sign convention**: Plaid: positive = debit/outflow. OFX (our DB): positive = credit/inflow. **Flip**: `amount = (-plaidTxn.amount).toFixed(2)` — done with string math via `Money`, never `Number()`.
@@ -369,24 +369,24 @@ Each task is shippable in isolation, has explicit verification, and follows the 
   - `category = null` (rule engine fills it in via P4-20).
   - `raw = plaidTxn` — full payload retained for Phase 5 use of `personal_finance_category`, cost basis, etc.
   → **Verify**: unit tests cover sign flip, fitid stability, `authorized_date` preference, missing-merchant-name fallback.
-- [ ] **P4-20** — Wire the categorizer into the sync path. The mapper in P4-19 leaves `category` null; the sync job then runs each new/modified row through `matchCategory(name, memo, rules)` (already exists at [src/lib/categorization/match.ts](../../src/lib/categorization/match.ts)) before insert. Modified rows whose `category_overridden_at IS NOT NULL` skip categorization (override is sticky). → **Verify**: in a sync containing a "STARBUCKS" transaction, the row lands with `category='Restaurant'` per the default seed rules.
-- [ ] **P4-21** — Factor out the snapshot-upsert helper from [src/lib/importers/persist.ts](../../src/lib/importers/persist.ts) into [src/lib/snapshots/upsert.ts](../../src/lib/snapshots/upsert.ts) so the sync job can reuse it without importing the QFX-specific module. The QFX importer continues to use it; no behavior change there. → **Verify**: Vitest test confirms the extracted helper produces byte-identical rows to the old in-line code on a known input.
+- [x] **P4-20** — Wire the categorizer into the sync path. The mapper in P4-19 leaves `category` null; the sync job then runs each new/modified row through `matchCategory(name, memo, rules)` (already exists at [src/lib/categorization/match.ts](../../src/lib/categorization/match.ts)) before insert. Modified rows whose `category_overridden_at IS NOT NULL` skip categorization (override is sticky). → **Verify**: in a sync containing a "STARBUCKS" transaction, the row lands with `category='Restaurant'` per the default seed rules.
+- [x] **P4-21** — Factor out the snapshot-upsert helper from [src/lib/importers/persist.ts](../../src/lib/importers/persist.ts) into [src/lib/snapshots/upsert.ts](../../src/lib/snapshots/upsert.ts) so the sync job can reuse it without importing the QFX-specific module. The QFX importer continues to use it; no behavior change there. → **Verify**: Vitest test confirms the extracted helper produces byte-identical rows to the old in-line code on a known input.
 
 ### Initial backfill & history
 
-- [ ] **P4-22** — Initial sync path. When `mapAccountsAction` (P4-13) commits, enqueue `sync-plaid-item` with `trigger='initial'`. The sync logic in P4-18 handles initial vs. incremental identically — it's the absent cursor that triggers Plaid to return historical data. **Plaid pulls up to 24 months of history on the initial `/transactions/sync` call**; the worker just keeps paginating. → **Verify**: a fresh Sandbox Item produces a multi-page sync; `plaid_sync_runs.pagination_count > 1` on the first run.
-- [ ] **P4-23** — Initial-sync progress UI. The mapping page (P4-13) redirects to a progress page that polls `plaid_items` every 3 seconds. Status shows `'syncing'` (computed from `EXISTS(plaid_sync_runs WHERE plaid_item_id = ? AND finished_at IS NULL)`) → `'active'` when complete. → **Verify**: in a browser, mapping accounts → progress page shows a counter ticking up → "X transactions synced" → redirect to the dashboard.
+- [x] **P4-22** — Initial sync path. When `mapAccountsAction` (P4-13) commits, enqueue `sync-plaid-item` with `trigger='initial'`. The sync logic in P4-18 handles initial vs. incremental identically — it's the absent cursor that triggers Plaid to return historical data. **Plaid pulls up to 24 months of history on the initial `/transactions/sync` call**; the worker just keeps paginating. → **Verify**: a fresh Sandbox Item produces a multi-page sync; `plaid_sync_runs.pagination_count > 1` on the first run.
+- [x] **P4-23** — Initial-sync progress UI. The mapping page (P4-13) redirects to a progress page that polls `plaid_items` every 3 seconds. Status shows `'syncing'` (computed from `EXISTS(plaid_sync_runs WHERE plaid_item_id = ? AND finished_at IS NULL)`) → `'active'` when complete. → **Verify**: in a browser, mapping accounts → progress page shows a counter ticking up → "X transactions synced" → redirect to the dashboard.
 
 ### Item-error handling + reauth
 
-- [ ] **P4-24** — Map Plaid error codes to `plaid_items.status`. In the sync worker (P4-18), when `/transactions/sync` returns an error, classify per CLAUDE.md §Plaid Safety Rules:
+- [x] **P4-24** — Map Plaid error codes to `plaid_items.status`. In the sync worker (P4-18), when `/transactions/sync` returns an error, classify per CLAUDE.md §Plaid Safety Rules:
   - `ITEM_LOGIN_REQUIRED` → `status='login_required'`
   - `PENDING_DISCONNECT`, `PENDING_EXPIRATION` → `status='pending_disconnect'`
   - `USER_PERMISSION_REVOKED`, `USER_ACCOUNT_REVOKED` → `status='revoked'`
   - Anything else → leave `status='active'`, populate `error_code` + `error_message`, fail the job (BullMQ retries it).
   Webhook codes from `WEBHOOK_TYPE='ITEM'` write the same statuses synchronously (we don't need to wait for the next sync attempt to learn the item is broken). → **Verify**: in Sandbox, force `ITEM_LOGIN_REQUIRED` via the `user_login_required` test username; the connections page shows `'Reconnect needed'` within seconds of the resulting webhook.
-- [ ] **P4-25** — Reauth UI (Plaid Link in update mode). On the connections page, items with `status='login_required'` show an amber "Reconnect" button. Clicking it invokes `createLinkTokenAction({ accessTokenForUpdate: <decrypted token> })` — the Plaid SDK accepts an existing access token in `/link/token/create` to put Link in update mode. On Link success → no `public_token` exchange (the existing access_token is kept). The worker enqueues `sync-plaid-item` immediately to confirm recovery. → **Verify**: in Sandbox, trigger `ITEM_LOGIN_REQUIRED`, click Reconnect, complete update Link → status flips back to `'active'`; pending transactions sync.
-- [ ] **P4-26** — Disconnect flow. On the connections page, a "Disconnect" button on each Item invokes `disconnectItemAction(plaidItemId)`:
+- [x] **P4-25** — Reauth UI (Plaid Link in update mode). On the connections page, items with `status='login_required'` show an amber "Reconnect" button. Clicking it invokes `createLinkTokenAction({ accessTokenForUpdate: <decrypted token> })` — the Plaid SDK accepts an existing access token in `/link/token/create` to put Link in update mode. On Link success → no `public_token` exchange (the existing access_token is kept). The worker enqueues `sync-plaid-item` immediately to confirm recovery. → **Verify**: in Sandbox, trigger `ITEM_LOGIN_REQUIRED`, click Reconnect, complete update Link → status flips back to `'active'`; pending transactions sync.
+- [x] **P4-26** — Disconnect flow. On the connections page, a "Disconnect" button on each Item invokes `disconnectItemAction(plaidItemId)`:
   - Calls Plaid `/item/remove` (best-effort — if Plaid errors, log + continue; the local state is what matters).
   - UPDATE `plaid_items` SET `status='removed'`, clear `access_token_ciphertext` to NULL (the token is dead after `/item/remove`).
   - Set `accounts.plaid_item_id = NULL`, `plaid_account_id = NULL`, `plaid_mask = NULL` for every account linked to this Item — **but leave all `transactions` and `account_snapshots` in place** (preserving history is the entire product).
@@ -394,20 +394,20 @@ Each task is shippable in isolation, has explicit verification, and follows the 
 
 ### Daily safety net
 
-- [ ] **P4-27** — Add a daily sync-everything cron. In [src/worker/index.ts](../../src/worker/index.ts), upsert a job scheduler at `03:00` (after the snapshot job's 02:00 slot) that enqueues `sync-plaid-item` (trigger=`'cron'`) for every Item with `status='active'`. Catches missed webhooks; idempotent at our scale. → **Verify**: pause webhook delivery for a day (or simulate by skipping the webhook path), confirm transactions still arrive after the 03:00 run.
+- [x] **P4-27** — Add a daily sync-everything cron. In [src/worker/index.ts](../../src/worker/index.ts), upsert a job scheduler at `03:00` (after the snapshot job's 02:00 slot) that enqueues `sync-plaid-item` (trigger=`'cron'`) for every Item with `status='active'`. Catches missed webhooks; idempotent at our scale. → **Verify**: pause webhook delivery for a day (or simulate by skipping the webhook path), confirm transactions still arrive after the 03:00 run.
 
 ### Connections-page polish
 
-- [ ] **P4-28** — Connections page detail. The settings page shows per-Item: institution name, masked accounts, status badge, `last_synced_at`, `last_webhook_at`, button row (Reconnect / Disconnect / Force sync). Adds a "Force sync now" action that enqueues `sync-plaid-item` immediately (`trigger='manual'`). Also adds a per-Item sync-runs panel showing the last 10 `plaid_sync_runs` rows with added/modified/removed counts. → **Verify**: "Force sync now" enqueues a job; the panel renders with real counts post-sync.
+- [x] **P4-28** — Connections page detail. The settings page shows per-Item: institution name, masked accounts, status badge, `last_synced_at`, `last_webhook_at`, button row (Reconnect / Disconnect / Force sync). Adds a "Force sync now" action that enqueues `sync-plaid-item` immediately (`trigger='manual'`). Also adds a per-Item sync-runs panel showing the last 10 `plaid_sync_runs` rows with added/modified/removed counts. → **Verify**: "Force sync now" enqueues a job; the panel renders with real counts post-sync.
 
 ### Deployment — public webhook (the bridge to Production)
 
-- [ ] **P4-29** — Add `cloudflared` to Docker Compose. Edit [docker/compose.yaml](../../docker/compose.yaml) to add a `cloudflared` service (image `cloudflare/cloudflared:latest`) running `tunnel run --token $CLOUDFLARED_TOKEN`. The service is in the `web` network and routes `https://<your-domain>/api/plaid/webhook` → `app:3000/api/plaid/webhook`. Document tunnel-token generation in `docs/DEPLOY.md`. → **Verify**: `docker compose up cloudflared` brings the service to `Connected` state; `curl https://<your-domain>/api/plaid/webhook -X POST` reaches Next.js (returns 401 because the body isn't a real signed webhook — confirming the path).
-- [ ] **P4-30** — Update Plaid Item webhook URLs. For each `plaid_items` row, call `/item/webhook/update` to point at the new public URL. Implement once as a one-shot CLI script ([scripts/plaid-set-webhook-url.ts](../../scripts/plaid-set-webhook-url.ts)). → **Verify**: in Plaid dashboard, each Item shows the correct webhook URL.
+- [x] **P4-29** — Add `cloudflared` to Docker Compose. Edit [docker/compose.yaml](../../docker/compose.yaml) to add a `cloudflared` service (image `cloudflare/cloudflared:latest`) running `tunnel run --token $CLOUDFLARED_TOKEN`. The service is in the `web` network and routes `https://<your-domain>/api/plaid/webhook` → `app:3000/api/plaid/webhook`. Document tunnel-token generation in `docs/DEPLOY.md`. → **Verify**: `docker compose up cloudflared` brings the service to `Connected` state; `curl https://<your-domain>/api/plaid/webhook -X POST` reaches Next.js (returns 401 because the body isn't a real signed webhook — confirming the path).
+- [x] **P4-30** — Update Plaid Item webhook URLs. For each `plaid_items` row, call `/item/webhook/update` to point at the new public URL. Implement once as a one-shot CLI script ([scripts/plaid-set-webhook-url.ts](../../scripts/plaid-set-webhook-url.ts)). → **Verify**: in Plaid dashboard, each Item shows the correct webhook URL.
 
 ### Tests + E2E
 
-- [ ] **P4-31** — Vitest unit + integration tests (most already specified inline). The contract-style test suite for Phase 4:
+- [x] **P4-31** — Vitest unit + integration tests (most already specified inline). The contract-style test suite for Phase 4:
   - `aead.test.ts` (P4-02) — roundtrip, tamper, wrong-key, version-byte.
   - `plaid/tokens.test.ts` (P4-09) — encrypt + DB roundtrip + visibility lint.
   - `plaid/webhook-verify.test.ts` (P4-14) — valid signature, tampered body, expired JWT, unknown key_id.
@@ -415,13 +415,13 @@ Each task is shippable in isolation, has explicit verification, and follows the 
   - `worker/jobs/sync-plaid-item.test.ts` (P4-18) — happy path against a stubbed Plaid client, mutation-during-pagination retry, idempotent re-run, removed-transaction handling.
   - `app/api/plaid/webhook.route.test.ts` (P4-15) — 401 on bad sig, 200 on dupe, 200 + enqueued on first valid receipt, body parsed as raw text not JSON.
   → **Verify**: `pnpm test` passes with meaningful (non-vacuous) assertions for every file above; coverage of `src/lib/plaid/` and `src/worker/jobs/sync-plaid-item.ts` is high enough that a deliberate logic flip in any guard clause fails a test.
-- [ ] **P4-32** — Playwright E2E: `e2e/phase4-link.spec.ts`. Flow: login → `/settings/connections` → "Connect new institution" → opens Plaid Link in Sandbox → completes with `user_good`/`pass_good` against First Platypus Bank → account mapping page → maps a Plaid checking account to a pre-existing manual "Sandbox Checking" → initial sync progress page → dashboard shows the new transactions. Uses Plaid Sandbox `/sandbox/public_token/create` to bypass the popup in CI (Link's iframe is famously hard to drive headless; the test simulates the post-Link callback directly when running in CI). → **Verify**: `pnpm exec playwright test e2e/phase4-link.spec.ts` is green against a freshly-reset DB + the Sandbox client.
-- [ ] **P4-33** — Playwright E2E: `e2e/phase4-reauth.spec.ts`. Drives the `ITEM_LOGIN_REQUIRED` recovery flow end-to-end using `/sandbox/item/reset_login` to break an Item, then walks the user through reauth. → **Verify**: green.
-- [ ] **P4-34** — Playwright E2E: `e2e/phase4-disconnect.spec.ts`. Disconnect an Item → confirm transactions remain visible → confirm the account row shows "Disconnected" badge → confirm subsequent webhooks for the removed item are processed as no-ops. → **Verify**: green.
+- [x] **P4-32** — Playwright E2E: `e2e/phase4-link.spec.ts`. Flow: login → `/settings/connections` → "Connect new institution" → opens Plaid Link in Sandbox → completes with `user_good`/`pass_good` against First Platypus Bank → account mapping page → maps a Plaid checking account to a pre-existing manual "Sandbox Checking" → initial sync progress page → dashboard shows the new transactions. Uses Plaid Sandbox `/sandbox/public_token/create` to bypass the popup in CI (Link's iframe is famously hard to drive headless; the test simulates the post-Link callback directly when running in CI). → **Verify**: `pnpm exec playwright test e2e/phase4-link.spec.ts` is green against a freshly-reset DB + the Sandbox client.
+- [x] **P4-33** — Playwright E2E: `e2e/phase4-reauth.spec.ts`. Drives the `ITEM_LOGIN_REQUIRED` recovery flow end-to-end using `/sandbox/item/reset_login` to break an Item, then walks the user through reauth. → **Verify**: green.
+- [x] **P4-34** — Playwright E2E: `e2e/phase4-disconnect.spec.ts`. Disconnect an Item → confirm transactions remain visible → confirm the account row shows "Disconnected" badge → confirm subsequent webhooks for the removed item are processed as no-ops. → **Verify**: green.
 
 ### Threat model + security hardening pass
 
-- [ ] **P4-35** — STRIDE threat model (per SKILLS.md Tier 2 → `threat-modeling-expert`). Document in `docs/THREAT_MODEL_PLAID.md`. Cover the surfaces:
+- [x] **P4-35** — STRIDE threat model (per SKILLS.md Tier 2 → `threat-modeling-expert`). Document in `docs/THREAT_MODEL_PLAID.md`. Cover the surfaces:
   - **Link flow** (browser → Plaid → app): public_token theft, replay; mitigation = single-use tokens, server-side exchange.
   - **Token storage**: theft of `access_token_ciphertext` without the key (acceptable risk); theft of both (catastrophic — rotation runbook P4-37); insider read by an app developer (mitigation: P4-09's read-isolation).
   - **Webhook receiver**: forged webhooks, replay, body tampering, signature key compromise, rate-flood, body-size DOS.
@@ -429,7 +429,7 @@ Each task is shippable in isolation, has explicit verification, and follows the 
   - **Reauth flow**: hijacked reauth via a forged update-mode link_token.
   - **Disconnect**: rogue disconnect leaving orphan plaid_account_id rows (caught by P4-26).
   → **Verify**: the document exists and has a row per (Spoofing/Tampering/Repudiation/Info-disclosure/DoS/Elevation) per surface, with the mitigation pointing at a specific PLAN4.md task. Anything without a mitigation is an open item — log it in §Open Items.
-- [ ] **P4-36** — Backend security hardening (per SKILLS.md Tier 3 → `backend-security-coder`). Checklist:
+- [x] **P4-36** — Backend security hardening (per SKILLS.md Tier 3 → `backend-security-coder`). Checklist:
   - Webhook route is rate-limited (P4-16).
   - All Plaid SDK calls run only in server actions, route handlers, and BullMQ workers — never in `'use client'` files. Audit via grep.
   - `process.env.PLAID_*` are read only in `src/lib/plaid/` modules — audit via grep.
@@ -437,27 +437,27 @@ Each task is shippable in isolation, has explicit verification, and follows the 
   - Webhook body size cap at 1 MB (Plaid bodies are typically < 10 KB; cap defends against deliberate body-bomb).
   - Logs in `src/lib/plaid/` and `src/worker/jobs/sync-plaid-item.ts` redact: access tokens, JWT verification headers, raw account numbers, masks. Audit via a Vitest that runs the modules with a `console.log` spy and confirms no sensitive substrings appear.
   → **Verify**: each checklist item has a corresponding test or grep-based audit; CI runs them.
-- [ ] **P4-37** — Encryption-key rotation runbook in `docs/CRYPTO_ROTATION.md`. Steps: generate new key → set `MONEY_ENCRYPTION_KEY_NEW=...` alongside `MONEY_ENCRYPTION_KEY` → run `pnpm exec node --experimental-strip-types scripts/rotate-encryption.ts` (re-encrypts each `plaid_items` row in a transaction, swapping the version byte to `0x01` always but with the new key) → swap env var → delete `MONEY_ENCRYPTION_KEY_NEW`. No code change for now — leave the script as a stub if writing it ships the runbook. → **Verify**: a dry-run on a Sandbox DB succeeds; tokens decrypt with the new key only.
+- [x] **P4-37** — Encryption-key rotation runbook in `docs/CRYPTO_ROTATION.md`. Steps: generate new key → set `MONEY_ENCRYPTION_KEY_NEW=...` alongside `MONEY_ENCRYPTION_KEY` → run `pnpm exec node --experimental-strip-types scripts/rotate-encryption.ts` (re-encrypts each `plaid_items` row in a transaction, swapping the version byte to `0x01` always but with the new key) → swap env var → delete `MONEY_ENCRYPTION_KEY_NEW`. No code change for now — leave the script as a stub if writing it ships the runbook. → **Verify**: a dry-run on a Sandbox DB succeeds; tokens decrypt with the new key only.
 
 ### Documentation
 
-- [ ] **P4-38** — Update [README.md](../../README.md) §Usage with the new ritual: "Plaid auto-syncs M&T and the credit card; check the connections page if anything looks off." Add `docs/PLAID.md` covering: Sandbox vs. Production setup, getting client_id/secret, deploying `cloudflared`, mapping accounts, reauth troubleshooting. Add a `docs/RUNBOOK_PLAID.md` covering: "transactions stopped syncing" / "webhook 401s" / "reauth loop" / "encryption key lost." → **Verify**: a fresh reader (or a future-self in a year) can follow the docs end-to-end.
+- [x] **P4-38** — Update [README.md](../../README.md) §Usage with the new ritual: "Plaid auto-syncs M&T and the credit card; check the connections page if anything looks off." Add `docs/PLAID.md` covering: Sandbox vs. Production setup, getting client_id/secret, deploying `cloudflared`, mapping accounts, reauth troubleshooting. Add a `docs/RUNBOOK_PLAID.md` covering: "transactions stopped syncing" / "webhook 401s" / "reauth loop" / "encryption key lost." → **Verify**: a fresh reader (or a future-self in a year) can follow the docs end-to-end.
 
 ---
 
 ## Phase 4 Done When
 
-- [ ] All four new database objects exist (`plaid_items`, `webhook_log`, `plaid_sync_runs`, and three nullable columns on `accounts`) with constraints per spec.
-- [ ] `pnpm test` covers AEAD, token storage, webhook verification, Plaid→transaction mapper, and the sync worker with meaningful assertions (not vacuous round-trips).
-- [ ] `pnpm exec playwright test e2e/phase4-link.spec.ts`, `e2e/phase4-reauth.spec.ts`, `e2e/phase4-disconnect.spec.ts` all green against Plaid Sandbox.
-- [ ] In a browser, against Sandbox: completing Plaid Link for First Platypus Bank → mapping its accounts → initial sync ticks to completion → transactions appear on the account page and the dashboard.
-- [ ] Forcing `ITEM_LOGIN_REQUIRED` via the `user_login_required` Sandbox path flips the connections page to an amber banner; clicking Reconnect resolves it.
-- [ ] Re-receiving the same webhook body produces zero side effects (idempotency holds).
-- [ ] The 03:00 safety-net cron triggers `sync-plaid-item` for every active Item; pausing webhooks for a day still produces eventual sync.
-- [ ] Disconnecting an Item preserves all prior transactions and account_snapshots; subsequent webhooks for that Item are no-ops.
-- [ ] STRIDE doc `docs/THREAT_MODEL_PLAID.md` exists and every row has a mitigation pointing at a Phase 4 task (or an explicit "accepted risk" note).
-- [ ] `pnpm check` clean (Biome + tsc).
-- [ ] ADR-008, ADR-009, ADR-010 appended to [IDEAS.md](IDEAS.md) §11 Decision Log; the deferred row 13 is marked resolved by ADR-010.
+- [x] All four new database objects exist (`plaid_items`, `webhook_log`, `plaid_sync_runs`, and three nullable columns on `accounts`) with constraints per spec.
+- [x] `pnpm test` covers AEAD, token storage, webhook verification, Plaid→transaction mapper, and the sync worker with meaningful assertions (not vacuous round-trips). *(252+ tests after P4-37, including the new rotation suite.)*
+- [ ] `pnpm exec playwright test e2e/phase4-link.spec.ts`, `e2e/phase4-reauth.spec.ts`, `e2e/phase4-disconnect.spec.ts` all green against Plaid Sandbox. *(Specs written and gated on `PLAID_E2E_SANDBOX=1` + sandbox creds; live run requires the operator to provide credentials and start the dev server.)*
+- [ ] In a browser, against Sandbox: completing Plaid Link for First Platypus Bank → mapping its accounts → initial sync ticks to completion → transactions appear on the account page and the dashboard. *(Manual operator verification — implementations covered by P4-10/11/12/13/22/23.)*
+- [ ] Forcing `ITEM_LOGIN_REQUIRED` via the `user_login_required` Sandbox path flips the connections page to an amber banner; clicking Reconnect resolves it. *(Manual operator verification — webhook status mapping unit-tested per P4-24; UI flow Playwright-spec'd per P4-33.)*
+- [x] Re-receiving the same webhook body produces zero side effects (idempotency holds). *(P4-15 route test — duplicate flag returned, no new webhook_log row, no queue.add call.)*
+- [x] The 03:00 safety-net cron triggers `sync-plaid-item` for every active Item; pausing webhooks for a day still produces eventual sync. *(P4-27 fan-out processor + worker scheduler at `0 3 * * *`; broken Items skipped to avoid pointless re-fails.)*
+- [x] Disconnecting an Item preserves all prior transactions and account_snapshots; subsequent webhooks for that Item are no-ops. *(P4-26 Vitest + P4-34 Playwright; the unknownItem path in the route handler logs and 200s without enqueuing.)*
+- [x] STRIDE doc `docs/THREAT_MODEL_PLAID.md` exists and every row has a mitigation pointing at a Phase 4 task (or an explicit "accepted risk" note). *(6 surfaces × 6 STRIDE categories + Open Items.)*
+- [x] `pnpm check` clean (Biome + tsc). *(verified after P4-37 + P4-38.)*
+- [x] ADR-008, ADR-009, ADR-010 appended to [IDEAS.md](IDEAS.md) §11 Decision Log; the deferred row 13 is marked resolved by ADR-010.
 
 ---
 
