@@ -22,7 +22,10 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "plaid:ping": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/plaid-ping.ts",
+    "plaid:set-webhook-url": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/plaid-set-webhook-url.ts",
+    "plaid:rotate-key": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/rotate-encryption.ts"
   },
   "dependencies": {
     "@node-rs/argon2": "2.0.2",
