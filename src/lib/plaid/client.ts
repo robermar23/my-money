@@ -87,3 +87,16 @@ export const plaidClient: PlaidApi = new Proxy({} as PlaidApi, {
 export function plaidEnvironment(): PlaidEnv {
   return readEnv().env;
 }
+
+/**
+ * Resolve the configured public webhook URL Plaid should POST to.
+ *
+ * Centralized here so `PLAID_WEBHOOK_URL` is read only from `src/lib/plaid/`
+ * — the P4-36 hardening audit greps for env reads outside this directory.
+ * Returns `undefined` when unset (local dev without a tunnel — Plaid Link
+ * still works; webhooks just don't deliver).
+ */
+export function plaidWebhookUrl(): string | undefined {
+  const raw = process.env.PLAID_WEBHOOK_URL?.trim();
+  return raw && raw.length > 0 ? raw : undefined;
+}
