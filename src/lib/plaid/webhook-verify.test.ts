@@ -12,6 +12,7 @@ const mockKeyGet = vi.fn();
 vi.mock("@/lib/plaid/client.ts", () => ({
   plaidClient: { webhookVerificationKeyGet: mockKeyGet },
   plaidEnvironment: () => "sandbox",
+  plaidWebhookUrl: () => undefined,
 }));
 
 const { verifyWebhook, sha256Hex, _resetKeyCacheForTests } = await import("./webhook-verify.ts");

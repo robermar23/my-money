@@ -23,6 +23,7 @@ const mockSync = vi.fn();
 vi.mock("@/lib/plaid/client.ts", () => ({
   plaidClient: { transactionsSync: mockSync },
   plaidEnvironment: () => "sandbox",
+  plaidWebhookUrl: () => undefined,
 }));
 
 // Auto-seed default category rules into a clean state at the start of each
