@@ -40,6 +40,7 @@ const mockPlaid = {
 vi.mock("@/lib/plaid/client.ts", () => ({
   plaidClient: mockPlaid,
   plaidEnvironment: () => "sandbox",
+  plaidWebhookUrl: () => undefined,
 }));
 
 const redirectMock = vi.fn((path: string) => {

@@ -4,7 +4,7 @@ import { db } from "@/db/client.ts";
 import { plaidItems } from "@/db/schema/index.ts";
 import { accounts } from "@/db/schema/index.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
-import { plaidClient } from "@/lib/plaid/client.ts";
+import { plaidClient, plaidWebhookUrl } from "@/lib/plaid/client.ts";
 import { clearAccessToken, createPlaidItem, loadAccessToken } from "@/lib/plaid/tokens.ts";
 import { syncPlaidItemQueue } from "@/lib/queue/queues.ts";
 import { eq } from "drizzle-orm";
@@ -51,7 +51,7 @@ export async function createLinkTokenAction(
 
   const accessToken = options?.plaidItemPk ? await loadAccessToken(options.plaidItemPk) : undefined;
 
-  const webhook = process.env.PLAID_WEBHOOK_URL?.trim() || undefined;
+  const webhook = plaidWebhookUrl();
 
   const request: LinkTokenCreateRequest = {
     client_name: "my-money",
