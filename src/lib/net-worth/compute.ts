@@ -102,7 +102,22 @@ export async function computeNetWorth(
       .orderBy(desc(accountSnapshots.date))
       .limit(1);
 
-    if (!latest) continue;
+    // Plaid-linked accounts get a zero-balance line immediately after mapping,
+    // so the user can see what they just created while the initial sync runs.
+    // Pure-manual accounts continue to be hidden until a balance is entered —
+    // they shouldn't clutter the dashboard with empty rows.
+    if (!latest) {
+      if (account.plaidItemId) {
+        items.push({
+          accountId: account.id,
+          accountName: account.name,
+          accountType: account.type,
+          currency: account.currency,
+          balance: Money.zero(account.currency),
+        });
+      }
+      continue;
+    }
 
     items.push({
       accountId: account.id,
