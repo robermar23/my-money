@@ -6,5 +6,8 @@
 
 html,
 body {
-  height: 100%;
+  /* min-height (not height) so the body grows past the viewport when content
+   * overflows — otherwise pages with long forms (e.g. /settings/connections/
+   * <id>/map with 12 Plaid accounts) get clipped and become unscrollable. */
+  min-height: 100%;
 }
