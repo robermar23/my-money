@@ -20,6 +20,7 @@ const mockKeyGet = vi.fn();
 vi.mock("@/lib/plaid/client.ts", () => ({
   plaidClient: { webhookVerificationKeyGet: mockKeyGet },
   plaidEnvironment: () => "sandbox",
+  plaidWebhookUrl: () => undefined,
 }));
 
 interface AddJobArgs {
