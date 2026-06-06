@@ -23,6 +23,9 @@ export function AppNav(): React.JSX.Element {
           <Link href="/settings/categories" className="hover:underline">
             Categories
           </Link>
+          <Link href="/settings/connections" className="hover:underline">
+            Connections
+          </Link>
           <form action="/logout" method="post">
             <button
               type="submit"

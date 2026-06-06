@@ -34,7 +34,12 @@ export function ProgressPanel({ plaidItemPk }: Props): React.JSX.Element {
         const snap = await getSyncProgressAction(plaidItemPk);
         if (cancelled) return;
         setSnapshot(snap);
-        if (snap.status === "syncing") {
+        // 'active' with NO prior sync run means the worker hasn't picked up the
+        // enqueued job yet (worker not running, or just slow to pull). Keep
+        // polling instead of bouncing to the dashboard — otherwise the user
+        // lands on an empty dashboard with no idea their accounts exist.
+        const waitingForWorker = snap.status === "active" && snap.latestRun === null;
+        if (snap.status === "syncing" || waitingForWorker) {
           timer = setTimeout(tick, POLL_INTERVAL_MS);
         } else if (snap.status === "active") {
           // Terminal happy path — let the user see "X synced" then redirect.
@@ -72,14 +77,32 @@ export function ProgressPanel({ plaidItemPk }: Props): React.JSX.Element {
     return <p className="text-sm text-zinc-500">Starting sync…</p>;
   }
 
+  const waitingForWorker = snapshot.status === "active" && snapshot.latestRun === null;
+
   return (
     <div className="rounded-lg border border-zinc-200 p-5 dark:border-zinc-800">
       <div className="flex items-center gap-3">
-        <StatusBadge status={snapshot.status} />
+        <StatusBadge status={waitingForWorker ? "syncing" : snapshot.status} />
         <span className="text-sm text-zinc-500">
-          {snapshot.status === "syncing" ? "Polling every 3s" : "Up to date"}
+          {waitingForWorker
+            ? "Waiting for the worker to pick up the job…"
+            : snapshot.status === "syncing"
+              ? "Polling every 3s"
+              : "Up to date"}
         </span>
       </div>
+
+      {waitingForWorker && (
+        <p className="mt-4 rounded bg-amber-50 px-3 py-2 text-amber-900 text-xs dark:bg-amber-950 dark:text-amber-200">
+          The BullMQ worker hasn't picked up the initial-sync job yet. Make sure{" "}
+          <code className="font-mono">pnpm worker</code> is running in a separate terminal. The
+          accounts you mapped already exist — visit{" "}
+          <a href="/accounts" className="underline">
+            /accounts
+          </a>{" "}
+          to see them while you wait.
+        </p>
+      )}
 
       <div className="mt-4">
         <p className="font-semibold text-3xl tracking-tight">
@@ -109,7 +132,7 @@ export function ProgressPanel({ plaidItemPk }: Props): React.JSX.Element {
         </p>
       )}
 
-      {snapshot.status === "active" && (
+      {snapshot.status === "active" && !waitingForWorker && (
         <p className="mt-4 text-emerald-700 text-sm dark:text-emerald-300">
           Sync complete — redirecting to the dashboard…
         </p>
