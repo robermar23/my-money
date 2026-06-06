@@ -2,7 +2,7 @@ import "server-only";
 
 import { type Db, db } from "@/db/client.ts";
 import { plaidItems } from "@/db/schema/index.ts";
-import { decrypt, encrypt } from "@/lib/crypto/aead.ts";
+import { decrypt, decryptWithKey, encrypt, encryptWithKey } from "@/lib/crypto/aead.ts";
 import { eq } from "drizzle-orm";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -164,17 +164,55 @@ export async function clearAccessToken(plaidItemPk: string): Promise<void> {
 }
 
 /**
- * Re-encrypt every stored access token from `oldKey` to `newKey`.
+ * P4-37 — Re-encrypt every stored access token from `oldKey` to `newKey`.
  *
- * Stub for the P4-37 key-rotation runbook. The full implementation lives in
- * `scripts/rotate-encryption.ts` and runs each row's re-encryption in a
- * single transaction so a half-rotated state cannot exist.
+ * Walks every row in `plaid_items` whose ciphertext column is non-NULL,
+ * decrypts with the *old* key, re-encrypts with the *new* key, and writes the
+ * envelope back — all inside a single DB transaction. If any row fails to
+ * decrypt (wrong old key, tampered envelope), the entire transaction rolls
+ * back; the database stays internally consistent under the *old* key.
+ *
+ * The runbook in `docs/CRYPTO_ROTATION.md` is the operator-facing wrapper;
+ * `scripts/rotate-encryption.ts` is the CLI entry point that resolves the
+ * two keys from env and calls this function.
+ *
+ * Per CLAUDE.md §Plaid Safety Rules: this function NEVER logs the keys or
+ * the decrypted token bytes. The result object only carries counts.
+ *
+ * @returns rowsRotated — the number of plaid_items rows whose ciphertext
+ *   was re-encrypted. Tombstones (status='removed' with NULL ciphertext)
+ *   are silently skipped and not counted.
  */
 export async function rotateEncryption(
-  _oldKey: Buffer,
-  _newKey: Buffer,
-): Promise<{ rowsRotated: number }> {
-  throw new Error(
-    "rotateEncryption is a P4-37 stub. Run scripts/rotate-encryption.ts when that script lands.",
-  );
+  oldKey: Buffer,
+  newKey: Buffer,
+): Promise<{ rowsRotated: number; rowsSkipped: number }> {
+  if (oldKey.length !== 32) {
+    throw new Error(`rotateEncryption: oldKey must be 32 bytes (got ${oldKey.length}).`);
+  }
+  if (newKey.length !== 32) {
+    throw new Error(`rotateEncryption: newKey must be 32 bytes (got ${newKey.length}).`);
+  }
+
+  let rowsRotated = 0;
+  let rowsSkipped = 0;
+  await db.transaction(async (tx) => {
+    const rows = await tx
+      .select({ id: plaidItems.id, ciphertext: plaidItems.accessTokenCiphertext })
+      .from(plaidItems);
+    for (const row of rows) {
+      if (!row.ciphertext) {
+        rowsSkipped++;
+        continue;
+      }
+      const plaintext = decryptWithKey(oldKey, row.ciphertext);
+      const reencrypted = encryptWithKey(newKey, plaintext);
+      await tx
+        .update(plaidItems)
+        .set({ accessTokenCiphertext: reencrypted, updatedAt: new Date() })
+        .where(eq(plaidItems.id, row.id));
+      rowsRotated++;
+    }
+  });
+  return { rowsRotated, rowsSkipped };
 }

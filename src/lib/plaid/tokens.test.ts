@@ -128,9 +128,83 @@ describe("plaid/tokens — DB roundtrip", () => {
   });
 });
 
-describe("plaid/tokens — rotateEncryption stub", () => {
-  it("throws a clear 'not yet implemented' error pointing at P4-37", async () => {
-    await expect(rotateEncryption(Buffer.alloc(32), Buffer.alloc(32))).rejects.toThrow(/P4-37/);
+describe("plaid/tokens — rotateEncryption (P4-37)", () => {
+  beforeEach(async () => {
+    await clearPlaidItems();
+  });
+
+  it("rejects keys that are not exactly 32 bytes", async () => {
+    await expect(rotateEncryption(Buffer.alloc(16), Buffer.alloc(32))).rejects.toThrow(
+      /oldKey must be 32 bytes/,
+    );
+    await expect(rotateEncryption(Buffer.alloc(32), Buffer.alloc(16))).rejects.toThrow(
+      /newKey must be 32 bytes/,
+    );
+  });
+
+  it("re-encrypts every ciphertext from the old key to the new key", async () => {
+    // Seed two rows under the env key (acts as the OLD key).
+    const idA = await insertItem({ plaidItemId: "rot-a", accessToken: "tok-A" });
+    const idB = await insertItem({ plaidItemId: "rot-b", accessToken: "tok-B" });
+
+    // The current env-loaded key is what insertItem encrypted under.
+    const { loadKey } = await import("@/lib/crypto/aead.ts");
+    const oldKey = loadKey();
+    // A distinct new key (deterministic for the test).
+    const newKey = Buffer.from(
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "hex",
+    );
+
+    const result = await rotateEncryption(oldKey, newKey);
+    expect(result.rowsRotated).toBe(2);
+    expect(result.rowsSkipped).toBe(0);
+
+    // Decrypting under the new key returns the original plaintexts.
+    const { decryptWithKey } = await import("@/lib/crypto/aead.ts");
+    const [a] = await db
+      .select({ ct: plaidItems.accessTokenCiphertext })
+      .from(plaidItems)
+      .where(eq(plaidItems.id, idA));
+    const [b] = await db
+      .select({ ct: plaidItems.accessTokenCiphertext })
+      .from(plaidItems)
+      .where(eq(plaidItems.id, idB));
+    if (!a?.ct || !b?.ct) throw new Error("ciphertext missing after rotation");
+    expect(decryptWithKey(newKey, a.ct).toString("utf8")).toBe("tok-A");
+    expect(decryptWithKey(newKey, b.ct).toString("utf8")).toBe("tok-B");
+
+    // And the OLD key no longer authenticates — proves we actually re-encrypted,
+    // not merely re-wrote the same blob.
+    expect(() => decryptWithKey(oldKey, a.ct as Buffer)).toThrow();
+  });
+
+  it("skips tombstoned rows (NULL ciphertext) and reports them in rowsSkipped", async () => {
+    const id = await insertItem({ plaidItemId: "rot-tomb", accessToken: "tok" });
+    await db
+      .update(plaidItems)
+      .set({ accessTokenCiphertext: null, status: "removed" })
+      .where(eq(plaidItems.id, id));
+
+    const { loadKey } = await import("@/lib/crypto/aead.ts");
+    const result = await rotateEncryption(loadKey(), Buffer.alloc(32, 0x42));
+    expect(result.rowsRotated).toBe(0);
+    expect(result.rowsSkipped).toBe(1);
+  });
+
+  it("rolls back the whole transaction if ANY row fails to decrypt under the old key", async () => {
+    const id = await insertItem({ plaidItemId: "rot-fail", accessToken: "tok-good" });
+
+    // The current env key is the "real" old key. We deliberately pass a WRONG
+    // old key — every decrypt should fail and the tx should roll back.
+    const wrongOldKey = Buffer.alloc(32, 0xff);
+    const newKey = Buffer.alloc(32, 0x11);
+    await expect(rotateEncryption(wrongOldKey, newKey)).rejects.toThrow();
+
+    // Sanity: the row's ciphertext is unchanged — still decryptable under the
+    // real env key.
+    const decrypted = await loadAccessToken(id);
+    expect(decrypted).toBe("tok-good");
   });
 });
 
@@ -158,6 +232,7 @@ const ALLOWLIST = new Set(
     "src/lib/plaid/tokens.test.ts", // this file
     "src/db/schema/plaid-items.ts", // declares the column
     "src/lib/crypto/aead.ts", // crypto barrier — references the column in a docstring only
+    "src/lib/plaid/hardening-audit.test.ts", // P4-36 meta-audit references the forbidden literals
   ].map((p) => p.split("/").join(sep)),
 );
 
