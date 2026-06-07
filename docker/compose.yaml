@@ -151,10 +151,15 @@ services:
     restart: unless-stopped
     # `--no-autoupdate` keeps cloudflared from restarting itself mid-webhook
     # delivery; we'd rather take updates via `docker compose pull`.
-    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARED_TOKEN}"]
+    command: ["tunnel", "--no-autoupdate", "run", "--token", "${CLOUDFLARED_TOKEN:-}"]
     environment:
-      # Crash at boot if unset rather than running a silently-broken tunnel.
-      TUNNEL_TOKEN: ${CLOUDFLARED_TOKEN:?CLOUDFLARED_TOKEN is required for the prod profile}
+      # Default to empty so data-only / dev compose commands (up, down, exec,
+      # db-reset) don't trip on this prod-only var — compose interpolates every
+      # service at parse time regardless of the active profile, so a required-
+      # or-error (`:?`) form here aborts EVERY compose subcommand when the token
+      # isn't set. With the prod profile actually selected, `cloudflared tunnel
+      # run` fails loudly on an empty token, which is the fail-fast we want.
+      TUNNEL_TOKEN: ${CLOUDFLARED_TOKEN:-}
     depends_on:
       app:
         condition: service_started
