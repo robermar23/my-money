@@ -85,6 +85,7 @@ help:
 	@echo   job-prices      Run fetch-prices-daily once (real APIs!)
 	@echo   job-heartbeat   Run heartbeat once (smoke test)
 	@echo   job-backup      Run backup-database-daily once (needs pg_dump + age)
+	@echo   job-beancount   Run export-beancount-daily once (needs BEANCOUNT_DIR set)
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -279,3 +280,8 @@ job-heartbeat:
 .PHONY: job-backup
 job-backup:
 	pnpm worker:once backup-database-daily
+
+# Requires BEANCOUNT_DIR set in .env.local (the job skips when it's unset).
+.PHONY: job-beancount
+job-beancount:
+	pnpm worker:once export-beancount-daily
