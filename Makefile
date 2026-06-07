@@ -6,12 +6,24 @@
 .DEFAULT_GOAL := help
 
 # Always run docker compose with the same compose file + env file.
-# `--env-file .env.local` is required even for the default profile because the
-# compose file declares prod-profile vars as required-or-error.
+# `--env-file .env.local` loads dev settings (DB creds, etc.); prod-only vars
+# like CLOUDFLARED_TOKEN default to empty in compose.yaml so data/dev commands
+# never require them (the prod profile fails loudly at runtime if the token is
+# missing).
 COMPOSE := docker compose -f docker/compose.yaml --env-file .env.local
 
-# Domain tables for `db-reset`. Schema stays intact; only the rows go.
-DOMAIN_TABLES := users, accounts, holdings, account_snapshots, liabilities, prices
+# Domain tables for `db-reset` — a DEV convenience that wipes rows, keeping the
+# schema. CASCADE handles children: holdings → holding_lots; accounts →
+# transactions, import_batches, investment_transactions. Listed explicitly
+# (not reached by cascading accounts): `securities` (holdings.security_id is ON
+# DELETE SET NULL) and the Plaid connection tables.
+#
+# Plaid Items ARE wiped: db-reset means "clean slate," and on a dev box the
+# same DB is shared with the test suite, which seeds Items carrying FAKE access
+# tokens — preserving those breaks the connections/map flow (INVALID_ACCESS_
+# TOKEN). Re-linking against Plaid sandbox is quick. Only `category_rules` is
+# preserved (it holds seeded defaults the app relies on).
+DOMAIN_TABLES := users, accounts, holdings, securities, plaid_items, plaid_sync_runs, webhook_log, account_snapshots, liabilities, prices
 
 # ---------------------------------------------------------------------------
 # Help (cross-platform; plain @echo lines so cmd.exe + bash both render OK)
