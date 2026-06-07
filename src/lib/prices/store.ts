@@ -2,7 +2,7 @@ import "server-only";
 
 import { db } from "@/db/client.ts";
 import { holdings, prices } from "@/db/schema/index.ts";
-import { and, desc, eq, lte } from "drizzle-orm";
+import { and, desc, eq, lte, notLike } from "drizzle-orm";
 import type { PriceQuote } from "./types.ts";
 
 /**
@@ -27,6 +27,11 @@ export async function upsertPrice(quote: PriceQuote): Promise<void> {
 /**
  * The set of (symbol, asset_class) pairs currently held across all accounts.
  * Drives the fetch-prices-daily job's work list.
+ *
+ * Synthetic `SEC:`-prefixed symbols (Plaid securities with no public ticker,
+ * P5-11) are EXCLUDED: they have no upstream price source and are valued from
+ * Plaid's `institution_price`, written into `prices` by the investments sync
+ * worker (P5-16). Sending them to Yahoo would just 404.
  */
 export interface HeldSymbol {
   readonly symbol: string;
@@ -36,7 +41,8 @@ export interface HeldSymbol {
 export async function distinctHeldSymbols(): Promise<HeldSymbol[]> {
   const rows = await db
     .selectDistinct({ symbol: holdings.symbol, assetClass: holdings.assetClass })
-    .from(holdings);
+    .from(holdings)
+    .where(notLike(holdings.symbol, "SEC:%"));
   return rows.map((r) => ({ symbol: r.symbol, assetClass: r.assetClass }));
 }
 

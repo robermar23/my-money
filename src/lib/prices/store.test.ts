@@ -79,6 +79,32 @@ describe("prices store", () => {
         { symbol: "BTC", assetClass: "crypto" },
       ]);
     });
+
+    it("excludes synthetic SEC: symbols (priced from Plaid's institution_price, not Yahoo)", async () => {
+      const [a1] = await db
+        .insert(accounts)
+        .values({ name: "B1", institution: "Fidelity", type: "investment" })
+        .returning({ id: accounts.id });
+      if (!a1) throw new Error("seed failed");
+      await db.insert(holdings).values([
+        {
+          accountId: a1.id,
+          symbol: "AAPL",
+          quantity: "10",
+          quantityUnit: "shares",
+          assetClass: "equity",
+        },
+        {
+          accountId: a1.id,
+          symbol: "SEC:plaid-proprietary-fund",
+          quantity: "100",
+          quantityUnit: "shares",
+          assetClass: "equity",
+        },
+      ]);
+      const held = await distinctHeldSymbols();
+      expect(held).toEqual([{ symbol: "AAPL", assetClass: "equity" }]);
+    });
   });
 
   describe("latestCloseOnOrBefore", () => {
