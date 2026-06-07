@@ -1,7 +1,13 @@
 "use server";
 
 import { db } from "@/db/client.ts";
-import { accountSnapshots, holdings, liabilities, transactions } from "@/db/schema/index.ts";
+import {
+  accountSnapshots,
+  holdingLots,
+  holdings,
+  liabilities,
+  transactions,
+} from "@/db/schema/index.ts";
 import { getAccount } from "@/lib/accounts/queries.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { Money } from "@/lib/money/money.ts";
@@ -11,6 +17,7 @@ import {
   recordBalanceSchema,
   recordPropertyValueSchema,
   upsertHoldingSchema,
+  upsertLotSchema,
 } from "@/lib/schemas/account.ts";
 import { toAccountId } from "@/lib/types/ids.ts";
 import { and, eq } from "drizzle-orm";
@@ -104,6 +111,90 @@ export async function upsertHoldingAction(
         updatedAt: new Date(),
       },
     });
+  revalidatePath(`/accounts/${accountIdRaw}`);
+  return { ok: true };
+}
+
+const LOT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Confirm a holding exists and belongs to the given account. */
+async function assertHoldingOnAccount(holdingId: string, accountId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: holdings.id })
+    .from(holdings)
+    .where(and(eq(holdings.id, holdingId), eq(holdings.accountId, accountId)))
+    .limit(1);
+  return row !== undefined;
+}
+
+/**
+ * Add a manual cost-basis lot to a holding (Phase 5, P5-18).
+ *
+ * Adding a lot stamps the holding's `cost_basis_overridden_at` — the user now
+ * owns the cost basis, so a later Plaid sync won't overwrite it (P5-16). With
+ * any lots present, the resolved basis is their sum (src/lib/investments/lots.ts).
+ */
+export async function addLotAction(
+  accountIdRaw: string,
+  holdingIdRaw: string,
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const { accountId } = await loadAccount(accountIdRaw);
+  if (!LOT_UUID_RE.test(holdingIdRaw)) {
+    return { error: "Invalid holding id" };
+  }
+  if (!(await assertHoldingOnAccount(holdingIdRaw, accountId))) {
+    return { error: "Holding not found on this account" };
+  }
+  const parsed = upsertLotSchema.safeParse({
+    acquiredAt: formData.get("acquiredAt") ?? "",
+    quantity: formData.get("quantity"),
+    costBasisTotal: formData.get("costBasisTotal"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const acquiredAt =
+    parsed.data.acquiredAt && parsed.data.acquiredAt.length > 0 ? parsed.data.acquiredAt : null;
+
+  await db.transaction(async (tx) => {
+    await tx.insert(holdingLots).values({
+      holdingId: holdingIdRaw,
+      acquiredAt,
+      quantity: parsed.data.quantity,
+      costBasisTotal: parsed.data.costBasisTotal,
+      source: "manual",
+    });
+    await tx
+      .update(holdings)
+      .set({ costBasisOverriddenAt: new Date(), updatedAt: new Date() })
+      .where(eq(holdings.id, holdingIdRaw));
+  });
+
+  revalidatePath(`/accounts/${accountIdRaw}`);
+  return { ok: true };
+}
+
+/**
+ * Delete a cost-basis lot. When the last lot is removed, resolved cost basis
+ * falls back to the holding's aggregate `cost_basis` (precedence in lots.ts).
+ */
+export async function deleteLotAction(
+  accountIdRaw: string,
+  holdingIdRaw: string,
+  lotIdRaw: string,
+): Promise<ActionResult> {
+  const { accountId } = await loadAccount(accountIdRaw);
+  if (!LOT_UUID_RE.test(holdingIdRaw) || !LOT_UUID_RE.test(lotIdRaw)) {
+    return { error: "Invalid id" };
+  }
+  if (!(await assertHoldingOnAccount(holdingIdRaw, accountId))) {
+    return { error: "Holding not found on this account" };
+  }
+  await db
+    .delete(holdingLots)
+    .where(and(eq(holdingLots.id, lotIdRaw), eq(holdingLots.holdingId, holdingIdRaw)));
   revalidatePath(`/accounts/${accountIdRaw}`);
   return { ok: true };
 }
