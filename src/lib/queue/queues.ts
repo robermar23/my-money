@@ -42,6 +42,8 @@ export const QUEUE_NAMES = {
   BACKUP_DATABASE_DAILY: "backup-database-daily",
   /** Phase 6 (P6-10): 04:30 nightly plain-text beancount export (longevity hedge). */
   EXPORT_BEANCOUNT_DAILY: "export-beancount-daily",
+  /** Phase 6 (P6-16): 05:00 nightly anomaly detection → `alerts` + notification. */
+  DETECT_ANOMALIES_DAILY: "detect-anomalies-daily",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -92,6 +94,11 @@ export const backupDatabaseDailyQueue = new Queue(QUEUE_NAMES.BACKUP_DATABASE_DA
 });
 
 export const exportBeancountDailyQueue = new Queue(QUEUE_NAMES.EXPORT_BEANCOUNT_DAILY, {
+  connection: redisConnection,
+  defaultJobOptions,
+});
+
+export const detectAnomaliesDailyQueue = new Queue(QUEUE_NAMES.DETECT_ANOMALIES_DAILY, {
   connection: redisConnection,
   defaultJobOptions,
 });

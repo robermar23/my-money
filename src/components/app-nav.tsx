@@ -1,12 +1,15 @@
+import { openAlertCount } from "@/lib/alerts/queries.ts";
 import Link from "next/link";
 
 /**
  * Top navigation chrome shown on authenticated pages.
  *
- * Server component — no client state needed for Phase 1. Active-link styling
- * arrives in Phase 6 polish.
+ * Server component. Reads the open-alert count for the nav badge (P6-15).
+ * Active-link styling + a responsive/collapsing layout arrive in P6-17.
  */
-export function AppNav(): React.JSX.Element {
+export async function AppNav(): Promise<React.JSX.Element> {
+  const alertCount = await openAlertCount();
+
   return (
     <header className="border-zinc-200 border-b dark:border-zinc-800">
       <nav className="mx-auto flex max-w-5xl items-center justify-between px-6 py-3">
@@ -25,6 +28,14 @@ export function AppNav(): React.JSX.Element {
           </Link>
           <Link href="/settings/connections" className="hover:underline">
             Connections
+          </Link>
+          <Link href="/alerts" className="flex items-center gap-1 hover:underline">
+            Alerts
+            {alertCount > 0 && (
+              <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 font-medium text-white text-xs">
+                {alertCount}
+              </span>
+            )}
           </Link>
           <form action="/logout" method="post">
             <button

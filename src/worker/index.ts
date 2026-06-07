@@ -3,6 +3,7 @@ import {
   QUEUE_NAMES,
   backupDatabaseDailyQueue,
   computeSnapshotsDailyQueue,
+  detectAnomaliesDailyQueue,
   enqueuePlaidSyncsDailyQueue,
   exportBeancountDailyQueue,
   fetchPricesDailyQueue,
@@ -15,6 +16,7 @@ import {
 import { Worker } from "bullmq";
 import { backupDatabaseDailyProcessor } from "./jobs/backup-database-daily.ts";
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
+import { detectAnomaliesDailyProcessor } from "./jobs/detect-anomalies-daily.ts";
 import { enqueuePlaidSyncsDailyProcessor } from "./jobs/enqueue-plaid-syncs-daily.ts";
 import { exportBeancountDailyProcessor } from "./jobs/export-beancount-daily.ts";
 import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
@@ -143,6 +145,18 @@ exportBeancountDailyWorker.on("failed", (job, err) => {
   console.error(`[worker] export-beancount-daily job ${job?.id} failed:`, err);
 });
 
+// Phase 6 (P6-16): nightly anomaly detection → alerts + notification email.
+const detectAnomaliesDailyWorker = new Worker(
+  QUEUE_NAMES.DETECT_ANOMALIES_DAILY,
+  async (job) => {
+    await detectAnomaliesDailyProcessor(job);
+  },
+  { connection: redisConnection, concurrency: 1 },
+);
+detectAnomaliesDailyWorker.on("failed", (job, err) => {
+  console.error(`[worker] detect-anomalies-daily job ${job?.id} failed:`, err);
+});
+
 // Ensure a single heartbeat repeatable job exists. Removing first guards against
 // pattern duplication across restarts.
 await heartbeatQueue.removeJobScheduler("heartbeat-tick").catch(() => {
@@ -209,6 +223,17 @@ await exportBeancountDailyQueue.upsertJobScheduler(
   { name: "export-beancount-daily", data: {} },
 );
 
+// P6-16 — Nightly anomaly detection at 05:00 local, AFTER the 04:00 backup so a
+// failed backup (which writes a backup_failure alert) is detectable + notified.
+await detectAnomaliesDailyQueue.removeJobScheduler("detect-anomalies-daily-cron").catch(() => {
+  /* first run */
+});
+await detectAnomaliesDailyQueue.upsertJobScheduler(
+  "detect-anomalies-daily-cron",
+  { pattern: "0 5 * * *" },
+  { name: "detect-anomalies-daily", data: {} },
+);
+
 /**
  * Graceful shutdown per bullmq-specialist guidance. Process SIGTERM and SIGINT,
  * stop accepting new jobs, drain in-flight, then close the Redis connection.
@@ -224,6 +249,7 @@ async function shutdown(_signal: string): Promise<void> {
   await enqueuePlaidSyncsDailyWorker.close();
   await backupDatabaseDailyWorker.close();
   await exportBeancountDailyWorker.close();
+  await detectAnomaliesDailyWorker.close();
   await heartbeatQueue.close();
   await computeSnapshotsDailyQueue.close();
   await fetchPricesDailyQueue.close();
@@ -234,6 +260,7 @@ async function shutdown(_signal: string): Promise<void> {
   await enqueuePlaidSyncsDailyQueue.close();
   await backupDatabaseDailyQueue.close();
   await exportBeancountDailyQueue.close();
+  await detectAnomaliesDailyQueue.close();
   await redisConnection.quit();
   process.exit(0);
 }

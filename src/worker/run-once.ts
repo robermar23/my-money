@@ -11,9 +11,11 @@
  *   - heartbeat
  *   - backup-database-daily
  *   - export-beancount-daily
+ *   - detect-anomalies-daily
  */
 import { backupDatabaseDailyProcessor } from "./jobs/backup-database-daily.ts";
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
+import { detectAnomaliesDailyProcessor } from "./jobs/detect-anomalies-daily.ts";
 import { exportBeancountDailyProcessor } from "./jobs/export-beancount-daily.ts";
 import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
 import { heartbeatProcessor } from "./jobs/heartbeat.ts";
@@ -30,6 +32,7 @@ const PROCESSORS: Record<string, (job: never) => Promise<unknown>> = {
   "recategorize-all": recategorizeAllProcessor as never,
   "backup-database-daily": backupDatabaseDailyProcessor as never,
   "export-beancount-daily": exportBeancountDailyProcessor as never,
+  "detect-anomalies-daily": detectAnomaliesDailyProcessor as never,
 };
 
 if (!jobName || !PROCESSORS[jobName]) {
