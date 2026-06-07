@@ -11,6 +11,7 @@ import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { CountryCode, type LinkTokenCreateRequest, Products } from "plaid";
+import { z } from "zod";
 
 /**
  * Server actions for Plaid Link + Item exchange.
@@ -20,9 +21,28 @@ import { CountryCode, type LinkTokenCreateRequest, Products } from "plaid";
  * invoked from server-side surfaces (this file, the webhook route handler,
  * and BullMQ workers).
  *
- * Per ADR-008: Products is always exactly `['transactions']`. Auth, Identity,
- * Investments, and Liabilities are explicitly out of scope for Phase 4.
+ * Per ADR-008, Phase 4 consented to `['transactions']` only. Phase 5 (ADR-011)
+ * adds the `investments` product for a separate Fidelity Item. The product set
+ * is now a validated parameter rather than a hard-coded constant; what an Item
+ * consented to is persisted in `plaid_items.products_consented` and drives the
+ * sync routing (transactions vs. investments).
  */
+
+/**
+ * The Plaid products my-money knows how to consume. Validated at the action
+ * boundary with zod (CLAUDE.md §Zod) so a bad value never reaches the Plaid
+ * SDK or the database.
+ */
+export type PlaidProduct = "transactions" | "investments";
+
+const plaidProductsSchema = z
+  .array(z.enum(["transactions", "investments"]))
+  .min(1, "At least one Plaid product is required");
+
+/** Map our product literal to the Plaid SDK enum. */
+function toPlaidProduct(product: PlaidProduct): Products {
+  return product === "investments" ? Products.Investments : Products.Transactions;
+}
 
 /* ---------------------------------------------------------------------------
  * P4-10 — createLinkTokenAction
@@ -36,6 +56,12 @@ export interface CreateLinkTokenResult {
 export interface CreateLinkTokenOptions {
   /** When present, opens Plaid Link in UPDATE mode for an existing Item (P4-25 reauth). */
   plaidItemPk?: string;
+  /**
+   * Products to request. Defaults to `['transactions']` (Phase 4 behavior).
+   * Pass `['investments']` for the Fidelity brokerage flow (P5-10). Ignored in
+   * update mode — Plaid reuses the products already on the Item.
+   */
+  products?: PlaidProduct[];
 }
 
 /**
@@ -51,6 +77,17 @@ export async function createLinkTokenAction(
 
   const accessToken = options?.plaidItemPk ? await loadAccessToken(options.plaidItemPk) : undefined;
 
+  // Validate the requested products at the boundary (zod). Only relevant in
+  // connect mode — update mode omits `products` entirely.
+  let products: Products[] = [Products.Transactions];
+  if (!accessToken) {
+    const parsed = plaidProductsSchema.safeParse(options?.products ?? ["transactions"]);
+    if (!parsed.success) {
+      return { error: parsed.error.issues[0]?.message ?? "Invalid Plaid products" };
+    }
+    products = parsed.data.map(toPlaidProduct);
+  }
+
   const webhook = plaidWebhookUrl();
 
   const request: LinkTokenCreateRequest = {
@@ -60,7 +97,7 @@ export async function createLinkTokenAction(
     language: "en",
     // In update mode, providing `access_token` puts Link into reauth flow and
     // `products` MUST be omitted (Plaid uses the products already on the Item).
-    ...(accessToken ? { access_token: accessToken } : { products: [Products.Transactions] }),
+    ...(accessToken ? { access_token: accessToken } : { products }),
     ...(webhook ? { webhook } : {}),
   };
 
@@ -90,15 +127,28 @@ export interface ExchangePublicTokenResult {
  * inside a transaction so a half-stored Item can't exist.
  *
  * Redirects to /settings/connections/[plaidItemPk]/map on success.
+ *
+ * @param publicToken - The single-use token from Plaid Link's onSuccess.
+ * @param products - The products this Item was linked with (default
+ *   `['transactions']`). Persisted to `plaid_items.products_consented` and used
+ *   by the sync router (ADR-011).
  */
 export async function exchangePublicTokenAction(
   publicToken: string,
+  products?: PlaidProduct[],
 ): Promise<ExchangePublicTokenResult> {
   await requireUser();
 
   if (typeof publicToken !== "string" || publicToken.length === 0) {
     return { error: "Missing public_token" };
   }
+
+  // Validate the consented products before any Plaid call or DB write.
+  const parsedProducts = plaidProductsSchema.safeParse(products ?? ["transactions"]);
+  if (!parsedProducts.success) {
+    return { error: parsedProducts.error.issues[0]?.message ?? "Invalid Plaid products" };
+  }
+  const productsConsented = parsedProducts.data;
 
   // 1. Exchange public_token → access_token + item_id.
   let accessToken: string;
@@ -152,7 +202,7 @@ export async function exchangePublicTokenAction(
           institutionId,
           institutionName,
           accessToken,
-          productsConsented: ["transactions"],
+          productsConsented,
         },
         tx,
       ),

@@ -140,6 +140,34 @@ describe("createLinkTokenAction (P4-10)", () => {
 });
 
 /* ---------------------------------------------------------------------------
+ * P5-10 — multi-product Link
+ * --------------------------------------------------------------------------- */
+
+describe("createLinkTokenAction products (P5-10)", () => {
+  it("requests products=['investments'] when asked", async () => {
+    mockPlaid.linkTokenCreate.mockResolvedValueOnce({ data: { link_token: "link-inv" } });
+    await createLinkTokenAction({ products: ["investments"] });
+    const call = mockPlaid.linkTokenCreate.mock.calls[0]?.[0];
+    expect(call?.products).toEqual(["investments"]);
+  });
+
+  it("defaults to products=['transactions'] when an empty options object is given", async () => {
+    mockPlaid.linkTokenCreate.mockResolvedValueOnce({ data: { link_token: "link-def" } });
+    await createLinkTokenAction({});
+    const call = mockPlaid.linkTokenCreate.mock.calls[0]?.[0];
+    expect(call?.products).toEqual(["transactions"]);
+  });
+
+  it("rejects an unknown product without calling Plaid", async () => {
+    const result = await createLinkTokenAction({
+      products: ["bogus" as unknown as "transactions"],
+    });
+    expect(result.error).toBeTruthy();
+    expect(mockPlaid.linkTokenCreate).not.toHaveBeenCalled();
+  });
+});
+
+/* ---------------------------------------------------------------------------
  * P4-12 — exchangePublicTokenAction
  * --------------------------------------------------------------------------- */
 
@@ -222,6 +250,45 @@ describe("exchangePublicTokenAction (P4-12)", () => {
       .from(plaidItems)
       .where(eq(plaidItems.plaidItemId, "item-fallback"));
     expect(row?.institutionName).toBe("Unknown");
+  });
+});
+
+describe("exchangePublicTokenAction products_consented (P5-10)", () => {
+  it("records products_consented=['investments'] for an investment Item", async () => {
+    mockSuccessfulExchange({ accessToken: "tok-inv", itemId: "item-inv" });
+    try {
+      await exchangePublicTokenAction("public-sandbox-INV", ["investments"]);
+    } catch (e) {
+      if (!(e instanceof RedirectError)) throw e;
+    }
+    const [row] = await db
+      .select({ products: plaidItems.productsConsented })
+      .from(plaidItems)
+      .where(eq(plaidItems.plaidItemId, "item-inv"));
+    expect(row?.products).toEqual(["investments"]);
+  });
+
+  it("defaults products_consented to ['transactions'] when none are given", async () => {
+    mockSuccessfulExchange({ accessToken: "tok-tx", itemId: "item-tx" });
+    try {
+      await exchangePublicTokenAction("public-sandbox-TX");
+    } catch (e) {
+      if (!(e instanceof RedirectError)) throw e;
+    }
+    const [row] = await db
+      .select({ products: plaidItems.productsConsented })
+      .from(plaidItems)
+      .where(eq(plaidItems.plaidItemId, "item-tx"));
+    expect(row?.products).toEqual(["transactions"]);
+  });
+
+  it("rejects an unknown product and persists nothing", async () => {
+    const result = await exchangePublicTokenAction("public-sandbox-bad", [
+      "nope" as unknown as "transactions",
+    ]);
+    expect(result.error).toBeTruthy();
+    expect(redirectMock).not.toHaveBeenCalled();
+    expect(await db.select().from(plaidItems)).toHaveLength(0);
   });
 });
 
