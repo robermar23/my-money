@@ -9,7 +9,9 @@
  *   - compute-snapshots-daily
  *   - fetch-prices-daily
  *   - heartbeat
+ *   - backup-database-daily
  */
+import { backupDatabaseDailyProcessor } from "./jobs/backup-database-daily.ts";
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
 import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
 import { heartbeatProcessor } from "./jobs/heartbeat.ts";
@@ -24,6 +26,7 @@ const PROCESSORS: Record<string, (job: never) => Promise<unknown>> = {
   heartbeat: heartbeatProcessor as never,
   "process-import": processImportProcessor as never,
   "recategorize-all": recategorizeAllProcessor as never,
+  "backup-database-daily": backupDatabaseDailyProcessor as never,
 };
 
 if (!jobName || !PROCESSORS[jobName]) {

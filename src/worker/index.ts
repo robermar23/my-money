@@ -1,6 +1,7 @@
 import { redisConnection } from "@/lib/queue/connection.ts";
 import {
   QUEUE_NAMES,
+  backupDatabaseDailyQueue,
   computeSnapshotsDailyQueue,
   enqueuePlaidSyncsDailyQueue,
   fetchPricesDailyQueue,
@@ -11,6 +12,7 @@ import {
   syncPlaidItemQueue,
 } from "@/lib/queue/queues.ts";
 import { Worker } from "bullmq";
+import { backupDatabaseDailyProcessor } from "./jobs/backup-database-daily.ts";
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
 import { enqueuePlaidSyncsDailyProcessor } from "./jobs/enqueue-plaid-syncs-daily.ts";
 import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
@@ -111,6 +113,21 @@ enqueuePlaidSyncsDailyWorker.on("failed", (job, err) => {
   console.error(`[worker] enqueue-plaid-syncs-daily job ${job?.id} failed:`, err);
 });
 
+// Phase 6 (P6-05): nightly encrypted backup. concurrency=1 — one pg_dump at a
+// time is plenty for a single DB; a failed run retries via BullMQ backoff.
+const backupDatabaseDailyWorker = new Worker(
+  QUEUE_NAMES.BACKUP_DATABASE_DAILY,
+  // Wrap so BullMQ's (job, token) signature doesn't collide with the optional
+  // 2nd `deps` param the processor accepts for testing.
+  async (job) => {
+    await backupDatabaseDailyProcessor(job);
+  },
+  { connection: redisConnection, concurrency: 1 },
+);
+backupDatabaseDailyWorker.on("failed", (job, err) => {
+  console.error(`[worker] backup-database-daily job ${job?.id} failed:`, err);
+});
+
 // Ensure a single heartbeat repeatable job exists. Removing first guards against
 // pattern duplication across restarts.
 await heartbeatQueue.removeJobScheduler("heartbeat-tick").catch(() => {
@@ -155,6 +172,17 @@ await enqueuePlaidSyncsDailyQueue.upsertJobScheduler(
   { name: "enqueue-plaid-syncs-daily", data: {} },
 );
 
+// P6-05 — Nightly encrypted backup at 04:00 local, AFTER the 03:00 Plaid
+// safety-net so the dump captures that day's synced transactions.
+await backupDatabaseDailyQueue.removeJobScheduler("backup-database-daily-cron").catch(() => {
+  /* first run */
+});
+await backupDatabaseDailyQueue.upsertJobScheduler(
+  "backup-database-daily-cron",
+  { pattern: "0 4 * * *" },
+  { name: "backup-database-daily", data: {} },
+);
+
 /**
  * Graceful shutdown per bullmq-specialist guidance. Process SIGTERM and SIGINT,
  * stop accepting new jobs, drain in-flight, then close the Redis connection.
@@ -168,6 +196,7 @@ async function shutdown(_signal: string): Promise<void> {
   await syncPlaidItemWorker.close();
   await syncInvestmentsItemWorker.close();
   await enqueuePlaidSyncsDailyWorker.close();
+  await backupDatabaseDailyWorker.close();
   await heartbeatQueue.close();
   await computeSnapshotsDailyQueue.close();
   await fetchPricesDailyQueue.close();
@@ -176,6 +205,7 @@ async function shutdown(_signal: string): Promise<void> {
   await syncPlaidItemQueue.close();
   await syncInvestmentsItemQueue.close();
   await enqueuePlaidSyncsDailyQueue.close();
+  await backupDatabaseDailyQueue.close();
   await redisConnection.quit();
   process.exit(0);
 }
