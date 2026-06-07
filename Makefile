@@ -23,7 +23,7 @@ COMPOSE := docker compose -f docker/compose.yaml --env-file .env.local
 # tokens — preserving those breaks the connections/map flow (INVALID_ACCESS_
 # TOKEN). Re-linking against Plaid sandbox is quick. Only `category_rules` is
 # preserved (it holds seeded defaults the app relies on).
-DOMAIN_TABLES := users, accounts, holdings, securities, plaid_items, plaid_sync_runs, webhook_log, account_snapshots, liabilities, prices
+DOMAIN_TABLES := users, accounts, holdings, securities, plaid_items, plaid_sync_runs, webhook_log, account_snapshots, liabilities, prices, alerts
 
 # ---------------------------------------------------------------------------
 # Help (cross-platform; plain @echo lines so cmd.exe + bash both render OK)
@@ -86,6 +86,7 @@ help:
 	@echo   job-heartbeat   Run heartbeat once (smoke test)
 	@echo   job-backup      Run backup-database-daily once (needs pg_dump + age)
 	@echo   job-beancount   Run export-beancount-daily once (needs BEANCOUNT_DIR set)
+	@echo   job-anomalies   Run detect-anomalies-daily once (writes to alerts)
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -285,3 +286,7 @@ job-backup:
 .PHONY: job-beancount
 job-beancount:
 	pnpm worker:once export-beancount-daily
+
+.PHONY: job-anomalies
+job-anomalies:
+	pnpm worker:once detect-anomalies-daily
