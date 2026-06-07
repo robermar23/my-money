@@ -22,8 +22,14 @@ export default async function globalSetup(): Promise<void> {
 
   const sql = postgres(databaseUrl, { max: 1 });
   try {
+    // Comprehensive truncate so no E2E-seeded row survives into a later run or
+    // into manual testing — in particular Plaid Items, which carry FAKE access
+    // tokens in tests and would otherwise 400 the connections/map flow. CASCADE
+    // handles children; the Plaid + investment tables are listed explicitly
+    // because truncating `accounts` doesn't reach plaid_items, plaid_sync_runs,
+    // webhook_log, or securities.
     await sql.unsafe(
-      "TRUNCATE users, accounts, holdings, account_snapshots, liabilities, transactions, import_batches, category_rules CASCADE",
+      "TRUNCATE users, accounts, holdings, securities, holding_lots, investment_transactions, account_snapshots, liabilities, transactions, import_batches, category_rules, plaid_items, plaid_sync_runs, webhook_log CASCADE",
     );
   } finally {
     await sql.end();
