@@ -4,10 +4,12 @@
   color-scheme: light dark;
 }
 
-html,
-body {
-  /* min-height (not height) so the body grows past the viewport when content
-   * overflows — otherwise pages with long forms (e.g. /settings/connections/
-   * <id>/map with 12 Plaid accounts) get clipped and become unscrollable. */
-  min-height: 100%;
-}
+/* Deliberately NO height / min-height on html or body here.
+ *
+ * The layout's <body> carries Tailwind `min-h-screen` (min-height: 100vh) so
+ * short pages still fill the viewport (background reaches the bottom). Leaving
+ * the document height to grow with content guarantees the window scrolls when a
+ * page overflows — e.g. the Plaid account-mapping page with many accounts. An
+ * earlier `height: 100%` clipped such pages; the `min-height: 100%`
+ * percentage-chain (html→body) that replaced it is fragile and redundant with
+ * `min-h-screen`, so no constraint at all is the robust choice. */
