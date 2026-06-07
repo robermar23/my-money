@@ -131,6 +131,10 @@ services:
       BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
       BACKUP_DIR: /backups
       BACKUP_RETAIN_DAYS: ${BACKUP_RETAIN_DAYS:-14}
+      # Phase 6 (P6-10, ADR-016): nightly plain-text beancount mirror. Setting
+      # the dir enables the export; it's a one-way readable copy of data already
+      # in Postgres (not a secret). Replicate alongside the backups off-host.
+      BEANCOUNT_DIR: /exports
     depends_on:
       postgres:
         condition: service_healthy
@@ -140,6 +144,9 @@ services:
       # Encrypted dumps land here. Replicate this volume off-host (B2, rsync,
       # second disk) — that's the operator's responsibility per ADR-014.
       - backups:/backups
+      # Plain-text beancount mirror (ADR-016). PLAINTEXT financial data — keep
+      # the host path private; replicate off-host like the backups.
+      - exports:/exports
     networks:
       - money_net
 
@@ -183,6 +190,8 @@ volumes:
   # Encrypted nightly database backups (P6-06, ADR-014). Persisted across
   # container restarts; the operator replicates it off-host.
   backups:
+  # Plain-text beancount mirror (P6-10, ADR-016). Persisted; replicate off-host.
+  exports:
 
 networks:
   money_net:
