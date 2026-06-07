@@ -1,9 +1,17 @@
-# Plaid Integration Threat Model (Phase 4 / STRIDE)
+# Plaid Integration Threat Model (Phase 4 + Phase 5 / STRIDE)
 
 A row-per-STRIDE-category analysis of the Plaid integration surface, with
-every mitigation pointing at a specific PLAN4.md task (or marked **accepted**
+every mitigation pointing at a specific PLAN task (or marked **accepted**
 when the residual risk is acknowledged, or **open** when work is required
-beyond Phase 4).
+beyond the current phase).
+
+> Phase 5 (investments) extends this surface: Surface 7 below covers the
+> `sync-investments-item` worker and the `/investments/holdings/get` +
+> `/investments/transactions/get` calls. It adds **no new secret-bearing
+> asset** — `securities`, `holding_lots`, and `investment_transactions` hold
+> only public security metadata, quantities, and prices, never credentials.
+> The investments path reuses the existing Item, encrypted-token store, webhook
+> receiver, and sync-run ledger unchanged.
 
 > Scope: single-user, self-hosted my-money. Multi-user / multi-tenant threats
 > (cross-user data access, RBAC bypass, tenant isolation) are out of scope —
@@ -186,6 +194,30 @@ NULLs the linked-account Plaid columns, and wipes the now-dead ciphertext
 
 ---
 
+## Surface 7 — Investments sync (`sync-investments-item`)
+
+[src/worker/jobs/sync-investments-item.ts](../src/worker/jobs/sync-investments-item.ts)
+loads an Item, calls `/investments/holdings/get` (full-snapshot) and
+`/investments/transactions/get` (offset-paginated), and upserts
+`securities` / `holdings` / `investment_transactions` / `holding_lots` in one
+DB transaction. Webhooks (`HOLDINGS`, `INVESTMENTS_TRANSACTIONS`) route here via
+the products-based dispatch in the existing receiver (P5-15). It reuses
+`loadAccessToken`, `plaid_sync_runs`, and `webhook_log` — none re-derived.
+
+| STRIDE | Threat | Mitigation | Status |
+|---|---|---|---|
+| **S**poofing — wrong-product sync | A `TRANSACTIONS` webhook is routed to the investments worker (or vice-versa), calling an endpoint the Item never consented to | `syncTargetFor` routes by `webhook_type` + the Item's `products_consented`; the worker additionally **guards on `productsConsented.includes('investments')`** and no-ops otherwise ([sync-investments-item.ts](../src/worker/jobs/sync-investments-item.ts)). An investments-only Item never hits `/transactions/sync` and a transactions Item never hits `/investments/*`. | ✅ P5-15, P5-16 |
+| **T**ampering — manual data clobbered by sync | A holdings sync overwrites a user-entered cost basis, or deletes a manually-tracked position | Holdings UPSERT preserves cost basis when `cost_basis_overridden_at IS NOT NULL` (SQL `CASE`); reconcile-missing deletes only `source='plaid'` rows, never `source='manual'`. Both behaviors are Vitest-asserted (P5-16). | ✅ P5-16 |
+| **T**ampering — partial write on a multi-page sync | A crash between holdings and transactions leaves the Item half-synced | All holdings + securities + transactions + lots writes happen inside a single `db.transaction`; a crash rolls the whole run back. No cursor to corrupt (holdings are full-snapshot; transactions dedup by unique index), so a re-run is idempotent. | ✅ P5-16 |
+| **R**epudiation — "did this sync run?" | Hard to tell later whether holdings changed | Each run opens a `plaid_sync_runs` row (trigger), closing it with counts (added=txns, modified=holdings, removed=sold-out) — surfaced on the connections page (P4-28). | ✅ P5-16 |
+| **I**nformation disclosure — worker log leakage | The investments worker logs a security name, quantity, amount, or the access token | The worker has **no `console.*` callsites** — failures propagate via `throw` (BullMQ records them). The P5-27 hardening audit was widened to scan **all** of `src/worker/jobs/` (not just `sync-plaid-item.ts`), so any future secret-logging in this worker fails CI. | ✅ P5-27 |
+| **I**nformation disclosure — new tables hold secrets | An attacker exfils `securities` / `holding_lots` / `investment_transactions` | None of these columns hold a credential — only public security metadata (ticker, cusip, name), quantities, prices, and dollar amounts. Sensitivity is the same as the existing `holdings`/`transactions` tables (High — financial history), not Critical. No new key-bearing asset. | ✅ ADR-012 |
+| **D**enial of service — runaway transaction pagination | Plaid returns `investment_transactions` forever → the worker spins | The offset loop is bounded by `total_investment_transactions` and breaks on an empty page. **Open**: like Surface 4, no explicit page-count ceiling — logged below. | ⚠️ Open (provider-bounded) |
+| **D**enial of service — synthetic-price write amplification | A huge holdings response writes a `prices` row per non-tickered security | Bounded by the Item's holding count (a handful); each is a single idempotent UPSERT on `(symbol, date)`. | ✅ Accepted (single-user) |
+| **E**levation of privilege — investments token used for transactions | A compromised path reuses an investments access_token against `/transactions/sync` | Tokens are per-Item and product-scoped at Plaid; our worker only ever calls the investments endpoints. Cross-product use would require code that bypasses the worker — caught in review + the SDK-callsite audit (Audit 1/2). | ✅ P5-15, P5-16 |
+
+---
+
 ## Cross-cutting controls
 
 The following protections apply to multiple surfaces and are listed once:
@@ -242,13 +274,19 @@ block Phase 4 ship; tracked here so future work has a starting point.
    and timing. Acceptable per ADR-010 and CLAUDE.md §Privacy — no decrypted
    financial data ever leaves our server. Documented here for future-self
    transparency.
+7. **No page-count ceiling on `/investments/transactions/get` pagination** —
+   Surface 7 / DoS. Mirrors Open Item 2 for the transactions sync. Bounded by
+   Plaid's `total_investment_transactions` + an empty-page break, but a
+   pathological Item could in theory spin the worker. Add a `MAX_PAGES` guard
+   alongside the one proposed for `drainSync`.
 
 ---
 
 ## How to use this document
 
 When changing any code in `src/lib/plaid/`, `src/app/api/plaid/`,
-`src/app/settings/connections/`, or `src/worker/jobs/sync-plaid-item.ts`:
+`src/app/settings/connections/`, `src/worker/jobs/sync-plaid-item.ts`, or
+`src/worker/jobs/sync-investments-item.ts`:
 
 1. Identify which surface(s) you're touching.
 2. Re-read the corresponding table.
