@@ -40,6 +40,8 @@ export const QUEUE_NAMES = {
   ENQUEUE_PLAID_SYNCS_DAILY: "enqueue-plaid-syncs-daily",
   /** Phase 6 (P6-05): 04:00 nightly `pg_dump | age` encrypted database backup. */
   BACKUP_DATABASE_DAILY: "backup-database-daily",
+  /** Phase 6 (P6-10): 04:30 nightly plain-text beancount export (longevity hedge). */
+  EXPORT_BEANCOUNT_DAILY: "export-beancount-daily",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -85,6 +87,11 @@ export const enqueuePlaidSyncsDailyQueue = new Queue(QUEUE_NAMES.ENQUEUE_PLAID_S
 });
 
 export const backupDatabaseDailyQueue = new Queue(QUEUE_NAMES.BACKUP_DATABASE_DAILY, {
+  connection: redisConnection,
+  defaultJobOptions,
+});
+
+export const exportBeancountDailyQueue = new Queue(QUEUE_NAMES.EXPORT_BEANCOUNT_DAILY, {
   connection: redisConnection,
   defaultJobOptions,
 });

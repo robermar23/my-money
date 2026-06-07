@@ -4,6 +4,7 @@ import {
   backupDatabaseDailyQueue,
   computeSnapshotsDailyQueue,
   enqueuePlaidSyncsDailyQueue,
+  exportBeancountDailyQueue,
   fetchPricesDailyQueue,
   heartbeatQueue,
   processImportQueue,
@@ -15,6 +16,7 @@ import { Worker } from "bullmq";
 import { backupDatabaseDailyProcessor } from "./jobs/backup-database-daily.ts";
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
 import { enqueuePlaidSyncsDailyProcessor } from "./jobs/enqueue-plaid-syncs-daily.ts";
+import { exportBeancountDailyProcessor } from "./jobs/export-beancount-daily.ts";
 import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
 import { heartbeatProcessor } from "./jobs/heartbeat.ts";
 import { processImportProcessor } from "./jobs/process-import.ts";
@@ -128,6 +130,19 @@ backupDatabaseDailyWorker.on("failed", (job, err) => {
   console.error(`[worker] backup-database-daily job ${job?.id} failed:`, err);
 });
 
+// Phase 6 (P6-10): nightly beancount export. Wrapped for the same (job, token)
+// reason; concurrency 1 — a single deterministic file write.
+const exportBeancountDailyWorker = new Worker(
+  QUEUE_NAMES.EXPORT_BEANCOUNT_DAILY,
+  async (job) => {
+    await exportBeancountDailyProcessor(job);
+  },
+  { connection: redisConnection, concurrency: 1 },
+);
+exportBeancountDailyWorker.on("failed", (job, err) => {
+  console.error(`[worker] export-beancount-daily job ${job?.id} failed:`, err);
+});
+
 // Ensure a single heartbeat repeatable job exists. Removing first guards against
 // pattern duplication across restarts.
 await heartbeatQueue.removeJobScheduler("heartbeat-tick").catch(() => {
@@ -183,6 +198,17 @@ await backupDatabaseDailyQueue.upsertJobScheduler(
   { name: "backup-database-daily", data: {} },
 );
 
+// P6-10 — Nightly beancount export at 04:30 local, AFTER the 04:00 backup so the
+// encrypted dump and the plain-text mirror reflect the same day's data.
+await exportBeancountDailyQueue.removeJobScheduler("export-beancount-daily-cron").catch(() => {
+  /* first run */
+});
+await exportBeancountDailyQueue.upsertJobScheduler(
+  "export-beancount-daily-cron",
+  { pattern: "30 4 * * *" },
+  { name: "export-beancount-daily", data: {} },
+);
+
 /**
  * Graceful shutdown per bullmq-specialist guidance. Process SIGTERM and SIGINT,
  * stop accepting new jobs, drain in-flight, then close the Redis connection.
@@ -197,6 +223,7 @@ async function shutdown(_signal: string): Promise<void> {
   await syncInvestmentsItemWorker.close();
   await enqueuePlaidSyncsDailyWorker.close();
   await backupDatabaseDailyWorker.close();
+  await exportBeancountDailyWorker.close();
   await heartbeatQueue.close();
   await computeSnapshotsDailyQueue.close();
   await fetchPricesDailyQueue.close();
@@ -206,6 +233,7 @@ async function shutdown(_signal: string): Promise<void> {
   await syncInvestmentsItemQueue.close();
   await enqueuePlaidSyncsDailyQueue.close();
   await backupDatabaseDailyQueue.close();
+  await exportBeancountDailyQueue.close();
   await redisConnection.quit();
   process.exit(0);
 }
