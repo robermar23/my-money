@@ -5,9 +5,11 @@ import {
   type Account,
   type AccountSnapshot,
   type Holding,
+  type HoldingLot,
   type Liability,
   accountSnapshots,
   accounts,
+  holdingLots,
   holdings,
   liabilities,
 } from "@/db/schema/index.ts";
@@ -43,6 +45,30 @@ export async function listSnapshots(id: AccountId): Promise<AccountSnapshot[]> {
 
 export async function listHoldings(id: AccountId): Promise<Holding[]> {
   return db.select().from(holdings).where(eq(holdings.accountId, id)).orderBy(asc(holdings.symbol));
+}
+
+/**
+ * All cost-basis lots for an account's holdings, oldest first. Joined through
+ * `holdings` so the caller can group by `holdingId` (Phase 5, P5-18/P5-19).
+ */
+export async function listLots(id: AccountId): Promise<HoldingLot[]> {
+  return db
+    .select({
+      id: holdingLots.id,
+      holdingId: holdingLots.holdingId,
+      acquiredAt: holdingLots.acquiredAt,
+      quantity: holdingLots.quantity,
+      costBasisTotal: holdingLots.costBasisTotal,
+      source: holdingLots.source,
+      plaidInvestmentTransactionId: holdingLots.plaidInvestmentTransactionId,
+      note: holdingLots.note,
+      createdAt: holdingLots.createdAt,
+      updatedAt: holdingLots.updatedAt,
+    })
+    .from(holdingLots)
+    .innerJoin(holdings, eq(holdingLots.holdingId, holdings.id))
+    .where(eq(holdings.accountId, id))
+    .orderBy(asc(holdingLots.acquiredAt), asc(holdingLots.createdAt));
 }
 
 export async function getLiability(id: AccountId): Promise<Liability | undefined> {
