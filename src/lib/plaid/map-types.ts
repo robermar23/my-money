@@ -1,7 +1,5 @@
-import type { AccountBase } from "plaid";
-
 /**
- * Map a Plaid AccountBase to one of our accountTypeEnum values.
+ * Map a Plaid account `type` to one of our accountTypeEnum values.
  *
  * Plaid's type vocabulary doesn't 1:1 with ours; mapping is conservative:
  *   - depository → depository (checking, savings, money_market)
@@ -12,10 +10,13 @@ import type { AccountBase } from "plaid";
  *
  * Returns null when no good mapping exists; the mapping form treats null as
  * "Skip" by default (user can still pick "Create new" with a manual type).
+ *
+ * Accepts a structural `{ type }` so it works with both `AccountBase` and the
+ * `PlaidAccountSummary` shape from list-accounts.ts.
  */
 export type AccountTypeMapping = "depository" | "credit_card" | "investment" | "loan" | null;
 
-export function mapPlaidAccountType(account: AccountBase): AccountTypeMapping {
+export function mapPlaidAccountType(account: { type: string }): AccountTypeMapping {
   switch (account.type) {
     case "depository":
       return "depository";

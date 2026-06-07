@@ -1,7 +1,7 @@
 import { db } from "@/db/client.ts";
 import { accounts, plaidItems } from "@/db/schema/index.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
-import { plaidClient } from "@/lib/plaid/client.ts";
+import { type PlaidAccountSummary, listPlaidAccounts } from "@/lib/plaid/list-accounts.ts";
 import { mapPlaidAccountType } from "@/lib/plaid/map-types.ts";
 import { loadAccessToken } from "@/lib/plaid/tokens.ts";
 import { eq, isNull } from "drizzle-orm";
@@ -34,6 +34,7 @@ export default async function MapAccountsPage(props: PageProps): Promise<React.J
       id: plaidItems.id,
       institutionName: plaidItems.institutionName,
       plaidItemId: plaidItems.plaidItemId,
+      productsConsented: plaidItems.productsConsented,
     })
     .from(plaidItems)
     .where(eq(plaidItems.id, plaidItemPk))
@@ -41,8 +42,27 @@ export default async function MapAccountsPage(props: PageProps): Promise<React.J
   if (!item) notFound();
 
   const accessToken = await loadAccessToken(item.id);
-  const accountsResp = await plaidClient.accountsGet({ access_token: accessToken });
-  const plaidAccounts = accountsResp.data.accounts;
+
+  // Enumerate the Plaid accounts. /accounts/get can fail for legitimate
+  // reasons — most commonly PRODUCT_NOT_READY (Plaid is still preparing the
+  // Item's data right after Link). For an investments Item that's expected:
+  // /accounts/get only succeeds once *some* product is ready, but
+  // /investments/holdings/get both returns the accounts AND forces the
+  // investments product to initialize. We fall back to it; any other failure
+  // (or a still-not-ready holdings call) renders an actionable message.
+  let plaidAccounts: PlaidAccountSummary[];
+  try {
+    plaidAccounts = await listPlaidAccounts(accessToken, item.productsConsented);
+  } catch (err) {
+    const { code, message } = plaidError(err);
+    // Never logs the access token — only Plaid's error envelope fields.
+    console.error(
+      `[map] account enumeration failed for item ${item.id}: ${code ?? "?"} ${message}`,
+    );
+    return (
+      <MapAccountsError institutionName={item.institutionName} code={code} message={message} />
+    );
+  }
 
   // Existing unlinked accounts the user can target.
   const candidates = await db
@@ -86,6 +106,74 @@ export default async function MapAccountsPage(props: PageProps): Promise<React.J
 
       <div className="mt-6">
         <MapAccountsForm plaidItemPk={item.id} rows={rows} />
+      </div>
+    </main>
+  );
+}
+
+/** Extract Plaid's error_code/error_message from an axios-style rejection (no secrets). */
+function plaidError(err: unknown): { code: string | null; message: string } {
+  const e = err as {
+    response?: { data?: { error_code?: string; error_message?: string } };
+    message?: string;
+  };
+  return {
+    code: e.response?.data?.error_code ?? null,
+    message: e.response?.data?.error_message ?? e.message ?? "Unknown Plaid error",
+  };
+}
+
+/**
+ * Friendly error state when /accounts/get fails. PRODUCT_NOT_READY is the
+ * expected transient right after Link (Plaid is still pulling the product) —
+ * a refresh usually resolves it within a minute. Other codes (e.g.
+ * ITEM_LOGIN_REQUIRED) need a reconnect from the connections page.
+ */
+function MapAccountsError({
+  institutionName,
+  code,
+  message,
+}: {
+  institutionName: string;
+  code: string | null;
+  message: string;
+}): React.JSX.Element {
+  const isNotReady = code === "PRODUCT_NOT_READY";
+  return (
+    <main className="mx-auto max-w-2xl p-6">
+      <Link href="/settings/connections" className="text-sm text-zinc-500 hover:underline">
+        ← Connections
+      </Link>
+      <h1 className="mt-2 font-semibold text-2xl tracking-tight">Map {institutionName} accounts</h1>
+      <div className="mt-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 text-sm dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+        <p className="font-medium">Couldn't load accounts from Plaid.</p>
+        {code && <p className="mt-1 font-mono text-xs">{code}</p>}
+        <p className="mt-1">{message}</p>
+        {isNotReady ? (
+          <p className="mt-3">
+            Plaid is still preparing this institution's data — this is normal right after connecting
+            (investments accounts especially). Wait a moment and refresh.
+          </p>
+        ) : (
+          <p className="mt-3">
+            If this persists, reconnect the institution from the connections page.
+          </p>
+        )}
+        <div className="mt-4 flex gap-3">
+          {/* Reloads the page → re-runs /accounts/get. */}
+          <a
+            href="?"
+            className="rounded-md bg-amber-600 px-3 py-1.5 font-medium text-sm text-white hover:bg-amber-700"
+          >
+            Retry
+          </a>
+          <Link
+            href="/settings/connections"
+            className="rounded-md border border-amber-400 px-3 py-1.5 font-medium text-sm hover:bg-amber-100 dark:hover:bg-amber-900"
+          >
+            Back to connections
+          </Link>
+        </div>
       </div>
     </main>
   );

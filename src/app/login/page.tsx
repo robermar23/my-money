@@ -1,15 +1,26 @@
 import { db } from "@/db/client.ts";
 import { users } from "@/db/schema/index.ts";
 import { getSession } from "@/lib/auth/session.ts";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { LoginForm } from "./login-form.tsx";
 
 export default async function LoginPage(): Promise<React.JSX.Element> {
-  // Already signed in? Just bounce to the dashboard.
+  // Already signed in (cookie resolves to a real user)? Bounce to the dashboard.
+  // A stale cookie (userId set but the row is gone, e.g. after a db-reset) is
+  // treated as logged-out: we render the form instead of bouncing to `/`, which
+  // would ping-pong with requireUser's redirect-to-login. The form's submit
+  // overwrites the stale session via `loginOrBootstrap`.
   const session = await getSession();
   if (session.userId) {
-    redirect("/");
+    const [current] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.id, session.userId))
+      .limit(1);
+    if (current) {
+      redirect("/");
+    }
   }
 
   // No user row yet = first-run. The form's submit sets the password.

@@ -3,7 +3,7 @@
 import { db } from "@/db/client.ts";
 import { accounts, plaidItems } from "@/db/schema/index.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
-import { plaidClient } from "@/lib/plaid/client.ts";
+import { listPlaidAccounts } from "@/lib/plaid/list-accounts.ts";
 import { mapPlaidAccountType } from "@/lib/plaid/map-types.ts";
 import { loadAccessToken } from "@/lib/plaid/tokens.ts";
 import { syncInvestmentsItemQueue, syncPlaidItemQueue } from "@/lib/queue/queues.ts";
@@ -67,10 +67,10 @@ export async function mapAccountsAction(
 
   const accessToken = await loadAccessToken(item.id);
 
-  // 2. Re-fetch /accounts/get as the source of truth — never trust the
+  // 2. Re-fetch the account list as the source of truth — never trust the
   //    submitted form to enumerate accounts the user hasn't consented to.
-  const accountsResp = await plaidClient.accountsGet({ access_token: accessToken });
-  const plaidAccounts = accountsResp.data.accounts;
+  //    Uses the same PRODUCT_NOT_READY → investments fallback as the map page.
+  const plaidAccounts = await listPlaidAccounts(accessToken, item.productsConsented);
   const plaidAccountById = new Map(plaidAccounts.map((a) => [a.account_id, a]));
 
   // 3. Decode the form. For every Plaid account, look up its action key.

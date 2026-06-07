@@ -24,8 +24,13 @@ export async function requireUser(): Promise<User> {
 
   const [user] = await db.select().from(users).where(eq(users.id, session.userId)).limit(1);
   if (!user) {
-    // Session points at a user that no longer exists — destroy it and redirect.
-    session.destroy();
+    // Session points at a user that no longer exists (e.g. after a db-reset).
+    // We must NOT clear the cookie here: requireUser runs inside Server
+    // Component renders, and cookie mutation is only legal in a Server Action
+    // or Route Handler (Next throws otherwise). Just redirect — the stale
+    // cookie is inert (it resolves to no user) and gets overwritten by the
+    // next successful `loginOrBootstrap`. LoginPage tolerates a stale userId
+    // so this doesn't loop.
     redirect("/login");
   }
 
