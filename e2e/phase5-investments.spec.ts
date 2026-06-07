@@ -93,8 +93,10 @@ test.describe("phase 5: manual investments → /investments dashboard (P5-26)", 
     const editor = page.locator("details", { hasText: /AAPL — \d+ lot/ });
     await editor.locator("summary").click();
     for (let i = 0; i < 2; i++) {
-      await editor.getByPlaceholder("10").fill("5");
-      await editor.getByPlaceholder("1000.00").fill("1000.00");
+      // `exact` matters: getByPlaceholder is a substring match, and "1000.00"
+      // contains "10" — so a non-exact "10" would match the cost-basis field too.
+      await editor.getByPlaceholder("10", { exact: true }).fill("5");
+      await editor.getByPlaceholder("1000.00", { exact: true }).fill("1000.00");
       await editor.getByRole("button", { name: /add lot/i }).click();
       // Wait for the RSC refresh to land the new lot row.
       await expect(editor.getByText("manual").nth(i)).toBeVisible();

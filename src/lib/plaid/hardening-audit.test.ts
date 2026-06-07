@@ -207,9 +207,11 @@ describe("P4-36 audit — decrypt() callsites are single-reader", () => {
 
 describe("P4-36 audit — Plaid surface logs do not leak secrets", () => {
   /**
-   * Files to audit: src/lib/plaid/, src/app/api/plaid/, src/worker/jobs/sync-plaid-item.ts.
-   * Excludes test files (they often log inputs deliberately) and the rate-limit
-   * module (no secret-handling, only IP buckets).
+   * Files to audit: src/lib/plaid/, src/app/api/plaid/, and ALL of
+   * src/worker/jobs/ (P5-27 widened this from just sync-plaid-item.ts to the
+   * whole jobs dir, so sync-investments-item.ts — and any future Plaid worker —
+   * is covered without a per-file allowlist edit). Excludes test files (they
+   * often log inputs deliberately) and the rate-limit module (IP buckets only).
    */
   const SCAN_PATHS = ALL_TS_FILES.filter((abs) => {
     const rel = asRel(abs);
@@ -217,7 +219,7 @@ describe("P4-36 audit — Plaid surface logs do not leak secrets", () => {
     return (
       rel.startsWith(["src", "lib", "plaid"].join(sep)) ||
       rel.startsWith(["src", "app", "api", "plaid"].join(sep)) ||
-      rel === ["src", "worker", "jobs", "sync-plaid-item.ts"].join(sep)
+      rel.startsWith(["src", "worker", "jobs"].join(sep))
     );
   });
 

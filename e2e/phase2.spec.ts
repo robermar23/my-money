@@ -53,8 +53,10 @@ test.describe("phase 2: cached prices → live holding valuations", () => {
     await page.getByRole("button", { name: /save holding/i }).click();
     await expect(page.getByText(/saved/i).first()).toBeVisible();
 
-    // Without prices yet, value column should be "—" (em-dash).
-    await expect(page.getByText("AAPL", { exact: true })).toBeVisible();
+    // Without prices yet, value column should be "—" (em-dash). Use .first():
+    // Phase 5 added a cost-basis lots editor whose summary also renders the
+    // symbol, so "AAPL" now appears in both the holdings table and the editor.
+    await expect(page.getByText("AAPL", { exact: true }).first()).toBeVisible();
 
     // ── Seed today's AAPL price as if fetch-prices-daily ran ────────────────
     const today = new Date().toISOString().slice(0, 10);
