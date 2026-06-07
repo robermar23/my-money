@@ -37,6 +37,25 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN corepack enable
 
+# Backup tooling (P6-03, ADR-014): pg_dump + age for the nightly backup job.
+# This base is Debian bookworm (apt, not apk). Its stock `postgresql-client` is
+# v15, which refuses to dump a v16 server — so we add the official PGDG apt repo
+# to get the matching v16 client. `age` ships in bookworm main. curl/gnupg are
+# only needed to fetch the repo key, so we purge them afterward to stay lean.
+# (Single shared runtime stage → both the web and worker entrypoints carry these
+# binaries; only the worker's backup job uses them.)
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates curl gnupg age \
+  && install -d /usr/share/postgresql-common/pgdg \
+  && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+       -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+  && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+       > /etc/apt/sources.list.d/pgdg.list \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends postgresql-client-16 \
+  && apt-get purge -y curl gnupg && apt-get autoremove -y \
+  && rm -rf /var/lib/apt/lists/*
+
 # Web entrypoint: Next.js standalone bundle (compact — only what the app needs).
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static

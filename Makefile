@@ -84,6 +84,7 @@ help:
 	@echo   job-snapshots   Run compute-snapshots-daily once
 	@echo   job-prices      Run fetch-prices-daily once (real APIs!)
 	@echo   job-heartbeat   Run heartbeat once (smoke test)
+	@echo   job-backup      Run backup-database-daily once (needs pg_dump + age)
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -272,3 +273,9 @@ job-prices:
 .PHONY: job-heartbeat
 job-heartbeat:
 	pnpm worker:once heartbeat
+
+# Requires pg_dump + age on PATH and BACKUP_AGE_RECIPIENT set in .env.local.
+# In production this runs inside the worker container where both binaries live.
+.PHONY: job-backup
+job-backup:
+	pnpm worker:once backup-database-daily
