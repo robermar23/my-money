@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useState, useTransition } from "react";
 import { usePlaidLink } from "react-plaid-link";
 import {
+  type PlaidProduct,
   createLinkTokenAction,
   exchangePublicTokenAction,
   finalizeReauthAction,
@@ -37,6 +38,12 @@ interface Props {
   label?: string;
   /** Tailwind variant for the button colour. Defaults to primary; 'amber' for reauth CTA. */
   variant?: "primary" | "amber";
+  /**
+   * Products to consent to in connect mode (P5-10). Defaults to
+   * `['transactions']`; pass `['investments']` for the Fidelity brokerage CTA.
+   * Ignored in update mode.
+   */
+  products?: PlaidProduct[];
 }
 
 export function LinkButton({
@@ -44,6 +51,7 @@ export function LinkButton({
   plaidItemPk,
   label,
   variant = "primary",
+  products,
 }: Props): React.JSX.Element {
   const router = useRouter();
   const [linkToken, setLinkToken] = useState<string | null>(null);
@@ -66,13 +74,13 @@ export function LinkButton({
           // Stay on the connections page; refresh so the new status shows.
           router.refresh();
         } else {
-          const result = await exchangePublicTokenAction(publicToken);
+          const result = await exchangePublicTokenAction(publicToken, products);
           // Successful exchange redirects server-side; we only land here on error.
           if (result?.error) setError(result.error);
         }
       });
     },
-    [mode, plaidItemPk, router],
+    [mode, plaidItemPk, products, router],
   );
 
   const onExit = useCallback(() => {
@@ -96,7 +104,9 @@ export function LinkButton({
       return;
     }
     startTransition(async () => {
-      const result = await createLinkTokenAction(mode === "update" ? { plaidItemPk } : undefined);
+      const result = await createLinkTokenAction(
+        mode === "update" ? { plaidItemPk } : { products },
+      );
       if (result.error || !result.linkToken) {
         setError(result.error ?? "Failed to create link token");
         return;

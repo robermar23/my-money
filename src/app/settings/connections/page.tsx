@@ -142,7 +142,11 @@ export default async function ConnectionsPage(): Promise<React.JSX.Element> {
             doesn't cover.
           </p>
         </div>
-        <LinkButton />
+        <div className="flex shrink-0 flex-col items-end gap-2">
+          <LinkButton />
+          {/* P5-10 — separate CTA requesting the `investments` product (Fidelity). */}
+          <LinkButton products={["investments"]} label="Connect investment institution" />
+        </div>
       </div>
 
       {items.length === 0 ? (
