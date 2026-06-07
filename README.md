@@ -90,6 +90,23 @@ See [docs/PLAID.md](docs/PLAID.md) for first-time setup (Sandbox → Production
 cutover, `cloudflared` tunnel, account mapping), and
 [docs/RUNBOOK_PLAID.md](docs/RUNBOOK_PLAID.md) when something looks off.
 
+## Investments — positions, cost basis, gain/loss (Phase 5)
+
+The `/investments` page (linked from the dashboard) shows every holding across
+your brokerage, IRA, and crypto/metals accounts: value, cost basis, gain/loss,
+an asset-allocation donut, and dividend/interest income over time.
+
+- **Brokerage (Fidelity)**: click **"Connect investment institution"** on
+  `/settings/connections` — it consents to Plaid's `investments` product and
+  syncs holdings + buys/sells/dividends. Cost-basis lots are built from buys.
+- **iTrust gold + crypto, and 401k**: enter quantities manually on the account
+  page (quarterly), and optionally record **cost-basis lots** for accurate
+  gain/loss. Prices update overnight; you only type quantities.
+
+Gain/loss is a display figure — `value − cost basis`. my-money does **not** do
+tax-lot accounting, wash sales, or 1099/cap-gains reporting. See
+[docs/INVESTMENTS.md](docs/INVESTMENTS.md) for the full guide.
+
 ## Fallback — QFX/CSV import (Phase 3)
 
 The import path remains for institutions Plaid doesn't cover, or for backfill
