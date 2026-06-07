@@ -3,6 +3,7 @@ import * as nodeFs from "node:fs/promises";
 // posix join: the backup job runs in the Linux worker container, so paths must
 // use `/` regardless of the host the tests happen to run on (Windows dev box).
 import { join } from "node:path/posix";
+import { clearBackupFailure, recordBackupFailure } from "@/lib/alerts/backup-alert.ts";
 import type { Job } from "bullmq";
 
 /**
@@ -58,6 +59,10 @@ export interface BackupDeps {
   readonly fs?: BackupFs;
   readonly env?: Record<string, string | undefined>;
   readonly now?: () => Date;
+  /** Raise a `backup_failure` alert (P6-16). DB-backed default; no-op-able in tests. */
+  readonly onFailureAlert?: (now: Date, error: string) => Promise<void>;
+  /** Clear open `backup_failure` alerts on success. DB-backed default. */
+  readonly onSuccessAlert?: (now: Date) => Promise<void>;
 }
 
 /** Filesystem-safe, sortable backup filename: `money-YYYYMMDDTHHMMSSZ.dump.age`. */
@@ -142,6 +147,8 @@ export async function backupDatabaseDailyProcessor(
   const fs: BackupFs = deps.fs ?? nodeFs;
   const env = deps.env ?? process.env;
   const now = (deps.now ?? (() => new Date()))();
+  const onFailureAlert = deps.onFailureAlert ?? recordBackupFailure;
+  const onSuccessAlert = deps.onSuccessAlert ?? clearBackupFailure;
 
   const recipient = env.BACKUP_AGE_RECIPIENT?.trim();
   if (!recipient) {
@@ -177,13 +184,13 @@ export async function backupDatabaseDailyProcessor(
     // Remove any partial/garbage ciphertext so a failed run can't masquerade as
     // a good backup.
     await fs.unlink(outPath).catch(() => {});
-    // TODO(P6-11/P6-16): write an `alerts` row (type='backup_failure') once the
-    // alerts table exists, so a failed backup surfaces in the UI, not just logs.
-    throw new Error(
-      `[backup-database-daily] failed (pg_dump=${dumpCode} age=${encCode}): ${
-        dumpErr.text() || encErr.text() || "no stderr"
-      }`,
-    );
+    const message = `[backup-database-daily] failed (pg_dump=${dumpCode} age=${encCode}): ${
+      dumpErr.text() || encErr.text() || "no stderr"
+    }`;
+    // Surface the failure in /alerts (P6-16). Wrapped so an alert-write hiccup
+    // can't mask the real backup error we're about to throw.
+    await onFailureAlert(now, message).catch(() => {});
+    throw new Error(message);
   }
 
   // Retention: prune stale backups after a confirmed-good write.
@@ -201,6 +208,9 @@ export async function backupDatabaseDailyProcessor(
       `[backup-database-daily] prune skipped: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
+
+  // A good backup clears any open backup_failure alert (P6-16).
+  await onSuccessAlert(now).catch(() => {});
 
   console.error(`[backup-database-daily] wrote ${backupFilename(now)} (pruned ${pruned})`);
   return { outPath, pruned };

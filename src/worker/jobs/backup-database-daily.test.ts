@@ -128,6 +128,8 @@ describe("backupDatabaseDailyProcessor", () => {
       env: { DATABASE_URL: url, BACKUP_AGE_RECIPIENT: "age1abc", BACKUP_DIR: "/backups" },
       fs: { readdir, unlink },
       now: () => FIXED_NOW,
+      onFailureAlert: async () => {},
+      onSuccessAlert: async () => {},
     });
 
     expect(calls[0]?.cmd).toBe("pg_dump");
@@ -153,6 +155,8 @@ describe("backupDatabaseDailyProcessor", () => {
         env: { DATABASE_URL: "postgres://x", BACKUP_AGE_RECIPIENT: "age1abc", BACKUP_DIR: "/b" },
         fs: { readdir: vi.fn(async () => []), unlink },
         now: () => FIXED_NOW,
+        onFailureAlert: async () => {},
+        onSuccessAlert: async () => {},
       }),
     ).rejects.toThrow(/pg_dump=1/);
     expect(unlink).toHaveBeenCalledWith("/b/money-20260607T160000Z.dump.age");
