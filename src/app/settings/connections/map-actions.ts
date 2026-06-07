@@ -6,7 +6,7 @@ import { requireUser } from "@/lib/auth/require-user.ts";
 import { plaidClient } from "@/lib/plaid/client.ts";
 import { mapPlaidAccountType } from "@/lib/plaid/map-types.ts";
 import { loadAccessToken } from "@/lib/plaid/tokens.ts";
-import { syncPlaidItemQueue } from "@/lib/queue/queues.ts";
+import { syncInvestmentsItemQueue, syncPlaidItemQueue } from "@/lib/queue/queues.ts";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -58,6 +58,7 @@ export async function mapAccountsAction(
     .select({
       id: plaidItems.id,
       institutionName: plaidItems.institutionName,
+      productsConsented: plaidItems.productsConsented,
     })
     .from(plaidItems)
     .where(eq(plaidItems.id, plaidItemPk))
@@ -170,13 +171,23 @@ export async function mapAccountsAction(
     return { error: (err as Error).message };
   }
 
-  // 6. Kick off the initial sync (P4-22).
-  await syncPlaidItemQueue.add(
-    "sync-plaid-item",
-    { plaidItemPk: item.id, trigger: "initial" },
-    // jobId pins idempotency — a double-submission can't enqueue two initial syncs.
-    { jobId: `sync-plaid-item-initial-${item.id}` },
-  );
+  // 6. Kick off the initial sync (P4-22 / P5-17). Investment Items run the
+  //    investments sync (holdings + investment transactions); everything else
+  //    runs the transactions sync. jobId pins idempotency so a double-submission
+  //    can't enqueue two initial syncs.
+  if (item.productsConsented.includes("investments")) {
+    await syncInvestmentsItemQueue.add(
+      "sync-investments-item",
+      { plaidItemPk: item.id, trigger: "initial" },
+      { jobId: `sync-investments-item-initial-${item.id}` },
+    );
+  } else {
+    await syncPlaidItemQueue.add(
+      "sync-plaid-item",
+      { plaidItemPk: item.id, trigger: "initial" },
+      { jobId: `sync-plaid-item-initial-${item.id}` },
+    );
+  }
 
   revalidatePath("/settings/connections");
   revalidatePath("/");

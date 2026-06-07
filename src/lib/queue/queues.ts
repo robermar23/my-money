@@ -34,6 +34,8 @@ export const QUEUE_NAMES = {
   RECATEGORIZE_ALL: "recategorize-all",
   /** Phase 4: pull /transactions/sync for a single plaid Item (webhook | manual | cron | initial). */
   SYNC_PLAID_ITEM: "sync-plaid-item",
+  /** Phase 5 (P5-16): pull /investments/holdings + /investments/transactions for an Item. */
+  SYNC_INVESTMENTS_ITEM: "sync-investments-item",
   /** Phase 4 (P4-27): 03:00 daily fan-out — enqueue a cron sync for every active Item. */
   ENQUEUE_PLAID_SYNCS_DAILY: "enqueue-plaid-syncs-daily",
 } as const;
@@ -66,6 +68,11 @@ export const recategorizeAllQueue = new Queue(QUEUE_NAMES.RECATEGORIZE_ALL, {
 });
 
 export const syncPlaidItemQueue = new Queue(QUEUE_NAMES.SYNC_PLAID_ITEM, {
+  connection: redisConnection,
+  defaultJobOptions,
+});
+
+export const syncInvestmentsItemQueue = new Queue(QUEUE_NAMES.SYNC_INVESTMENTS_ITEM, {
   connection: redisConnection,
   defaultJobOptions,
 });

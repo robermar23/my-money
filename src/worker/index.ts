@@ -7,6 +7,7 @@ import {
   heartbeatQueue,
   processImportQueue,
   recategorizeAllQueue,
+  syncInvestmentsItemQueue,
   syncPlaidItemQueue,
 } from "@/lib/queue/queues.ts";
 import { Worker } from "bullmq";
@@ -16,6 +17,7 @@ import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
 import { heartbeatProcessor } from "./jobs/heartbeat.ts";
 import { processImportProcessor } from "./jobs/process-import.ts";
 import { recategorizeAllProcessor } from "./jobs/recategorize-all.ts";
+import { syncInvestmentsItemProcessor } from "./jobs/sync-investments-item.ts";
 import { syncPlaidItemProcessor } from "./jobs/sync-plaid-item.ts";
 
 /**
@@ -86,6 +88,17 @@ syncPlaidItemWorker.on("failed", (job, err) => {
   console.error(`[worker] sync-plaid-item job ${job?.id} failed:`, err);
 });
 
+// Phase 5: Plaid Investments sync (holdings + investment transactions).
+// concurrency=1 for the same Plaid rate-limit reason as the transactions sync.
+const syncInvestmentsItemWorker = new Worker(
+  QUEUE_NAMES.SYNC_INVESTMENTS_ITEM,
+  syncInvestmentsItemProcessor,
+  { connection: redisConnection, concurrency: 1 },
+);
+syncInvestmentsItemWorker.on("failed", (job, err) => {
+  console.error(`[worker] sync-investments-item job ${job?.id} failed:`, err);
+});
+
 // P4-27: 03:00 daily fan-out — enqueues a cron sync for every active Item.
 // Lightweight; runs in series with the heavier sync queue so we don't race the
 // snapshot or price jobs that just finished at 02:00.
@@ -153,6 +166,7 @@ async function shutdown(_signal: string): Promise<void> {
   await processImportWorker.close();
   await recategorizeAllWorker.close();
   await syncPlaidItemWorker.close();
+  await syncInvestmentsItemWorker.close();
   await enqueuePlaidSyncsDailyWorker.close();
   await heartbeatQueue.close();
   await computeSnapshotsDailyQueue.close();
@@ -160,6 +174,7 @@ async function shutdown(_signal: string): Promise<void> {
   await processImportQueue.close();
   await recategorizeAllQueue.close();
   await syncPlaidItemQueue.close();
+  await syncInvestmentsItemQueue.close();
   await enqueuePlaidSyncsDailyQueue.close();
   await redisConnection.quit();
   process.exit(0);

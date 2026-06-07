@@ -97,10 +97,10 @@ export function lotCoverage(
 /** The investment-transaction fields lot construction reads (a mapped row subset). */
 export interface BuyTxnInput {
   readonly type: string;
-  readonly quantity: string | null;
+  readonly quantity?: string | null;
   readonly amount: string;
   readonly tradeDate: string;
-  readonly plaidInvestmentTransactionId: string | null;
+  readonly plaidInvestmentTransactionId?: string | null;
   readonly isoCurrencyCode?: string;
 }
 
@@ -117,7 +117,7 @@ export interface BuyTxnInput {
  */
 export function lotFromBuy(txn: BuyTxnInput, holdingId: string): NewHoldingLot | null {
   if (txn.type !== "buy") return null;
-  if (txn.quantity === null) return null;
+  if (txn.quantity === null || txn.quantity === undefined) return null;
   const quantity = new Decimal(txn.quantity);
   if (quantity.isZero()) return null;
 
