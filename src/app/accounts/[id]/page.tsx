@@ -3,18 +3,23 @@ import {
   getLatestSnapshot,
   getLiability,
   listHoldings,
+  listLots,
   listSnapshots,
 } from "@/lib/accounts/queries.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { valueHolding } from "@/lib/holdings/value.ts";
+import { gainLoss } from "@/lib/investments/gain-loss.ts";
+import { lotCoverage, resolveCostBasis } from "@/lib/investments/lots.ts";
 import { Money } from "@/lib/money/money.ts";
 import { balanceAtMonth } from "@/lib/mortgage/amortization.ts";
 import { distinctCategories, listTransactions } from "@/lib/transactions/queries.ts";
 import { toAccountId } from "@/lib/types/ids.ts";
+import Decimal from "decimal.js";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BalanceForm } from "./balance-form.tsx";
 import { HoldingForm } from "./holding-form.tsx";
+import { type LotView, LotsEditor } from "./lot-form.tsx";
 import { MortgageForm } from "./mortgage-form.tsx";
 import { PropertyForm } from "./property-form.tsx";
 import { ReconciliationBanner } from "./reconciliation-banner.tsx";
@@ -60,17 +65,25 @@ export default async function AccountDetailPage(
     account.type === "credit_card" ||
     account.type === "investment";
 
-  const [latestSnap, snapshots, accountHoldings, liability, txnResult, categorySuggestions] =
-    await Promise.all([
-      getLatestSnapshot(accountId),
-      listSnapshots(accountId),
-      listHoldings(accountId),
-      getLiability(accountId),
-      showTransactions
-        ? listTransactions({ accountId, page })
-        : Promise.resolve({ rows: [], totalCount: 0, page: 1, pageSize: 50, totalPages: 1 }),
-      showTransactions ? distinctCategories() : Promise.resolve([] as string[]),
-    ]);
+  const [
+    latestSnap,
+    snapshots,
+    accountHoldings,
+    accountLots,
+    liability,
+    txnResult,
+    categorySuggestions,
+  ] = await Promise.all([
+    getLatestSnapshot(accountId),
+    listSnapshots(accountId),
+    listHoldings(accountId),
+    listLots(accountId),
+    getLiability(accountId),
+    showTransactions
+      ? listTransactions({ accountId, page })
+      : Promise.resolve({ rows: [], totalCount: 0, page: 1, pageSize: 50, totalPages: 1 }),
+    showTransactions ? distinctCategories() : Promise.resolve([] as string[]),
+  ]);
 
   // Phase 2: price each holding using cached `prices` (closeUsed: null means
   // no price has been fetched yet — UI displays "—" for value).
@@ -82,6 +95,51 @@ export default async function AccountDetailPage(
     (acc, v) => acc.add(v.value),
     Money.zero(account.currency),
   );
+
+  // P5-19: resolved cost basis (lots-aware), gain/loss, and lot coverage per
+  // holding. Lots are grouped from the flat account-wide query.
+  const lotsByHolding = new Map<string, typeof accountLots>();
+  for (const lot of accountLots) {
+    const arr = lotsByHolding.get(lot.holdingId) ?? [];
+    arr.push(lot);
+    lotsByHolding.set(lot.holdingId, arr);
+  }
+  const holdingDerived = valuations.map((v) => {
+    const lots = lotsByHolding.get(v.holding.id) ?? [];
+    const lotInputs = lots.map((l) => ({ quantity: l.quantity, costBasisTotal: l.costBasisTotal }));
+    const resolvedBasis = resolveCostBasis(
+      { costBasis: v.holding.costBasis },
+      lotInputs,
+      account.currency,
+    );
+    // Only show gain/loss once a price (or face value) is known — otherwise
+    // value is $0 and the figure would be a misleading -100%.
+    const priced = v.closeUsed !== null || v.holding.assetClass === "cash";
+    const gl =
+      priced && resolvedBasis ? gainLoss({ value: v.value, costBasis: resolvedBasis }) : null;
+    const coverage = lots.length > 0 ? lotCoverage(v.holding, lotInputs) : null;
+    const coverageNote =
+      coverage && !coverage.isComplete
+        ? `lots cover ${coverage.coveredQty} of ${coverage.holdingQty}`
+        : null;
+    const lotViews: LotView[] = lots.map((l) => {
+      const qty = new Decimal(l.quantity);
+      return {
+        id: l.id,
+        acquiredAt: l.acquiredAt,
+        quantity: l.quantity,
+        costBasisTotal: l.costBasisTotal,
+        perUnit: qty.isZero() ? "0.00" : new Decimal(l.costBasisTotal).dividedBy(qty).toFixed(2),
+        source: l.source,
+      };
+    });
+    return { v, resolvedBasis, gl, coverageNote, lotViews };
+  });
+
+  // Quarterly-update hint: when was any holding last touched?
+  const lastHoldingUpdate = accountHoldings.reduce<Date | null>((latest, h) => {
+    return !latest || h.updatedAt > latest ? h.updatedAt : latest;
+  }, null);
 
   const showBalanceForm = account.type === "depository" || account.type === "credit_card";
   const showHoldingsForm = account.type === "investment" || account.type === "crypto_ira";
@@ -157,11 +215,17 @@ export default async function AccountDetailPage(
             For iTrust gold use symbol <code>XAU</code>, asset class <code>physical_metal</code>,
             unit <code>troy_oz</code>.
           </p>
+          {lastHoldingUpdate && (
+            <p className="mt-1 text-xs text-zinc-400">
+              Last updated {lastHoldingUpdate.toLocaleDateString("en-US", { dateStyle: "medium" })}{" "}
+              — review quarterly.
+            </p>
+          )}
           <div className="mt-4">
             <HoldingForm accountId={account.id} />
           </div>
 
-          {accountHoldings.length > 0 && (
+          {holdingDerived.length > 0 && (
             <table className="mt-6 w-full text-sm">
               <thead className="text-left text-xs text-zinc-500 uppercase">
                 <tr>
@@ -172,10 +236,11 @@ export default async function AccountDetailPage(
                   <th className="py-2 text-right">Latest price</th>
                   <th className="py-2 text-right">Value</th>
                   <th className="py-2 text-right">Cost basis</th>
+                  <th className="py-2 text-right">Gain/Loss</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
-                {valuations.map((v) => (
+                {holdingDerived.map(({ v, resolvedBasis, gl, coverageNote }) => (
                   <tr key={v.holding.id}>
                     <td className="py-2 font-mono">{v.holding.symbol}</td>
                     <td className="py-2 text-zinc-600 dark:text-zinc-400">
@@ -192,9 +257,26 @@ export default async function AccountDetailPage(
                       {v.closeUsed || v.holding.assetClass === "cash" ? v.value.format() : "—"}
                     </td>
                     <td className="py-2 text-right font-mono">
-                      {v.holding.costBasis
-                        ? Money.fromString(v.holding.costBasis, account.currency).format()
-                        : "—"}
+                      {resolvedBasis ? resolvedBasis.format() : "—"}
+                      {coverageNote && (
+                        <span
+                          className="ml-1 text-amber-600 dark:text-amber-400"
+                          title={coverageNote}
+                        >
+                          *
+                        </span>
+                      )}
+                    </td>
+                    <td
+                      className={`py-2 text-right font-mono ${
+                        gl?.absolute
+                          ? gl.absolute.isNegative()
+                            ? "text-red-600 dark:text-red-400"
+                            : "text-emerald-600 dark:text-emerald-400"
+                          : ""
+                      }`}
+                    >
+                      {gl?.absolute ? `${gl.absolute.format()} (${gl.percent}%)` : "—"}
                     </td>
                   </tr>
                 ))}
@@ -207,10 +289,34 @@ export default async function AccountDetailPage(
                   <td className="py-2 text-right font-medium font-mono">
                     {holdingsTotal.format()}
                   </td>
-                  <td />
+                  <td colSpan={2} />
                 </tr>
               </tfoot>
             </table>
+          )}
+
+          {/* P5-18 — per-holding cost-basis lot editors. */}
+          {holdingDerived.length > 0 && (
+            <div className="mt-6 border-zinc-200 border-t pt-4 dark:border-zinc-800">
+              <h3 className="font-medium text-sm">Cost-basis lots</h3>
+              <p className="mt-1 text-xs text-zinc-500">
+                Record acquisition lots for accurate gain/loss. When lots exist they override the
+                aggregate cost basis above.
+              </p>
+              <div className="mt-2 space-y-1">
+                {holdingDerived.map(({ v, lotViews, coverageNote }) => (
+                  <LotsEditor
+                    key={v.holding.id}
+                    accountId={account.id}
+                    holdingId={v.holding.id}
+                    symbol={v.holding.symbol}
+                    currency={account.currency}
+                    lots={lotViews}
+                    coverageNote={coverageNote}
+                  />
+                ))}
+              </div>
+            </div>
           )}
         </section>
       )}
