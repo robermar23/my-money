@@ -2,6 +2,7 @@
 
 import { db } from "@/db/client.ts";
 import { users } from "@/db/schema/index.ts";
+import { allowLoginAttempt } from "@/lib/auth/login-throttle.ts";
 import { hashPassword, verifyPassword } from "@/lib/auth/password.ts";
 import { getSession } from "@/lib/auth/session.ts";
 import { redirect } from "next/navigation";
@@ -30,6 +31,12 @@ export async function loginOrBootstrap(
   _prev: LoginResult,
   formData: FormData,
 ): Promise<LoginResult> {
+  // Throttle by source IP before doing any password work — caps both online
+  // guessing and the CPU cost of forcing many argon2id verifications (P6-01/02).
+  if (!(await allowLoginAttempt())) {
+    return { error: "Too many attempts. Wait a minute and try again." };
+  }
+
   const parsed = schema.safeParse({ password: formData.get("password") });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
