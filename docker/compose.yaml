@@ -125,11 +125,21 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-money}:${POSTGRES_PASSWORD:-dev_password_change_me}@postgres:5432/${POSTGRES_DB:-money}
       REDIS_URL: redis://redis:6379
       MONEY_ENCRYPTION_KEY: ${MONEY_ENCRYPTION_KEY:?MONEY_ENCRYPTION_KEY is required}
+      # Phase 6 (P6-06, ADR-014): nightly encrypted backup. Recipient is an age
+      # PUBLIC key (safe here); empty/unset disables the backup job. The private
+      # identity is NEVER on this box — it lives off-host (see docs/RESTORE.md).
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
+      BACKUP_DIR: /backups
+      BACKUP_RETAIN_DAYS: ${BACKUP_RETAIN_DAYS:-14}
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
+    volumes:
+      # Encrypted dumps land here. Replicate this volume off-host (B2, rsync,
+      # second disk) — that's the operator's responsibility per ADR-014.
+      - backups:/backups
     networks:
       - money_net
 
@@ -170,6 +180,9 @@ volumes:
   postgres_data:
   postgres_test_data:
   redis_data:
+  # Encrypted nightly database backups (P6-06, ADR-014). Persisted across
+  # container restarts; the operator replicates it off-host.
+  backups:
 
 networks:
   money_net:
