@@ -1,6 +1,6 @@
 import { db } from "@/db/client.ts";
 import { plaidItems } from "@/db/schema/index.ts";
-import { syncPlaidItemQueue } from "@/lib/queue/queues.ts";
+import { syncInvestmentsItemQueue, syncPlaidItemQueue } from "@/lib/queue/queues.ts";
 import type { Job } from "bullmq";
 import { eq } from "drizzle-orm";
 
@@ -28,19 +28,31 @@ export async function enqueuePlaidSyncsDailyProcessor(
   _job: Job,
 ): Promise<{ enqueued: number; skipped: number }> {
   const items = await db
-    .select({ id: plaidItems.id })
+    .select({ id: plaidItems.id, productsConsented: plaidItems.productsConsented })
     .from(plaidItems)
     .where(eq(plaidItems.status, "active"));
 
   const today = new Date().toISOString().slice(0, 10);
   let enqueued = 0;
   for (const item of items) {
-    await syncPlaidItemQueue.add(
-      "sync-plaid-item",
-      { plaidItemPk: item.id, trigger: "cron" },
-      { jobId: `sync-plaid-item-cron-${today}-${item.id}` },
-    );
-    enqueued++;
+    // P5-17 — fan out the sync that matches the Item's products. (Items are
+    // single-product per ADR-008/011, but this handles both defensively.)
+    if (item.productsConsented.includes("investments")) {
+      await syncInvestmentsItemQueue.add(
+        "sync-investments-item",
+        { plaidItemPk: item.id, trigger: "cron" },
+        { jobId: `sync-investments-item-cron-${today}-${item.id}` },
+      );
+      enqueued++;
+    }
+    if (item.productsConsented.includes("transactions")) {
+      await syncPlaidItemQueue.add(
+        "sync-plaid-item",
+        { plaidItemPk: item.id, trigger: "cron" },
+        { jobId: `sync-plaid-item-cron-${today}-${item.id}` },
+      );
+      enqueued++;
+    }
   }
   return { enqueued, skipped: 0 };
 }
