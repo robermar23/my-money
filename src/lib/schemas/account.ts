@@ -76,3 +76,11 @@ export const recordPropertyValueSchema = z.object({
   date: isoDateSchema,
   value: moneyAmountSchema,
 });
+
+/** A single cost-basis lot entered manually (Phase 5, P5-18). */
+export const upsertLotSchema = z.object({
+  /** Acquisition date; optional (unknown for some inherited/old positions). */
+  acquiredAt: isoDateSchema.optional().or(z.literal("")),
+  quantity: quantitySchema,
+  costBasisTotal: moneyAmountSchema,
+});
