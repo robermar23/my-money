@@ -1,3 +1,4 @@
+import type { NewHoldingLot } from "@/db/schema/index.ts";
 import { Money } from "@/lib/money/money.ts";
 import Decimal from "decimal.js";
 
@@ -90,5 +91,46 @@ export function lotCoverage(
     coveredQty: covered.toString(),
     holdingQty: holdingQty.toString(),
     isComplete: covered.equals(holdingQty),
+  };
+}
+
+/** The investment-transaction fields lot construction reads (a mapped row subset). */
+export interface BuyTxnInput {
+  readonly type: string;
+  readonly quantity: string | null;
+  readonly amount: string;
+  readonly tradeDate: string;
+  readonly plaidInvestmentTransactionId: string | null;
+  readonly isoCurrencyCode?: string;
+}
+
+/**
+ * P5-14 — Construct a cost-basis lot from a `buy` investment transaction.
+ *
+ * The lot's cost basis is the absolute cash spent (`|amount|` — amounts arrive
+ * already sign-flipped to our convention, so a buy is negative). Non-buy rows
+ * and buys with no usable quantity yield null (only buys create shares to base).
+ *
+ * @param txn - A mapped investment-transaction row.
+ * @param holdingId - The holding this lot belongs to.
+ * @returns A `NewHoldingLot`, or null when the row can't form a lot.
+ */
+export function lotFromBuy(txn: BuyTxnInput, holdingId: string): NewHoldingLot | null {
+  if (txn.type !== "buy") return null;
+  if (txn.quantity === null) return null;
+  const quantity = new Decimal(txn.quantity);
+  if (quantity.isZero()) return null;
+
+  const currency = txn.isoCurrencyCode ?? "USD";
+  const cash = Money.fromString(txn.amount, currency);
+  const costBasisTotal = cash.isNegative() ? cash.negate() : cash;
+
+  return {
+    holdingId,
+    acquiredAt: txn.tradeDate,
+    quantity: txn.quantity,
+    costBasisTotal: costBasisTotal.toString(),
+    source: "plaid",
+    plaidInvestmentTransactionId: txn.plaidInvestmentTransactionId,
   };
 }

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { aggregateLots, lotCoverage, resolveCostBasis } from "./lots.ts";
+import {
+  type BuyTxnInput,
+  aggregateLots,
+  lotCoverage,
+  lotFromBuy,
+  resolveCostBasis,
+} from "./lots.ts";
 
 const lot = (quantity: string, costBasisTotal: string) => ({ quantity, costBasisTotal });
 
@@ -63,5 +69,39 @@ describe("lotCoverage", () => {
     const r = lotCoverage({ quantity: "10" }, []);
     expect(r.coveredQty).toBe("0");
     expect(r.isComplete).toBe(false);
+  });
+});
+
+describe("lotFromBuy", () => {
+  const buy = (over: Partial<BuyTxnInput> = {}): BuyTxnInput => ({
+    type: "buy",
+    quantity: "10",
+    amount: "-1000.00", // our convention: cash outflow is negative
+    tradeDate: "2026-05-15",
+    plaidInvestmentTransactionId: "it-buy",
+    isoCurrencyCode: "USD",
+    ...over,
+  });
+
+  it("builds a lot from a buy, using |amount| as the cost basis", () => {
+    const lot = lotFromBuy(buy(), "holding-1");
+    expect(lot).not.toBeNull();
+    expect(lot?.holdingId).toBe("holding-1");
+    expect(lot?.quantity).toBe("10");
+    expect(lot?.costBasisTotal).toBe("1000.00");
+    expect(lot?.acquiredAt).toBe("2026-05-15");
+    expect(lot?.source).toBe("plaid");
+    expect(lot?.plaidInvestmentTransactionId).toBe("it-buy");
+  });
+
+  it("returns null for non-buy transactions", () => {
+    expect(lotFromBuy(buy({ type: "sell" }), "h")).toBeNull();
+    expect(lotFromBuy(buy({ type: "cash" }), "h")).toBeNull();
+    expect(lotFromBuy(buy({ type: "fee" }), "h")).toBeNull();
+  });
+
+  it("returns null when the buy has no usable quantity", () => {
+    expect(lotFromBuy(buy({ quantity: null }), "h")).toBeNull();
+    expect(lotFromBuy(buy({ quantity: "0" }), "h")).toBeNull();
   });
 });
