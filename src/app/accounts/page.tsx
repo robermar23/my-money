@@ -42,12 +42,17 @@ export default async function AccountsPage(): Promise<React.JSX.Element> {
     <main className="mx-auto max-w-4xl p-6">
       <div className="flex items-center justify-between">
         <h1 className="font-semibold text-2xl tracking-tight">Accounts</h1>
-        <Link
-          href="/accounts/new"
-          className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-        >
-          Add account
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link href="/investments" className="text-sm text-zinc-500 hover:underline">
+            Investments →
+          </Link>
+          <Link
+            href="/accounts/new"
+            className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          >
+            Add account
+          </Link>
+        </div>
       </div>
 
       {enriched.length === 0 ? (

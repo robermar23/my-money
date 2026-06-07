@@ -49,9 +49,14 @@ export default async function HomePage(): Promise<React.JSX.Element> {
       <section className="mt-8">
         <div className="flex items-center justify-between">
           <h2 className="font-medium">Accounts</h2>
-          <Link href="/accounts" className="text-sm text-zinc-500 hover:underline">
-            Manage →
-          </Link>
+          <div className="flex gap-4 text-sm">
+            <Link href="/investments" className="text-zinc-500 hover:underline">
+              Investments →
+            </Link>
+            <Link href="/accounts" className="text-zinc-500 hover:underline">
+              Manage →
+            </Link>
+          </div>
         </div>
         {nw.items.length === 0 ? (
           <p className="mt-4 rounded-md border border-zinc-200 border-dashed p-6 text-center text-sm text-zinc-500 dark:border-zinc-800">
