@@ -31,9 +31,16 @@ interface AddJobArgs {
 const mockQueueAdd = vi.fn<
   (name: string, data: AddJobArgs["data"], opts: AddJobArgs["opts"]) => Promise<{ id: string }>
 >(async () => ({ id: "test-job-id" }));
+const mockInvQueueAdd = vi.fn<
+  (name: string, data: AddJobArgs["data"], opts: AddJobArgs["opts"]) => Promise<{ id: string }>
+>(async () => ({ id: "test-inv-job-id" }));
 vi.mock("@/lib/queue/queues.ts", () => ({
-  QUEUE_NAMES: { SYNC_PLAID_ITEM: "sync-plaid-item" },
+  QUEUE_NAMES: {
+    SYNC_PLAID_ITEM: "sync-plaid-item",
+    SYNC_INVESTMENTS_ITEM: "sync-investments-item",
+  },
   syncPlaidItemQueue: { add: mockQueueAdd },
+  syncInvestmentsItemQueue: { add: mockInvQueueAdd },
 }));
 
 // Import AFTER mocks register.
@@ -106,6 +113,7 @@ async function reset(): Promise<void> {
   plaidWebhookLimiter._reset();
   mockKeyGet.mockReset();
   mockQueueAdd.mockClear();
+  mockInvQueueAdd.mockClear();
 }
 
 beforeEach(reset);
@@ -168,6 +176,46 @@ describe("POST /api/plaid/webhook — happy path", () => {
       .from(plaidItems)
       .where(eq(plaidItems.id, plaidItemPk));
     expect(item?.lastWebhookAt).toBeInstanceOf(Date);
+  });
+});
+
+describe("POST /api/plaid/webhook — P5-15 products-based routing", () => {
+  it("routes a HOLDINGS webhook to the investments queue, not the transactions queue", async () => {
+    const plaidItemPk = await createPlaidItem({
+      plaidItemId: "item-inv-route",
+      institutionId: "ins_fidelity",
+      institutionName: "Fidelity",
+      accessToken: "access-sandbox-inv",
+      productsConsented: ["investments"],
+    });
+
+    const km = await makeKey("kid-inv-route");
+    mockKeyGet.mockResolvedValueOnce({ data: { key: km.jwk, request_id: "rid" } });
+
+    const rawBody = JSON.stringify({
+      webhook_type: "HOLDINGS",
+      webhook_code: "DEFAULT_UPDATE",
+      item_id: "item-inv-route",
+      new_holdings: 3,
+      updated_holdings: 1,
+    });
+    const jwt = await signJWT({ km, rawBody });
+
+    const res = await POST(buildRequest({ rawBody, jwt, forwardedFor: "20.0.0.1" }));
+    expect(res.status).toBe(200);
+
+    // Investments queue got the job; transactions queue did not.
+    expect(mockInvQueueAdd).toHaveBeenCalledTimes(1);
+    const call = mockInvQueueAdd.mock.calls[0];
+    expect(call?.[0]).toBe("sync-investments-item");
+    expect(call?.[1]?.plaidItemPk).toBe(plaidItemPk);
+    expect(call?.[1]?.trigger).toBe("webhook");
+    expect(mockQueueAdd).not.toHaveBeenCalled();
+
+    const logs = await db.select().from(webhookLog);
+    expect(logs).toHaveLength(1);
+    expect(logs[0]?.webhookType).toBe("HOLDINGS");
+    expect(logs[0]?.status).toBe("queued");
   });
 });
 

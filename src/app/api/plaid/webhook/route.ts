@@ -2,7 +2,7 @@ import { db } from "@/db/client.ts";
 import { plaidItems, webhookLog } from "@/db/schema/index.ts";
 import { bucketKeyFromHeaders, plaidWebhookLimiter } from "@/lib/plaid/rate-limit.ts";
 import { sha256Hex, verifyWebhook } from "@/lib/plaid/webhook-verify.ts";
-import { syncPlaidItemQueue } from "@/lib/queue/queues.ts";
+import { syncInvestmentsItemQueue, syncPlaidItemQueue } from "@/lib/queue/queues.ts";
 import { eq } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 
@@ -127,7 +127,11 @@ async function handle(req: NextRequest): Promise<Response> {
   }
 
   const [item] = await db
-    .select({ id: plaidItems.id, status: plaidItems.status })
+    .select({
+      id: plaidItems.id,
+      status: plaidItems.status,
+      productsConsented: plaidItems.productsConsented,
+    })
     .from(plaidItems)
     .where(eq(plaidItems.plaidItemId, plaidTextItemId))
     .limit(1);
@@ -163,24 +167,32 @@ async function handle(req: NextRequest): Promise<Response> {
   }
 
   // 7b. Enqueue heavy work + stamp last_webhook_at.
-  //     Skip the sync enqueue when the Item just transitioned into a state
-  //     that makes /transactions/sync impossible (login_required, revoked) —
-  //     the worker would only re-fail. Reauth (P4-25) re-enqueues on success.
-  const shouldEnqueueSync = !["login_required", "revoked"].includes(
+  //     P5-15 — route to the right sync worker by webhook type + the Item's
+  //     consented products: TRANSACTIONS → transactions sync; HOLDINGS /
+  //     INVESTMENTS_TRANSACTIONS → investments sync; ITEM → the sync matching
+  //     the Item's product (so an investments-only Item never hits
+  //     /transactions/sync, which would error without the product).
+  //     Skip entirely when the Item is login_required/revoked (the worker would
+  //     only re-fail; reauth re-enqueues on success) or the type is unroutable.
+  const target = syncTargetFor(webhookType, item.productsConsented);
+  const statusOk = !["login_required", "revoked"].includes(
     didItemStatusUpdate ? await currentItemStatus(item.id) : item.status,
   );
+  const shouldEnqueueSync = target !== null && statusOk;
 
   const stampPromise = db
     .update(plaidItems)
     .set({ lastWebhookAt: new Date() })
     .where(eq(plaidItems.id, item.id));
 
-  if (shouldEnqueueSync) {
+  if (shouldEnqueueSync && target) {
+    const queue = target === "investments" ? syncInvestmentsItemQueue : syncPlaidItemQueue;
+    const jobName = target === "investments" ? "sync-investments-item" : "sync-plaid-item";
     await Promise.all([
-      syncPlaidItemQueue.add(
-        "sync-plaid-item",
+      queue.add(
+        jobName,
         { plaidItemPk: item.id, trigger: "webhook", webhookLogId, webhookCode },
-        { jobId: `sync-plaid-item-webhook-${webhookLogId}` },
+        { jobId: `${jobName}-webhook-${webhookLogId}` },
       ),
       stampPromise,
     ]);
@@ -200,6 +212,24 @@ async function handle(req: NextRequest): Promise<Response> {
       headers: { "content-type": "application/json" },
     },
   );
+}
+
+/**
+ * P5-15 — route a webhook to the sync worker that matches its type + the Item's
+ * consented products. Returns null for webhook types we don't drive a sync from.
+ */
+function syncTargetFor(
+  webhookType: string,
+  productsConsented: readonly string[],
+): "transactions" | "investments" | null {
+  if (webhookType === "TRANSACTIONS") return "transactions";
+  if (webhookType === "HOLDINGS" || webhookType === "INVESTMENTS_TRANSACTIONS") {
+    return "investments";
+  }
+  if (webhookType === "ITEM") {
+    return productsConsented.includes("investments") ? "investments" : "transactions";
+  }
+  return null;
 }
 
 function nestedString(body: Record<string, unknown>, path: readonly string[]): string | null {
