@@ -71,44 +71,46 @@ export function LotsEditor({
 
       <div className="mt-3 rounded-md border border-zinc-200 p-3 dark:border-zinc-800">
         {lots.length > 0 && (
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs text-zinc-500 uppercase">
-              <tr>
-                <th className="py-1">Acquired</th>
-                <th className="py-1 text-right">Quantity</th>
-                <th className="py-1 text-right">Cost basis</th>
-                <th className="py-1 text-right">Per unit</th>
-                <th className="py-1">Source</th>
-                <th className="py-1" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
-              {lots.map((lot) => (
-                <tr key={lot.id}>
-                  <td className="py-1 font-mono">{lot.acquiredAt ?? "—"}</td>
-                  <td className="py-1 text-right font-mono">{lot.quantity}</td>
-                  <td className="py-1 text-right font-mono">
-                    {fmt.format(Number(lot.costBasisTotal))}
-                  </td>
-                  <td className="py-1 text-right font-mono">{fmt.format(Number(lot.perUnit))}</td>
-                  <td className="py-1 text-zinc-500">{lot.source}</td>
-                  <td className="py-1 text-right">
-                    <button
-                      type="button"
-                      onClick={() => onDelete(lot.id)}
-                      disabled={deleting}
-                      className="text-red-600 text-xs hover:underline disabled:opacity-50 dark:text-red-400"
-                    >
-                      Delete
-                    </button>
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[34rem] text-sm">
+              <thead className="text-left text-xs text-zinc-500 uppercase">
+                <tr>
+                  <th className="py-1">Acquired</th>
+                  <th className="py-1 text-right">Quantity</th>
+                  <th className="py-1 text-right">Cost basis</th>
+                  <th className="py-1 text-right">Per unit</th>
+                  <th className="py-1">Source</th>
+                  <th className="py-1" />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
+                {lots.map((lot) => (
+                  <tr key={lot.id}>
+                    <td className="py-1 font-mono">{lot.acquiredAt ?? "—"}</td>
+                    <td className="py-1 text-right font-mono">{lot.quantity}</td>
+                    <td className="py-1 text-right font-mono">
+                      {fmt.format(Number(lot.costBasisTotal))}
+                    </td>
+                    <td className="py-1 text-right font-mono">{fmt.format(Number(lot.perUnit))}</td>
+                    <td className="py-1 text-zinc-500">{lot.source}</td>
+                    <td className="py-1 text-right">
+                      <button
+                        type="button"
+                        onClick={() => onDelete(lot.id)}
+                        disabled={deleting}
+                        className="text-red-600 text-xs hover:underline disabled:opacity-50 dark:text-red-400"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
 
-        <form action={action} className="mt-3 grid grid-cols-3 gap-2">
+        <form action={action} className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3">
           <div>
             <label htmlFor={`acquiredAt-${holdingId}`} className="block font-medium text-xs">
               Acquired (optional)
@@ -149,11 +151,11 @@ export function LotsEditor({
             />
           </div>
           {state.error && (
-            <p className="col-span-3 rounded-md bg-red-50 px-3 py-2 text-red-700 text-xs dark:bg-red-950 dark:text-red-300">
+            <p className="col-span-full rounded-md bg-red-50 px-3 py-2 text-red-700 text-xs dark:bg-red-950 dark:text-red-300">
               {state.error}
             </p>
           )}
-          <div className="col-span-3">
+          <div className="col-span-full">
             <button
               type="submit"
               disabled={pending}

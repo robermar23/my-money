@@ -60,34 +60,38 @@ export default async function AccountsPage(): Promise<React.JSX.Element> {
           No accounts yet. Add your first account to start tracking your net worth.
         </p>
       ) : (
-        <table className="mt-6 w-full text-sm">
-          <thead className="border-zinc-200 border-b text-left text-xs text-zinc-500 uppercase dark:border-zinc-800">
-            <tr>
-              <th className="py-2">Name</th>
-              <th className="py-2">Institution</th>
-              <th className="py-2">Type</th>
-              <th className="py-2 text-right">Latest balance</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
-            {enriched.map(({ account, latestBalance }) => (
-              <tr key={account.id}>
-                <td className="py-3">
-                  <Link href={`/accounts/${account.id}`} className="font-medium hover:underline">
-                    {account.name}
-                  </Link>
-                </td>
-                <td className="py-3 text-zinc-600 dark:text-zinc-400">{account.institution}</td>
-                <td className="py-3 text-zinc-600 dark:text-zinc-400">
-                  {TYPE_LABEL[account.type] ?? account.type}
-                </td>
-                <td className="py-3 text-right font-mono">
-                  {latestBalance ? Money.fromString(latestBalance, account.currency).format() : "—"}
-                </td>
+        <div className="mt-6 overflow-x-auto">
+          <table className="w-full min-w-[34rem] text-sm">
+            <thead className="border-zinc-200 border-b text-left text-xs text-zinc-500 uppercase dark:border-zinc-800">
+              <tr>
+                <th className="py-2">Name</th>
+                <th className="py-2">Institution</th>
+                <th className="py-2">Type</th>
+                <th className="py-2 text-right">Latest balance</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
+              {enriched.map(({ account, latestBalance }) => (
+                <tr key={account.id}>
+                  <td className="py-3">
+                    <Link href={`/accounts/${account.id}`} className="font-medium hover:underline">
+                      {account.name}
+                    </Link>
+                  </td>
+                  <td className="py-3 text-zinc-600 dark:text-zinc-400">{account.institution}</td>
+                  <td className="py-3 text-zinc-600 dark:text-zinc-400">
+                    {TYPE_LABEL[account.type] ?? account.type}
+                  </td>
+                  <td className="py-3 text-right font-mono">
+                    {latestBalance
+                      ? Money.fromString(latestBalance, account.currency).format()
+                      : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </main>
   );

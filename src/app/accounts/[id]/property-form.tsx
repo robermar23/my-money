@@ -18,7 +18,7 @@ export function PropertyForm({ accountId }: Props): React.JSX.Element {
   const today = new Date().toISOString().slice(0, 10);
 
   return (
-    <form action={action} className="grid grid-cols-2 gap-3">
+    <form action={action} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <div>
         <label htmlFor="prop-date" className="block font-medium text-xs">
           Valuation date
@@ -47,16 +47,16 @@ export function PropertyForm({ accountId }: Props): React.JSX.Element {
         />
       </div>
       {state.error && (
-        <p className="col-span-2 rounded-md bg-red-50 px-3 py-2 text-red-700 text-xs dark:bg-red-950 dark:text-red-300">
+        <p className="col-span-full rounded-md bg-red-50 px-3 py-2 text-red-700 text-xs dark:bg-red-950 dark:text-red-300">
           {state.error}
         </p>
       )}
       {state.ok && (
-        <p className="col-span-2 rounded-md bg-emerald-50 px-3 py-2 text-emerald-700 text-xs dark:bg-emerald-950 dark:text-emerald-300">
+        <p className="col-span-full rounded-md bg-emerald-50 px-3 py-2 text-emerald-700 text-xs dark:bg-emerald-950 dark:text-emerald-300">
           Saved.
         </p>
       )}
-      <div className="col-span-2">
+      <div className="col-span-full">
         <button
           type="submit"
           disabled={pending}

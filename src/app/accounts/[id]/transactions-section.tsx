@@ -48,47 +48,49 @@ export function TransactionsSection({
           No transactions yet. Drop in a QFX or CSV export to populate this account.
         </p>
       ) : (
-        <table className="mt-4 w-full text-sm">
-          <thead className="text-left text-xs text-zinc-500 uppercase">
-            <tr>
-              <th className="py-1.5">Date</th>
-              <th className="py-1.5">Payee</th>
-              <th className="py-1.5">Category</th>
-              <th className="py-1.5 text-right">Amount</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
-            {rows.map((t) => {
-              const displayAmount = flipSign
-                ? Money.fromString(t.amount, accountCurrency).negate()
-                : Money.fromString(t.amount, accountCurrency);
-              return (
-                <tr key={t.id}>
-                  <td className="py-1.5 font-mono">{t.postedAt}</td>
-                  <td className="py-1.5">
-                    <div>{t.name}</div>
-                    {t.memo && <div className="text-xs text-zinc-500">{t.memo}</div>}
-                  </td>
-                  <td className="py-1.5">
-                    <CategoryCell
-                      accountId={accountId}
-                      transactionId={t.id}
-                      current={t.category}
-                      suggestions={suggestions}
-                    />
-                  </td>
-                  <td
-                    className={`py-1.5 text-right font-mono ${
-                      displayAmount.isNegative() ? "text-red-700 dark:text-red-300" : ""
-                    }`}
-                  >
-                    {displayAmount.format()}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[36rem] text-sm">
+            <thead className="text-left text-xs text-zinc-500 uppercase">
+              <tr>
+                <th className="py-1.5">Date</th>
+                <th className="py-1.5">Payee</th>
+                <th className="py-1.5">Category</th>
+                <th className="py-1.5 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
+              {rows.map((t) => {
+                const displayAmount = flipSign
+                  ? Money.fromString(t.amount, accountCurrency).negate()
+                  : Money.fromString(t.amount, accountCurrency);
+                return (
+                  <tr key={t.id}>
+                    <td className="py-1.5 font-mono">{t.postedAt}</td>
+                    <td className="py-1.5">
+                      <div>{t.name}</div>
+                      {t.memo && <div className="text-xs text-zinc-500">{t.memo}</div>}
+                    </td>
+                    <td className="py-1.5">
+                      <CategoryCell
+                        accountId={accountId}
+                        transactionId={t.id}
+                        current={t.category}
+                        suggestions={suggestions}
+                      />
+                    </td>
+                    <td
+                      className={`py-1.5 text-right font-mono ${
+                        displayAmount.isNegative() ? "text-red-700 dark:text-red-300" : ""
+                      }`}
+                    >
+                      {displayAmount.format()}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {totalPages > 1 && (

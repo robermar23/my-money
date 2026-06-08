@@ -159,52 +159,54 @@ export default async function InvestmentsPage(
                     {subtotal.format()}
                   </span>
                 </div>
-                <table className="mt-3 w-full text-sm">
-                  <thead className="text-left text-xs text-zinc-500 uppercase">
-                    <tr>
-                      <th className="py-2">Symbol</th>
-                      <th className="py-2">Name</th>
-                      <th className="py-2 text-right">Quantity</th>
-                      <th className="py-2 text-right">Price</th>
-                      <th className="py-2 text-right">Value</th>
-                      <th className="py-2 text-right">Cost basis</th>
-                      <th className="py-2 text-right">Gain/Loss</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
-                    {group.rows.map((r) => (
-                      <tr key={r.p.holding.id}>
-                        <td className="py-2 font-mono">{r.p.holding.symbol}</td>
-                        <td className="py-2 text-zinc-600 dark:text-zinc-400">
-                          {r.p.securityName ?? "—"}
-                        </td>
-                        <td className="py-2 text-right font-mono">{r.p.holding.quantity}</td>
-                        <td className="py-2 text-right font-mono">
-                          {r.valuation.closeUsed
-                            ? Money.fromString(r.valuation.closeUsed, group.currency).format()
-                            : "—"}
-                        </td>
-                        <td className="py-2 text-right font-mono">
-                          {r.priced ? r.valuation.value.format() : "—"}
-                        </td>
-                        <td className="py-2 text-right font-mono">
-                          {r.costBasis ? r.costBasis.format() : "—"}
-                        </td>
-                        <td
-                          className={`py-2 text-right font-mono ${
-                            r.gl?.absolute
-                              ? r.gl.absolute.isNegative()
-                                ? "text-red-600 dark:text-red-400"
-                                : "text-emerald-600 dark:text-emerald-400"
-                              : ""
-                          }`}
-                        >
-                          {r.gl?.absolute ? `${r.gl.absolute.format()} (${r.gl.percent}%)` : "—"}
-                        </td>
+                <div className="mt-3 overflow-x-auto">
+                  <table className="w-full min-w-[44rem] text-sm">
+                    <thead className="text-left text-xs text-zinc-500 uppercase">
+                      <tr>
+                        <th className="py-2">Symbol</th>
+                        <th className="py-2">Name</th>
+                        <th className="py-2 text-right">Quantity</th>
+                        <th className="py-2 text-right">Price</th>
+                        <th className="py-2 text-right">Value</th>
+                        <th className="py-2 text-right">Cost basis</th>
+                        <th className="py-2 text-right">Gain/Loss</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
+                      {group.rows.map((r) => (
+                        <tr key={r.p.holding.id}>
+                          <td className="py-2 font-mono">{r.p.holding.symbol}</td>
+                          <td className="py-2 text-zinc-600 dark:text-zinc-400">
+                            {r.p.securityName ?? "—"}
+                          </td>
+                          <td className="py-2 text-right font-mono">{r.p.holding.quantity}</td>
+                          <td className="py-2 text-right font-mono">
+                            {r.valuation.closeUsed
+                              ? Money.fromString(r.valuation.closeUsed, group.currency).format()
+                              : "—"}
+                          </td>
+                          <td className="py-2 text-right font-mono">
+                            {r.priced ? r.valuation.value.format() : "—"}
+                          </td>
+                          <td className="py-2 text-right font-mono">
+                            {r.costBasis ? r.costBasis.format() : "—"}
+                          </td>
+                          <td
+                            className={`py-2 text-right font-mono ${
+                              r.gl?.absolute
+                                ? r.gl.absolute.isNegative()
+                                  ? "text-red-600 dark:text-red-400"
+                                  : "text-emerald-600 dark:text-emerald-400"
+                                : ""
+                            }`}
+                          >
+                            {r.gl?.absolute ? `${r.gl.absolute.format()} (${r.gl.percent}%)` : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </section>
             );
           })}

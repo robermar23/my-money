@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AppNav } from "@/components/app-nav.tsx";
 import { getSession } from "@/lib/auth/session.ts";
@@ -6,6 +6,13 @@ import { getSession } from "@/lib/auth/session.ts";
 export const metadata: Metadata = {
   title: "my-money",
   description: "Self-hosted, single-user personal finance tracker.",
+};
+
+// P6-17: opt into proper mobile scaling so the app renders at device width
+// instead of a zoomed-out desktop viewport on phones.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 interface RootLayoutProps {

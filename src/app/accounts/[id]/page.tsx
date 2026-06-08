@@ -226,73 +226,77 @@ export default async function AccountDetailPage(
           </div>
 
           {holdingDerived.length > 0 && (
-            <table className="mt-6 w-full text-sm">
-              <thead className="text-left text-xs text-zinc-500 uppercase">
-                <tr>
-                  <th className="py-2">Symbol</th>
-                  <th className="py-2">Asset class</th>
-                  <th className="py-2 text-right">Quantity</th>
-                  <th className="py-2">Unit</th>
-                  <th className="py-2 text-right">Latest price</th>
-                  <th className="py-2 text-right">Value</th>
-                  <th className="py-2 text-right">Cost basis</th>
-                  <th className="py-2 text-right">Gain/Loss</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
-                {holdingDerived.map(({ v, resolvedBasis, gl, coverageNote }) => (
-                  <tr key={v.holding.id}>
-                    <td className="py-2 font-mono">{v.holding.symbol}</td>
-                    <td className="py-2 text-zinc-600 dark:text-zinc-400">
-                      {v.holding.assetClass.replace("_", " ")}
-                    </td>
-                    <td className="py-2 text-right font-mono">{v.holding.quantity}</td>
-                    <td className="py-2 text-zinc-600 dark:text-zinc-400">
-                      {v.holding.quantityUnit}
-                    </td>
-                    <td className="py-2 text-right font-mono">
-                      {v.closeUsed ? Money.fromString(v.closeUsed, account.currency).format() : "—"}
-                    </td>
-                    <td className="py-2 text-right font-mono">
-                      {v.closeUsed || v.holding.assetClass === "cash" ? v.value.format() : "—"}
-                    </td>
-                    <td className="py-2 text-right font-mono">
-                      {resolvedBasis ? resolvedBasis.format() : "—"}
-                      {coverageNote && (
-                        <span
-                          className="ml-1 text-amber-600 dark:text-amber-400"
-                          title={coverageNote}
-                        >
-                          *
-                        </span>
-                      )}
-                    </td>
-                    <td
-                      className={`py-2 text-right font-mono ${
-                        gl?.absolute
-                          ? gl.absolute.isNegative()
-                            ? "text-red-600 dark:text-red-400"
-                            : "text-emerald-600 dark:text-emerald-400"
-                          : ""
-                      }`}
-                    >
-                      {gl?.absolute ? `${gl.absolute.format()} (${gl.percent}%)` : "—"}
-                    </td>
+            <div className="mt-6 overflow-x-auto">
+              <table className="w-full min-w-[46rem] text-sm">
+                <thead className="text-left text-xs text-zinc-500 uppercase">
+                  <tr>
+                    <th className="py-2">Symbol</th>
+                    <th className="py-2">Asset class</th>
+                    <th className="py-2 text-right">Quantity</th>
+                    <th className="py-2">Unit</th>
+                    <th className="py-2 text-right">Latest price</th>
+                    <th className="py-2 text-right">Value</th>
+                    <th className="py-2 text-right">Cost basis</th>
+                    <th className="py-2 text-right">Gain/Loss</th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot className="border-zinc-200 border-t dark:border-zinc-800">
-                <tr>
-                  <td className="py-2 font-medium" colSpan={5}>
-                    Total
-                  </td>
-                  <td className="py-2 text-right font-medium font-mono">
-                    {holdingsTotal.format()}
-                  </td>
-                  <td colSpan={2} />
-                </tr>
-              </tfoot>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
+                  {holdingDerived.map(({ v, resolvedBasis, gl, coverageNote }) => (
+                    <tr key={v.holding.id}>
+                      <td className="py-2 font-mono">{v.holding.symbol}</td>
+                      <td className="py-2 text-zinc-600 dark:text-zinc-400">
+                        {v.holding.assetClass.replace("_", " ")}
+                      </td>
+                      <td className="py-2 text-right font-mono">{v.holding.quantity}</td>
+                      <td className="py-2 text-zinc-600 dark:text-zinc-400">
+                        {v.holding.quantityUnit}
+                      </td>
+                      <td className="py-2 text-right font-mono">
+                        {v.closeUsed
+                          ? Money.fromString(v.closeUsed, account.currency).format()
+                          : "—"}
+                      </td>
+                      <td className="py-2 text-right font-mono">
+                        {v.closeUsed || v.holding.assetClass === "cash" ? v.value.format() : "—"}
+                      </td>
+                      <td className="py-2 text-right font-mono">
+                        {resolvedBasis ? resolvedBasis.format() : "—"}
+                        {coverageNote && (
+                          <span
+                            className="ml-1 text-amber-600 dark:text-amber-400"
+                            title={coverageNote}
+                          >
+                            *
+                          </span>
+                        )}
+                      </td>
+                      <td
+                        className={`py-2 text-right font-mono ${
+                          gl?.absolute
+                            ? gl.absolute.isNegative()
+                              ? "text-red-600 dark:text-red-400"
+                              : "text-emerald-600 dark:text-emerald-400"
+                            : ""
+                        }`}
+                      >
+                        {gl?.absolute ? `${gl.absolute.format()} (${gl.percent}%)` : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="border-zinc-200 border-t dark:border-zinc-800">
+                  <tr>
+                    <td className="py-2 font-medium" colSpan={5}>
+                      Total
+                    </td>
+                    <td className="py-2 text-right font-medium font-mono">
+                      {holdingsTotal.format()}
+                    </td>
+                    <td colSpan={2} />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
           )}
 
           {/* P5-18 — per-holding cost-basis lot editors. */}
@@ -365,24 +369,26 @@ export default async function AccountDetailPage(
       {snapshots.length > 0 && (
         <section className="mt-8">
           <h2 className="font-medium">Snapshot history</h2>
-          <table className="mt-4 w-full text-sm">
-            <thead className="text-left text-xs text-zinc-500 uppercase">
-              <tr>
-                <th className="py-2">Date</th>
-                <th className="py-2 text-right">Balance</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
-              {snapshots.map((s) => (
-                <tr key={s.date}>
-                  <td className="py-2 font-mono">{s.date}</td>
-                  <td className="py-2 text-right font-mono">
-                    {Money.fromString(s.balance, account.currency).format()}
-                  </td>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[20rem] text-sm">
+              <thead className="text-left text-xs text-zinc-500 uppercase">
+                <tr>
+                  <th className="py-2">Date</th>
+                  <th className="py-2 text-right">Balance</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
+                {snapshots.map((s) => (
+                  <tr key={s.date}>
+                    <td className="py-2 font-mono">{s.date}</td>
+                    <td className="py-2 text-right font-mono">
+                      {Money.fromString(s.balance, account.currency).format()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
     </main>
