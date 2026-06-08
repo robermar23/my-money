@@ -71,9 +71,9 @@ export function AllocationChart({ slices }: Props): React.JSX.Element {
                 fontSize: "12px",
                 color: "rgb(244 244 245)",
               }}
-              formatter={(value: number, name: string) => [
-                `$${value.toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
-                LABELS[name] ?? name,
+              formatter={(value, name) => [
+                `$${Number(value).toLocaleString("en-US", { maximumFractionDigits: 0 })}`,
+                LABELS[String(name)] ?? String(name),
               ]}
             />
           </PieChart>

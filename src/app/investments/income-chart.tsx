@@ -71,7 +71,7 @@ export function IncomeChart({ points, currency }: Props): React.JSX.Element {
               fontSize: "12px",
               color: "rgb(244 244 245)",
             }}
-            formatter={(value: number, name: string) => [fmt.format(value), name]}
+            formatter={(value, name) => [fmt.format(Number(value)), String(name)]}
           />
           <Legend wrapperStyle={{ fontSize: "12px" }} />
           <Bar dataKey="dividend" name="Dividend" stackId="i" fill="#3b82f6" />

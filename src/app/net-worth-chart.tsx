@@ -70,7 +70,7 @@ export function NetWorthChart({ points, currency }: Props): React.JSX.Element {
               fontSize: "12px",
               color: "rgb(244 244 245)",
             }}
-            formatter={(value: number) => [fmt.format(value), "Net worth"]}
+            formatter={(value) => [fmt.format(Number(value)), "Net worth"]}
           />
           <Line type="monotone" dataKey="value" stroke="currentColor" strokeWidth={2} dot={false} />
         </LineChart>
