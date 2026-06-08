@@ -116,4 +116,34 @@ describe("detectAnomaliesDailyProcessor", () => {
     const open = await db.select().from(alerts).where(isNull(alerts.resolvedAt));
     expect(open[0]?.notifiedAt).toBeNull();
   });
+
+  it("never auto-resolves a backup_failure alert, but does notify it", async () => {
+    // The backup job writes this row DIRECTLY; backup_failure is NOT a rule type,
+    // so the resolve sweep (which iterates RULE_ALERT_TYPES only) must leave it
+    // open even on a run where no rule fires. It clears only on a successful
+    // backup (clearBackupFailure), not here.
+    await db.insert(alerts).values({
+      type: "backup_failure",
+      severity: "critical",
+      dedupHash: "backup-failure-2026-06-07",
+      title: "Nightly database backup failed",
+      detail: { date: "2026-06-07" },
+    });
+
+    const notify = vi.fn(async () => ({ sent: true }));
+    const result = await detectAnomaliesDailyProcessor(fakeJob, {
+      env: noEnv,
+      now: () => NOW,
+      notify,
+      load: async () => EMPTY, // no rule fires
+    });
+
+    // If the resolve loop ever swept all types, this would be 1 → regression.
+    expect(result.resolved).toBe(0);
+    const row = await db.select().from(alerts).where(eq(alerts.type, "backup_failure"));
+    expect(row[0]?.resolvedAt).toBeNull();
+    // The standing failure is still surfaced in the content-free notification.
+    expect(notify).toHaveBeenCalledWith(1, "2026-06-07");
+    expect(row[0]?.notifiedAt).not.toBeNull();
+  });
 });
