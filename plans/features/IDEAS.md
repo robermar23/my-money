@@ -237,7 +237,7 @@ Three viable shapes. Pick one; the per-institution integrations layer on top of 
 
 **Recommendation seed**: Option B (self-hosted web) if you have or want a home server / Pi; otherwise Option A (Tauri desktop). Option C is the "data layer" backup plan — even if you build A or B, **export to beancount nightly** as a vendor-lock-in hedge.
 
-> **✅ Locked: Option B (self-hosted web).** Per ADR-002. Options A and C are out. Nightly beancount export is preserved as an optional Phase 4 hedge.
+> **✅ Locked: Option B (self-hosted web).** Per ADR-002. Options A and C are out. The Option C "data layer" idea survived as the nightly beancount export — **shipped in Phase 6 (ADR-016)**, not Phase 4.
 
 ---
 
@@ -643,11 +643,13 @@ For comparison: Monarch is $100/yr, Empower is "free" (they sell your data and t
 
 ### Phase 6 — Polish & longevity
 
-- Nightly export to beancount format → permanent text-file backup
-- Mobile-responsive layouts (Tailwind makes this cheap)
-- Anomaly alerts via email (Resend free tier or self-hosted SMTP)
-- `pg_dump` backup job → encrypted with `age` → off-site
-- Restore-from-backup runbook in README
+> ✅ **Shipped 2026-06-07.** Full task breakdown in [PLAN6.md](PLAN6.md); the three new ADRs (014 backup, 015 alerts, 016 beancount) are in §11.
+
+- ✅ Nightly export to beancount format → permanent text-file backup (one-way hedge, **ADR-016**; [docs/BEANCOUNT.md](../../docs/BEANCOUNT.md))
+- ✅ Mobile-responsive layouts (Tailwind makes this cheap) — collapsing hamburger nav + `overflow-x-auto` tables, 375px Playwright smoke
+- ✅ Anomaly alerts — in-app `/alerts` page primary; email is **notification-only** (count + sign-in link, **zero financial data**) via self-hosted SMTP. *Resend was rejected: emailing balances through a SaaS relay violates CLAUDE.md §Privacy* (**ADR-015**; [docs/ALERTS.md](../../docs/ALERTS.md))
+- ✅ `pg_dump | age` backup job → encrypted → off-host, recipient-only (private identity never on the box) (**ADR-014**; [docs/BACKUP.md](../../docs/BACKUP.md))
+- ✅ Restore-from-backup runbook ([docs/RESTORE.md](../../docs/RESTORE.md)); unattended-operation deploy runbook ([docs/DEPLOY.md](../../docs/DEPLOY.md))
 - **Demo state**: System runs unattended; you only check it because you want to, not because you have to
 
 Each phase is independently shippable. After Phase 1 you already have a working personal finance tracker. Everything after that is automation + breadth.
@@ -684,7 +686,7 @@ From the `plaid-fintech` skill and general experience:
 | 7 | Sunwest Mortgage | Deterministic amortization schedule + monthly reconciliation | 🟡 Recommendation | Free, exact, no third-party dependency. |
 | 8 | Home value | Manual quarterly entry | 🟡 Recommendation | Coarse but honest; avoid scraping ToS issues. |
 | 9 | Market data | yahoo-finance2 (stocks AND metals via `GC=F` etc.) + CoinGecko (crypto), all cached daily | ✅ Locked 2026-05-25, revised 2026-05-27 (metals provider: AV → Yahoo, since AV dropped metals from its free tier; see §5.3) | All free tiers, zero API keys; cache pattern keeps usage under every limit. |
-| 10 | Backups | `pg_dump` nightly → `age`-encrypted → off-host (Backblaze B2 or 2nd disk) | 🟡 Recommendation | History is the product. Quarterly restore tests mandatory. |
+| 10 | Backups | `pg_dump` nightly → `age`-encrypted → off-host (Backblaze B2 or 2nd disk) | ✅ Resolved 2026-06-07 → **see ADR-014** | History is the product. Quarterly restore tests mandatory. Shipped as a BullMQ-scheduled job in Phase 6 (ADR-014). |
 | 11 | Auth library | Lucia vs. Auth.js | ✅ Resolved 2026-05-25 → **see ADR-004** | Lucia deprecated; Auth.js overkill; rolled our own (see ADR-004). |
 | 12 | Chart library | Recharts vs. Observable Plot | ✅ Resolved 2026-05-25 → **see ADR-005** | Recharts picked (see ADR-005). |
 | 13 | Public exposure | Cloudflare Tunnel vs. Tailscale-only | ✅ Resolved 2026-06-01 → **see ADR-010** | Cloudflare Tunnel picked — sidecar `cloudflared` container, no inbound ports on the home router, TLS terminated at Cloudflare. Full ADR in [PLAN4.md](PLAN4.md). |
@@ -702,6 +704,9 @@ From the `plaid-fintech` skill and general experience:
 | ADR-011 | Plaid Investments: product scope + sync model | **Separate Fidelity Item** consenting to `investments` only. **Products-based sync routing**: `HOLDINGS`/`INVESTMENTS_TRANSACTIONS` webhooks → new `sync-investments-item` worker; `TRANSACTIONS` → existing `sync-plaid-item`. Holdings = full-snapshot upsert + reconcile-missing; transactions = offset-paginated over 24mo, deduped by `investment_transaction_id`. Reuses the Phase-4 Item/token/webhook/sync-run infra. | ✅ Locked 2026-06-06 | Plaid Investments has no `/transactions/sync` cursor and its own webhooks; an investments-only Item must never hit `/transactions/sync`. SnapTrade deferred unless Plaid cost basis proves too thin. Full ADR in [PLAN5.md](PLAN5.md). |
 | ADR-012 | Investment schema | New `securities`, `holding_lots`, `investment_transactions` tables + additive `holdings` columns (`security_id`, `source`, `cost_basis_overridden_at`). `holdings` stays the canonical current position. **Cost-basis precedence**: sum(lots) → aggregate `cost_basis` → null. Plaid sync preserves a user-owned basis via the `cost_basis_overridden_at` watermark; reconcile never deletes `source='manual'` rows. | ✅ Locked 2026-06-06 | A flat holdings row can't express security metadata, per-lot basis, or the buy/sell/dividend stream. `NUMERIC` everywhere; gain/loss is a display number, no tax-lot engine (domain boundary). Canonical symbol `ticker → cusip → SEC:<id>`; synthetics priced from `institution_price`. Full ADR in [PLAN5.md](PLAN5.md). |
 | ADR-013 | Asset-allocation chart | **Recharts donut now** (zero new dep); **cash-flow Sankey re-deferred** (a flow viz, wrong for a part-of-whole allocation). | ✅ Locked 2026-06-06 | Resolves the ADR-005 "Sankey deferred to Phase 5" note. A donut reads "share of whole" fastest for ≤6 asset classes; the net-worth line already covers time-series. `@nivo/sankey` revisited if/when a cash-flow feature is built (Phase 6-flavored). Full ADR in [PLAN5.md](PLAN5.md). |
+| ADR-014 | Database backup mechanism | **BullMQ-scheduled `pg_dump \| age`** in the worker (not OS cron, not a sidecar) → encrypted to a mount, retained `BACKUP_RETAIN_DAYS` (default 14), off-host replication is the user's job. Recipient-only `age` encryption — the private identity is **never** on the server. Failure raises a `backup_failure` alert. | ✅ Locked 2026-06-07 | CLAUDE.md §Background Jobs: "keep scheduling visible inside the app." Separates the DB-backup key from `MONEY_ENCRYPTION_KEY` (a backup leak can't decrypt Plaid tokens). `pg_dump`/`age` binaries added to the worker image; job shells out via args-array (no shell injection). Restore is documented + tested (P6-07). Full ADR in [PLAN6.md](PLAN6.md). |
+| ADR-015 | Anomaly alerts: detection + transport | **Deterministic rules** over Postgres (large txn, balance drop, item-login-required, stale snapshot/price, sync/backup failure) persisted to an `alerts` table (deduped by hash); **in-app `/alerts` page is primary**; email is **optional + notification-only** (count + sign-in link, **zero financial data**) via user-configured SMTP (`nodemailer`). | ✅ Locked 2026-06-07 | IDEAS.md §9 floated "Resend," but emailing balances/account names through a SaaS relay violates CLAUDE.md §Privacy. The email is a doorbell; figures live only in the authenticated UI (a test asserts no financial data in the body). No ML (hosted = §Privacy non-starter; local = overkill) — deterministic rules mirror the ADR-007 categorizer. Full ADR in [PLAN6.md](PLAN6.md). |
+| ADR-016 | Beancount export | **Nightly one-way plain-text mirror** (`money.beancount`) to a mount: `open` directives, `balance` assertions from `account_snapshots`, `price` directives, best-effort two-posting transactions. Generated, never hand-edited; export-only (never re-imported). | ✅ Locked 2026-06-07 | The IDEAS.md §2/§10 longevity hedge — readable in `less` forever, surviving the app's own abandonment. Stays a *hedge*, not a ledger: one-way + best-effort transactions + no balance enforcement keeps us inside CLAUDE.md §Domain Scope (not double-entry accounting). The `age` `pg_dump` is the machine-faithful copy; this is the human-readable one. Full ADR in [PLAN6.md](PLAN6.md). |
 
 ---
 

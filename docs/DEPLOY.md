@@ -37,6 +37,31 @@ DATABASE_URL=<your prod url> pnpm db:migrate
 
 (`make db-reset` is for dev only — it drops all data.)
 
+### 1.1 — ARM64 (Raspberry Pi / ARM NAS) builds
+
+The image builds clean for both `linux/amd64` and `linux/arm64` — every native
+dependency has a glibc arm64 prebuild (`@node-rs/argon2`, Next's SWC, Tailwind's
+`lightningcss`) and the runtime-stage `pg_dump` (PGDG apt) + `age` (bookworm
+main) both ship arm64. The base is **Debian bookworm-slim (glibc)**, not alpine,
+which is what makes those `-gnu` prebuilds the right ones.
+
+If you build **on the Pi itself**, the plain `docker compose build` above is
+already native arm64 — nothing extra to do. To cross-build from an amd64 machine
+and push a multi-arch image (or just produce an arm64 image via emulation):
+
+```sh
+# One-time: enable QEMU emulation + a buildx builder.
+docker run --privileged --rm tonistiigi/binfmt --install arm64
+docker buildx create --use --name money-builder   # once
+
+# Build both arches. Add --push to send to a registry, or --load for a single
+# arch into the local daemon (--load can't hold a multi-arch manifest).
+docker buildx build --platform linux/amd64,linux/arm64 -t my-money:latest .
+```
+
+Emulated arm64 builds are slow but correct; building on the Pi is faster if you
+can spare the time there.
+
 ## 2. Bring up app + worker
 
 ```sh
@@ -50,6 +75,25 @@ compose env.
 
 At this point `https://localhost:4000` is reachable from the host. Plaid is
 **not** yet reachable — that's the next step.
+
+### 2.1 — Verify the health probe (P6-22)
+
+The `app` service has a Docker healthcheck that hits its own `/api/health`
+endpoint, which confirms Postgres + Redis are reachable. Confirm it from the
+host:
+
+```sh
+curl localhost:4000/api/health
+# → {"status":"ok"}   (HTTP 200)
+
+docker compose -f docker/compose.yaml ps
+# → the `app` row shows (healthy) once the start_period elapses (~20s)
+```
+
+The endpoint is intentionally unauthenticated and **content-free** — it returns
+only `{"status":"ok"}` or `{"status":"error"}` (503), never a version, hostname,
+or dependency error. Stop Postgres and it flips to 503; the body still leaks
+nothing. The granular failure reason goes to the `app` container log only.
 
 ## 3. Stand up the Cloudflare Tunnel (P4-29)
 
@@ -172,6 +216,127 @@ In the Plaid dashboard → an Item → **Webhooks** tab → **Send sample**. Pic
 If you don't: tail `docker compose logs app worker cloudflared` and check the
 runbook in [PLAID.md](PLAID.md) — the most common failure modes (401, 404,
 unknown_item) all have specific diagnoses there.
+
+## 6. Backups + exports (off-host replication)
+
+The worker runs two longevity jobs nightly (both **opt-in** via env):
+
+| Job                      | When  | Writes to         | What it is                                  |
+|--------------------------|-------|-------------------|---------------------------------------------|
+| `backup-database-daily`  | 04:00 | `/backups` volume | `pg_dump` piped to `age` — encrypted dump   |
+| `export-beancount-daily` | 04:30 | `/exports` volume | plain-text beancount mirror (one-way hedge) |
+
+### 6.1 — Enable encrypted backups (ADR-014)
+
+1. Generate an `age` keypair **off this server** (your laptop / a password
+   manager host):
+
+   ```sh
+   age-keygen -o money-backup.key
+   # prints:  Public key: age1qz...   ← the RECIPIENT
+   ```
+
+2. Put **only the public key** in `.env.local`:
+
+   ```ini
+   BACKUP_AGE_RECIPIENT=age1qz...
+   BACKUP_RETAIN_DAYS=14
+   ```
+
+   `BACKUP_DIR=/backups` is already set on the worker by compose. The job stays
+   disabled until a recipient is present.
+
+3. **Keep the private key (`AGE-SECRET-KEY-...`) OFF the server** — password
+   manager, paper, a second machine. A compromise of this box must not be able
+   to read your backup history. This is the whole point of asymmetric backup
+   encryption; see [RESTORE.md](RESTORE.md) for the decrypt/restore drill.
+
+4. Recreate the worker to pick up the env, then force one run to verify:
+
+   ```sh
+   docker compose -f docker/compose.yaml --profile prod up -d worker
+   # optional immediate run instead of waiting for 04:00:
+   docker compose -f docker/compose.yaml exec worker \
+     node --import tsx src/worker/run-once.ts backup-database-daily
+   docker compose -f docker/compose.yaml exec worker ls -lh /backups
+   # → money-YYYY-MM-DD-HHMMSS.dump.age
+   ```
+
+### 6.2 — Enable the beancount export (ADR-016)
+
+`BEANCOUNT_DIR=/exports` is already set on the worker by compose, so this one is
+on by default in prod. It's a one-way, plain-text copy of data already in
+Postgres — not a secret, but it **is** plaintext financial data, so treat the
+directory as private.
+
+### 6.3 — Off-host replication (your responsibility)
+
+The `backups` and `exports` Docker volumes survive container restarts but **not**
+a dead disk. Replicate them off-host on your own schedule — e.g. a host-side
+cron:
+
+```sh
+# Resolve the volume mountpoints on the host:
+docker volume inspect my-money_backups -f '{{ .Mountpoint }}'
+docker volume inspect my-money_exports -f '{{ .Mountpoint }}'
+
+# Then rsync / restic / rclone them to a second disk or Backblaze B2, etc.
+rclone sync /var/lib/docker/volumes/my-money_backups/_data b2:my-money-backups
+```
+
+The dumps are already encrypted, so a third-party object store (B2, S3) is fine
+for them. The beancount export is plaintext — send it only somewhere you trust,
+or encrypt it in transit/at rest yourself.
+
+## 7. Alert notifications (SMTP, optional)
+
+Anomaly detection (05:00) always writes to the `alerts` table surfaced at
+`/alerts`. Email is **optional and notification-only**: it carries a count and a
+sign-in link and **zero financial data** — no amounts, accounts, or merchants.
+Those live only behind auth on `/alerts`. We ship no default mail relay; the
+transport is your own SMTP server.
+
+```ini
+# .env.local — leave SMTP_URL empty to use only the in-app /alerts page.
+SMTP_URL=smtp://user:pass@mail.example.com:587
+ALERT_EMAIL_TO=you@example.com
+# ALERT_EMAIL_FROM=        # defaults to ALERT_EMAIL_TO
+APP_BASE_URL=https://money.your-domain.com   # builds the /alerts link
+
+# Thresholds (optional — defaults shown):
+ALERT_LARGE_TXN_USD=2000
+ALERT_BALANCE_DROP_PCT=25
+ALERT_STALE_DAYS=3
+```
+
+Add these env vars to the `worker` service if you set them (the compose file
+passes the backup/export vars through; mirror those entries for the SMTP/alert
+vars when you enable email). Verify with a forced run:
+
+```sh
+docker compose -f docker/compose.yaml exec worker \
+  node --import tsx src/worker/run-once.ts detect-anomalies-daily
+```
+
+## 8. What runs when (nightly timeline)
+
+All jobs are BullMQ repeatable jobs scheduled in
+[src/worker/index.ts](../src/worker/index.ts) — **not OS cron** — so the
+schedule lives inside the app and is visible to the worker on boot. Times are
+the worker container's local time; set the host/container `TZ` accordingly.
+
+| Time  | Job                          | Why this order                                  |
+|-------|------------------------------|-------------------------------------------------|
+| 01:30 | `fetch-prices-daily`         | prices land before holdings are valued          |
+| 02:00 | `compute-snapshots-daily`    | values holdings using 01:30's prices            |
+| 03:00 | `enqueue-plaid-syncs-daily`  | safety-net Plaid sync (webhooks are primary)    |
+| 04:00 | `backup-database-daily`      | dump captures the day's synced transactions     |
+| 04:30 | `export-beancount-daily`     | mirror reflects the same data as the 04:00 dump |
+| 05:00 | `detect-anomalies-daily`     | runs last so a failed 04:00 backup is alertable |
+
+A 60-second `heartbeat` also ticks continuously to confirm worker plumbing.
+Each job is idempotent (CLAUDE.md §Background Jobs), so a missed or double run is
+safe; BullMQ retries failures with exponential backoff.
 
 ## Updates
 

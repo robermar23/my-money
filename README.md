@@ -18,6 +18,10 @@ See [plans/features/FEATURE.md](plans/features/FEATURE.md) for the why, [plans/f
 
 **Phase 4 (Plaid push) — complete.** Connect bank/credit-card institutions through Plaid Link at `/settings/connections`; transactions arrive within minutes of posting via signed webhooks. Reauth + disconnect flows handled; encrypted-at-rest access tokens; daily 03:00 safety-net sync. See [docs/PLAID.md](docs/PLAID.md) for setup, [docs/DEPLOY.md](docs/DEPLOY.md) for the Cloudflare Tunnel webhook ingress, [docs/RUNBOOK_PLAID.md](docs/RUNBOOK_PLAID.md) for troubleshooting, [docs/CRYPTO_ROTATION.md](docs/CRYPTO_ROTATION.md) for key rotation, and [docs/THREAT_MODEL_PLAID.md](docs/THREAT_MODEL_PLAID.md) for the STRIDE analysis.
 
+**Phase 5 (investments) — complete.** Plaid Investments for Fidelity (holdings + investment transactions on a separate Item), manual quarterly entry for iTrust gold; positions, per-lot cost basis, gain/loss, asset-allocation donut, and dividend/interest income at `/investments`. See [docs/INVESTMENTS.md](docs/INVESTMENTS.md).
+
+**Phase 6 (polish & longevity) — complete.** Runs unattended: nightly encrypted `pg_dump | age` backups, a plain-text Beancount mirror, deterministic anomaly alerts, a `/api/health` probe, ARM64/Pi builds, and a mobile-responsive UI. See the §Backups, §Alerts, and §Longevity sections below, plus [docs/DEPLOY.md](docs/DEPLOY.md) for the full unattended-operation runbook and [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the whole-app STRIDE analysis.
+
 ---
 
 ## Prerequisites
@@ -122,6 +126,49 @@ Re-importing the same file is always safe (deduped by FITID). See [docs/IMPORT.m
 
 ---
 
+## Backups (Phase 6)
+
+A nightly BullMQ job dumps the database with `pg_dump`, pipes it straight into
+`age` (the plaintext never hits disk), and writes an encrypted
+`money-<timestamp>.dump.age` to the `backups` volume at **04:00**. It's **opt-in**:
+set `BACKUP_AGE_RECIPIENT` to an `age` **public** key and the job turns on.
+
+The private `age` identity that decrypts your backups **never lives on the
+server** — keep it in a password manager or on a second machine. A server
+compromise then still can't read your backup history. Replicate the `backups`
+volume off-host yourself (the dumps are already encrypted, so any object store is
+fine). A failed backup raises a `backup_failure` alert that clears on the next
+success.
+
+→ [docs/BACKUP.md](docs/BACKUP.md) to configure it, [docs/RESTORE.md](docs/RESTORE.md)
+for the `age -d | pg_restore` recovery drill (test it quarterly).
+
+## Alerts (Phase 6)
+
+A nightly job at **05:00** runs deterministic rules over your data — large
+transactions, balance drops, broken Plaid connections, stale snapshots/prices,
+sync/backup failures — and surfaces them at **/alerts**. Thresholds are tunable
+(`ALERT_LARGE_TXN_USD`, `ALERT_BALANCE_DROP_PCT`, `ALERT_STALE_DAYS`).
+
+Email is **optional and content-free**: configure `SMTP_URL` + `ALERT_EMAIL_TO`
+and you get a doorbell — *"2 new alerts"* plus a sign-in link, and **zero
+financial data**. Every figure lives only on the authenticated `/alerts` page;
+the transport is your own SMTP server, never a SaaS relay (CLAUDE.md §Privacy).
+
+→ [docs/ALERTS.md](docs/ALERTS.md) for the full rule catalog + setup.
+
+## Longevity (Phase 6)
+
+So your data outlives the app itself: a nightly job at **04:30** writes a one-way,
+plain-text [Beancount](https://beancount.github.io/) mirror (`money.beancount`) to
+the `exports` volume — readable forever in `less`, or with `bean-query`/`fava`.
+It's a vendor-lock-in hedge, not an accounting ledger: generated, never
+re-imported. Opt in by setting `BEANCOUNT_DIR`.
+
+→ [docs/BEANCOUNT.md](docs/BEANCOUNT.md) for what's exported and how to read it.
+
+---
+
 ## Development commands
 
 | Command                | What it does                                                          |
@@ -165,7 +212,7 @@ docker compose -f docker/compose.yaml --env-file .env.local --profile prod up -d
 docker compose -f docker/compose.yaml logs -f app worker
 ```
 
-**Production deployment** (public exposure via Cloudflare Tunnel or Tailscale) is deferred to Phase 6 (see ADR-006, pending). The compose file binds `app` to `127.0.0.1:4000` so no port is reachable from the LAN until you explicitly front it with Caddy + a tunnel.
+**Production deployment** is documented end-to-end in [docs/DEPLOY.md](docs/DEPLOY.md): the prod compose bring-up, the ARM64 (Raspberry Pi) build, public webhook exposure via a Cloudflare Tunnel (ADR-010 — no inbound port on your router), the `/api/health` container probe, off-host backup/export replication, SMTP for alert notifications, and the nightly job timeline. The compose file binds `app` to `127.0.0.1:4000`, so nothing is reachable from the LAN until the tunnel explicitly forwards the webhook path.
 
 ---
 
@@ -212,9 +259,11 @@ docker compose -f docker/compose.yaml exec -T postgres psql -U money -d money -c
 
 ---
 
-## Known issues to address in early Phase 1
+## Known issues
 
-- **iron-session 8.0.4 + Next.js 15.1 dev mode**: signout → re-login within the same dev-server lifetime trips a `cookies() outside request scope` error. The setup-and-first-login path is fully verified by `e2e/auth.spec.ts`. The signout flow itself works in production builds; only dev-mode async-cookies tracking trips. Will be resolved by pinning a known-good iron-session release or rolling a tiny custom helper.
+No open known issues.
+
+**Resolved** — *iron-session 8.0.4 + Next.js 15.1 dev-mode signout* (was: signout → re-login within the same dev-server lifetime tripped a `cookies() outside request scope` error). Fixed by having [src/app/logout/route.ts](src/app/logout/route.ts) clear the session cookie directly on the `NextResponse` (maxAge 0) instead of re-entering iron-session's cookie API inside the route handler, which is where dev-mode async-cookies tracking mis-fired. Both the setup→login and signout paths are exercised by `e2e/auth.spec.ts`.
 
 ---
 
@@ -223,7 +272,7 @@ docker compose -f docker/compose.yaml exec -T postgres psql -U money -d money -c
 In order of precedence when a question arises:
 
 1. [CLAUDE.md](CLAUDE.md) — guardrails (privacy, money precision, Plaid safety, repo conventions)
-2. [plans/features/IDEAS.md](plans/features/IDEAS.md) — locked ADRs (001 build-from-scratch, 002 web+Postgres, 003 TS/Next/Drizzle, 004 auth, 005 charts)
-3. [plans/features/PLAN0_1.md](plans/features/PLAN0_1.md) — Phase 0 + Phase 1 task breakdown
+2. [plans/features/IDEAS.md](plans/features/IDEAS.md) — locked ADRs 001–016 + the §11 Decision Log (build-from-scratch, web+Postgres, TS/Next/Drizzle, auth, charts, QFX parser, categorization, Plaid scope/encryption/exposure, investments, backups, alerts, beancount)
+3. [plans/features/PLAN0_1.md](plans/features/PLAN0_1.md) … [PLAN6.md](plans/features/PLAN6.md) — per-phase task breakdowns (Phase 0/1 through Phase 6)
 4. [plans/features/SKILLS.md](plans/features/SKILLS.md) — curated skills catalog mapped to phases
 5. [plans/features/FEATURE.md](plans/features/FEATURE.md) — original "what & why"

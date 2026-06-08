@@ -1,0 +1,122 @@
+# Backups
+
+> How the nightly encrypted database backup works, how to turn it on, and how to
+> keep the dumps safe off-host (Phase 6, **ADR-014**). This is the *configuration
+> and operation* reference; the **recovery** procedure lives in
+> [RESTORE.md](RESTORE.md), and the deploy-time wiring in [DEPLOY.md](DEPLOY.md) §6.
+
+Backups are the entire point of the app — the historical data is the product. An
+untested backup is not a backup, so **test a restore quarterly** (CLAUDE.md
+§Backup Discipline).
+
+## How it works
+
+A BullMQ repeatable job — `backup-database-daily`
+([src/worker/jobs/backup-database-daily.ts](../src/worker/jobs/backup-database-daily.ts)) —
+runs in the **worker** process at **04:00 local**, after the 03:00 Plaid
+safety-net sync so the dump captures that day's transactions. It is a BullMQ job,
+not OS cron, so the schedule lives inside the app (CLAUDE.md §Background Jobs).
+
+1. Runs `pg_dump --format=custom` and pipes the bytes **straight into `age`** —
+   the plaintext dump never touches disk; only the encrypted blob is written.
+   Both binaries are invoked via an args-array (no shell string), so a password
+   or path can never be re-split or injected.
+2. Writes `BACKUP_DIR/money-<UTC-timestamp>.dump.age`
+   (e.g. `money-20260607T040000Z.dump.age`).
+3. **After** a confirmed-good write, prunes local `*.dump.age` files older than
+   `BACKUP_RETAIN_DAYS`. Off-host retention is your own policy.
+
+On failure the job throws (BullMQ retries with exponential backoff) and raises a
+`backup_failure` alert (see [ALERTS.md](ALERTS.md)) that clears automatically on
+the next successful run.
+
+The job is **opt-in**: with `BACKUP_AGE_RECIPIENT` unset it logs "disabled" and
+skips. Nothing is ever sent anywhere by the app — replication off-host is yours.
+
+## Enable it
+
+### 1. Generate an `age` keypair — off this server
+
+Do this on your laptop or a machine that is **not** the home server:
+
+```bash
+age-keygen -o money-backup.key
+# Output:
+#   Public key: age1qz...        ← this is BACKUP_AGE_RECIPIENT (safe to keep)
+# The file money-backup.key holds the line  AGE-SECRET-KEY-1...  ← the IDENTITY
+```
+
+### 2. Put **only the public key** on the server
+
+```ini
+# .env.local
+BACKUP_AGE_RECIPIENT=age1qz...
+BACKUP_DIR=/backups          # already set on the worker by compose
+BACKUP_RETAIN_DAYS=14        # local retention; off-host retention is your policy
+```
+
+The recipient (public key) is **not a secret** — it can only *encrypt*. Commit it
+to your private `.env.local`, paste it in compose, whatever; a leak is harmless.
+
+### 3. Keep the identity OFF the box — forever
+
+Store `money-backup.key` (the private identity) in a password manager, on paper
+in a safe, or on a second machine. **It must never live on the server.** Encryption
+is one-way on the box, so a full server compromise still cannot decrypt your
+backup history. This asymmetry is the whole point of recipient-only `age`.
+
+> ⚠️ **Lose the identity and every `*.dump.age` is unrecoverable.** Treat it with
+> the same care as `MONEY_ENCRYPTION_KEY`.
+
+## Two keys, two jobs — don't conflate them
+
+A dump is **double-encrypted at rest** (age over the AES-GCM that already protects
+Plaid tokens). Two independent keys, neither stored in the dump, both backed up
+off-host *separately*:
+
+| Key | Decrypts | Lose it and… |
+|-----|----------|--------------|
+| **age identity** (`money-backup.key`, ADR-014) | the `*.dump.age` file *itself* | the backups are noise |
+| **`MONEY_ENCRYPTION_KEY`** (ADR-009) | the Plaid access tokens *inside* the dump | restore is intact, but re-link every Plaid Item |
+
+Keeping them separate means a leak of one never compromises the other.
+
+## Where the files land + off-host replication
+
+`BACKUP_DIR` (default `/backups`) is a Docker volume mounted into the `worker`
+service ([docker/compose.yaml](../docker/compose.yaml)). The volume survives
+container restarts but **not a dead disk** — replicate it off-host yourself.
+Because the dumps are already encrypted, a third-party object store is fine:
+
+```bash
+# Resolve the host path of the volume, then sync it anywhere.
+docker volume inspect my-money_backups -f '{{ .Mountpoint }}'
+rclone sync /var/lib/docker/volumes/my-money_backups/_data b2:my-money-backups
+# or: rsync -a … /mnt/second-disk/my-money-backups/   |   restic backup …
+```
+
+## Run one on demand
+
+Inside the running stack (where `pg_dump`/`age` exist in the worker image):
+
+```bash
+docker compose -f docker/compose.yaml --profile prod exec worker \
+  node --import tsx src/worker/run-once.ts backup-database-daily
+docker compose -f docker/compose.yaml --profile prod exec worker ls -lh /backups
+# → money-YYYYMMDDTHHMMSSZ.dump.age
+```
+
+(`make job-backup` is the host-PATH shortcut if you have the binaries locally.)
+
+## What's in / not in a dump
+
+See [RESTORE.md](RESTORE.md) for the full table — in short: every domain table +
+the Drizzle migrations table are in; the two keys above and the ephemeral Redis
+queue state are not. The largest contributor to dump size is
+`import_batches.raw_file` (the stored upload bytes); RESTORE.md documents how to
+clear confirmed rows if size ever becomes a concern.
+
+## Recovery
+
+→ [RESTORE.md](RESTORE.md): `age -d -i money-backup.key … | pg_restore`, plus the
+quarterly restore-test discipline.
