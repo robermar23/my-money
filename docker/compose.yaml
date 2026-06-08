@@ -100,9 +100,26 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
       MONEY_ENCRYPTION_KEY: ${MONEY_ENCRYPTION_KEY:?MONEY_ENCRYPTION_KEY is required}
     ports:
-      # Bind only to localhost; expose externally via Caddy + Cloudflare Tunnel
-      # or Tailscale at deploy time (ADR-006 — deferred to Phase 6).
+      # Bind only to localhost; the public webhook path is exposed via the
+      # Cloudflare Tunnel sidecar below (ADR-010, P4-29). The home router stays
+      # closed — see docs/DEPLOY.md §3.
       - "127.0.0.1:4000:4000"
+    # P6-22: liveness via the in-app /api/health probe (DB + Redis). Uses Node's
+    # global fetch so we need no curl/wget in the image (curl is purged after the
+    # build). `start_period` gives the standalone server time to boot before
+    # failures count against the restart policy.
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
       postgres:
         condition: service_healthy

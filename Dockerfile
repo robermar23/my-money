@@ -6,6 +6,16 @@
 #
 # Both share the same source tree so domain logic isn't duplicated. The compose
 # file selects which entrypoint via the `command` directive per service.
+#
+# Multi-arch (P6-21): builds clean for both linux/amd64 and linux/arm64 (the Pi
+# target, IDEAS.md §1). Every native dependency has a glibc arm64 prebuild —
+# @node-rs/argon2 (*-linux-arm64-gnu), Next's SWC (@next/swc-linux-arm64-gnu),
+# Tailwind v4's lightningcss — and the runtime-stage system binaries resolve on
+# arm64 too: the PGDG apt repo publishes arm64 postgresql-client-16 and `age` is
+# in bookworm main. The bookworm-slim base (glibc, not musl) is what makes the
+# -gnu prebuilds the right ones; do NOT switch to alpine without re-checking each
+# native dep's musl prebuild. Cross-build with:
+#   docker buildx build --platform linux/amd64,linux/arm64 -t my-money:latest .
 
 # ── deps stage: install pnpm + production deps ──────────────────────────────
 FROM node:22-bookworm-slim AS deps
