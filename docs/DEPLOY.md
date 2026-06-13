@@ -249,6 +249,10 @@ What you actually set in `.env` for prod:
   without it.
 - **`MONEY_ENCRYPTION_KEY`** (required) — 32 bytes base64; encrypts Plaid tokens
   at rest (losing it bricks them).
+- **`SESSION_COOKIE_SECURE`** (default `false`) — leave **off** for LAN access
+  over plain HTTP (`http://<host>:4000`); a `Secure` cookie is dropped by
+  browsers over HTTP and login silently re-prompts on every page. Set `true`
+  only if you reach the app exclusively over HTTPS (e.g. via the tunnel).
 - **`PLAID_CLIENT_ID` / `PLAID_SECRET` / `PLAID_ENV`** (for Plaid) — empty is fine
   for a manual-only deploy; required once you use Plaid.
 - **`PLAID_WEBHOOK_URL`** — set after the tunnel is up (§4).

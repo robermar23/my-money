@@ -41,6 +41,27 @@ function requireSessionSecret(): string {
 // + your unlocked browser, the password is not what's protecting your data.
 const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365;
 
+/**
+ * Whether to mark the session cookie `Secure` (sent only over HTTPS).
+ *
+ * Defaults to **off**, because this app's primary access pattern is a trusted
+ * LAN over plain HTTP (docs/DEPLOY.md §U.4, `http://<host>:4000`). A `Secure`
+ * cookie is *silently dropped by browsers over `http://`* — you authenticate,
+ * but the session cookie never persists, so every navigation re-prompts for the
+ * password. Tying this to `NODE_ENV` (always `production` in the container)
+ * produced exactly that breakage on LAN deploys.
+ *
+ * Set `SESSION_COOKIE_SECURE=true` if you reach the app ONLY over HTTPS (e.g.
+ * solely through the Cloudflare tunnel) and want the browser to refuse to send
+ * the cookie over plain HTTP. On a trusted single-user LAN, leaving it off is
+ * the intended posture.
+ *
+ * @returns Whether the cookie should carry the `Secure` attribute.
+ */
+function cookieSecure(): boolean {
+  return process.env.SESSION_COOKIE_SECURE === "true";
+}
+
 export const sessionOptions: SessionOptions = {
   cookieName: "money_session",
   // Lazy: iron-session reads `password` when a session is opened (request time),
@@ -52,7 +73,7 @@ export const sessionOptions: SessionOptions = {
   cookieOptions: {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: cookieSecure(),
     path: "/",
     maxAge: ONE_YEAR_SECONDS,
   },

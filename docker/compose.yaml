@@ -100,6 +100,12 @@ services:
       REDIS_URL: redis://redis:6379
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
       MONEY_ENCRYPTION_KEY: ${MONEY_ENCRYPTION_KEY:?MONEY_ENCRYPTION_KEY is required}
+      # Session cookie `Secure` flag. Default off so LAN access over plain HTTP
+      # (http://<host>:4000) works — a Secure cookie is dropped by browsers over
+      # http, which silently breaks login (re-prompts every navigation). Set to
+      # `true` only if you reach the app exclusively over HTTPS (e.g. via the
+      # Cloudflare tunnel).
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       # Plaid (Phase 4+). Empty defaults so a manual-only deploy starts fine; the
       # Plaid client validates lazily and only errors when a Plaid feature is
       # actually used (Link, webhook processing, sync jobs). PLAID_WEBHOOK_URL is
