@@ -30,7 +30,31 @@ opening a single port on your home router.
   compose` commands below auto-load `.env` from the project dir — not `.env.local`,
   which is the dev convenience the `make` targets pass via `--env-file`.)
 
+## Deploy at a glance
+
+This is the **dependency order** — each step needs the previous one. The numbered
+sections (§0–§8) below follow it exactly; read them in order.
+
+0. **Configure `.env`** — set `POSTGRES_PASSWORD` + the two secrets. You do *not*
+   write `DATABASE_URL`/`REDIS_URL` (compose builds them from `POSTGRES_*`). Leave
+   `CLOUDFLARED_TOKEN` **empty** for now. ([§0](#0-configure-your-env))
+1. **Pull the image; start Postgres + Redis; run migrations.** ([§1](#1-pull-images--bring-up-data-services))
+2. **Start the app + worker.** The app is now live on `127.0.0.1:4000`; nothing is
+   public yet. ([§2](#2-bring-up-app--worker))
+3. **Stand up the Cloudflare tunnel** — create it in the dashboard, paste its token
+   into `.env`, start `cloudflared`, add the route. This is the **only** step that
+   needs the token, and the dashboard hands it to you right here. ([§3](#3-stand-up-the-cloudflare-tunnel-p4-29))
+4. **Point Plaid at the webhook URL** and smoke-test it. ([§4](#4-point-plaid-items-at-the-new-url-p4-30)–[§5](#5-smoke-test-the-live-path))
+5. **Turn on backups + alerts.** ([§6](#6-backups--exports-off-host-replication)–[§7](#7-alert-notifications-smtp-optional))
+
+> **Not on Unraid?** Skip the next section and start at
+> [§0](#0-configure-your-env). The Unraid section is platform-specific glue
+> (Compose Manager plugin, cache-pool data placement, LAN access) layered *on top
+> of* the same §0–§8 flow.
+
 ## Running on Unraid (homelab)
+
+> Unraid only. Everyone else: jump to [§0](#0-configure-your-env).
 
 Unraid runs the **exact same compose stack** — only three things differ: how you
 launch compose, where the persistent data lives, and how you reach the web UI on
@@ -168,7 +192,7 @@ suits Unraid: your router stays closed and Plaid still reaches
 
 ### U.6 — (Optional) Remote UI access via the tunnel + Cloudflare Access
 
-Plaid only needs `/api/plaid/webhook` exposed (§3.2 scopes the **Path** to it). If
+Plaid only needs `/api/plaid/webhook` exposed (§3.3 scopes the **Path** to it). If
 you also want the **UI** reachable from outside the LAN:
 
 1. In the tunnel's **Public Hostnames**, add a hostname → `app:4000` with the
@@ -197,6 +221,56 @@ With U.3 applied, the nightly `age`-encrypted dumps (§6) land in
 
 The rest of this doc (§1–§8) is platform-agnostic; the notes above are the only
 Unraid-specific deltas.
+
+## 0. Configure your `.env`
+
+For the **prod stack you do not hand-write `DATABASE_URL` or `REDIS_URL`.** Compose
+assembles them inside the `app`/`worker` containers from the Postgres vars and the
+internal service names (`postgres:5432`, `redis:6379` on the private `money_net`):
+
+```yaml
+DATABASE_URL: postgres://${POSTGRES_USER:-money}:${POSTGRES_PASSWORD:-…}@postgres:5432/${POSTGRES_DB:-money}
+REDIS_URL:    redis://redis:6379
+```
+
+The `DATABASE_URL` / `REDIS_URL` / `TEST_DATABASE_URL` lines in `.env.example`
+point at `127.0.0.1:5433`/`6380` — those are **dev-only** (for `pnpm dev` against
+host-published ports) and are **ignored** by the prod containers. Leave or delete
+them; they have no effect on the stack.
+
+What you actually set in `.env` for prod:
+
+- **`POSTGRES_PASSWORD`** (required) — the one DB credential. Feeds both the
+  Postgres container *and* the assembled `DATABASE_URL`, so they always match.
+  **Set a strong value before the first `up`** (footgun below).
+- **`POSTGRES_USER` / `POSTGRES_DB`** (optional) — default to `money`/`money`;
+  override only to rename.
+- **`SESSION_SECRET`** (required) — 32+ random bytes; the `app` refuses to start
+  without it.
+- **`MONEY_ENCRYPTION_KEY`** (required) — 32 bytes base64; encrypts Plaid tokens
+  at rest (losing it bricks them).
+- **`PLAID_CLIENT_ID` / `PLAID_SECRET` / `PLAID_ENV`** (for Plaid) — empty is fine
+  for a manual-only deploy; required once you use Plaid.
+- **`PLAID_WEBHOOK_URL`** — set after the tunnel is up (§4).
+- **`CLOUDFLARED_TOKEN`** — set in §3.
+
+Generate the two random secrets:
+
+```sh
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"  # SESSION_SECRET
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"  # MONEY_ENCRYPTION_KEY
+```
+
+> **Redis has no password — by design.** It's never published to the host in the
+> prod profile (only `app`/`worker` reach it over `money_net`), so there's no auth
+> to set. If you ever expose Redis, add a password and update `REDIS_URL` yourself.
+>
+> **Footgun — set `POSTGRES_PASSWORD` before the first `up`.** Postgres reads it
+> only when initializing an **empty** data dir. Bring the DB up once on the default,
+> change the password later, and the assembled `DATABASE_URL` will use the *new*
+> password against a DB that still has the *old* one → `password authentication
+> failed`. If that bites you, restore the old value, or wipe the volume
+> (`docker compose … down -v`, **destroys data**) and re-init.
 
 ## 1. Pull images + bring up data services
 
@@ -284,21 +358,69 @@ Per ADR-010, we use Cloudflare Tunnel as the public webhook ingress. The
 `cloudflared` sidecar in the compose file dials OUT to Cloudflare's edge — no
 inbound port on the home router, no exposed app, TLS terminated at Cloudflare.
 
-### 3.1 — Create the tunnel in the Cloudflare dashboard
+> **No chicken-and-egg — the token is the key.** Creating the tunnel hands you the
+> token *immediately* (it's in the displayed `docker run … --token eyJhI…` command),
+> before anything connects. That token **is your identity**: it embeds your
+> Cloudflare account + tunnel ID + a secret, and `cloudflared` presents it when it
+> dials **out** to Cloudflare's edge — that's how Cloudflare knows the connector is
+> yours. No inbound port, no login on the box.
+>
+> So your app stack doesn't need the token at all — only the `cloudflared` sidecar
+> does. The sequence: bring up Postgres/Redis/app/worker first (§1–§2, with
+> `CLOUDFLARED_TOKEN` still empty) → create the tunnel and copy the token → paste
+> it into `.env` and start `cloudflared` (§3.2) → *then* add the route (§3.3). The
+> wizard's **Continue** button stays greyed out ("No connection detected yet") only
+> until that sidecar dials in — it's waiting for cloudflared to *use* the token you
+> already have, not to give you anything.
+>
+> ⚠️ Bring app/worker up **by name** (`up -d app worker`), not the whole
+> `--profile prod`, until the token is set — otherwise compose also starts
+> `cloudflared`, which crash-loops on the empty token.
+
+### 3.1 — Create the tunnel + copy the token
 
 1. <https://one.dash.cloudflare.com> → **Networks** → **Tunnels** → **Create a
    tunnel**.
-2. Connector: **Cloudflared**. Name it `my-money` (the name is just a label).
-3. Save. Cloudflare shows you a one-time-display **tunnel token** — a long
-   `eyJhI…` string. Copy it.
+2. Connector: **Cloudflared**. Name it `my-money-prd` (the name is just a label).
+3. **Operating System: Docker.** The wizard shows a
+   `docker run cloudflare/cloudflared:latest tunnel … --token eyJhI…` command and
+   then sits on **"Waiting for your Tunnel to connect… No connection detected
+   yet"** with **Continue** disabled. **Don't run that displayed command** — we
+   run the connector through compose instead. Just copy the **token**: the long
+   `eyJhI…` string after `--token`.
 
 > ⚠️ The tunnel token is the production credential for accepting traffic
 > destined to your app. Treat it like any other secret. If leaked, rotate via
 > the same dashboard ("Refresh token").
 
-### 3.2 — Add the public hostname route
+### 3.2 — Bring the connector up (so the wizard unblocks)
 
-In the same dashboard, on the tunnel's **Public Hostnames** tab:
+Wire the token into your `.env` and start the `cloudflared` sidecar — this is what
+makes the dashboard's **Connection Status** flip to connected:
+
+```sh
+# Append to your .env
+echo 'CLOUDFLARED_TOKEN=eyJhI…the_long_string_from_the_dashboard…' >> .env
+
+docker compose -f docker/compose.yaml --profile prod up -d cloudflared
+docker compose -f docker/compose.yaml logs -f cloudflared
+```
+
+You should see lines containing:
+
+```text
+Connection <uuid> registered connIndex=0 location=...
+Connection <uuid> registered connIndex=1 location=...
+```
+
+— that's the tunnel up (four connections is normal — edge redundancy). Back in
+the dashboard, the **Connection Status** panel now shows your connector and the
+**Continue** button enables. Click it to reach the routing step.
+
+### 3.3 — Add the public hostname route
+
+Now on the wizard's **Route Traffic** / **Public Hostnames** step (or the tunnel's
+**Public Hostnames** tab afterwards):
 
 | Field        | Value                                                                |
 |--------------|----------------------------------------------------------------------|
@@ -311,35 +433,9 @@ In the same dashboard, on the tunnel's **Public Hostnames** tab:
 Cloudflare will auto-create the DNS record (CNAME → tunnel UUID).
 
 The "Service URL" uses the docker network hostname `app`. cloudflared resolves
-this because it shares the `money_net` network with the app container.
-
-### 3.3 — Wire the token into compose
-
-```sh
-# Append to your .env
-echo 'CLOUDFLARED_TOKEN=eyJhI…the_long_string_from_the_dashboard…' >> .env
-```
-
-Then bring the tunnel up:
-
-```sh
-docker compose -f docker/compose.yaml --profile prod up -d cloudflared
-```
-
-Watch logs:
-
-```sh
-docker compose -f docker/compose.yaml logs -f cloudflared
-```
-
-You should see lines containing:
-
-```text
-Connection <uuid> registered connIndex=0 location=...
-Connection <uuid> registered connIndex=1 location=...
-```
-
-— that's the tunnel up. Four connections is normal (edge redundancy).
+this because it shares the `money_net` network with the app container — so `app`
+must be up (§2) for traffic to land, though the connector itself connects
+regardless.
 
 ### 3.4 — Verify
 

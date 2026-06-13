@@ -143,8 +143,21 @@ services:
     # `command` below). Pin with MONEY_IMAGE_TAG in .env; defaults to `latest`.
     image: robermar2/my-money:${MONEY_IMAGE_TAG:-latest}
     restart: unless-stopped
+    # Mirror package.json's `worker` script: `--import tsx` for TS, and
+    # `--import ./scripts/loaders/register.mjs` to stub Next's `server-only`
+    # marker (not a real installed package — it only resolves inside Next's
+    # bundler). Without the stub, worker job modules that carry `server-only`
+    # (e.g. src/lib/holdings/value.ts) crash the process with ERR_MODULE_NOT_FOUND.
     command:
-      ["node", "--experimental-strip-types", "--import", "tsx", "src/worker/index.ts"]
+      [
+        "node",
+        "--experimental-strip-types",
+        "--import",
+        "tsx",
+        "--import",
+        "./scripts/loaders/register.mjs",
+        "src/worker/index.ts",
+      ]
     environment:
       NODE_ENV: production
       DATABASE_URL: postgres://${POSTGRES_USER:-money}:${POSTGRES_PASSWORD:-dev_password_change_me}@postgres:5432/${POSTGRES_DB:-money}
