@@ -14,11 +14,26 @@ export interface SessionData {
   userId?: string;
 }
 
-const sessionSecret = process.env.SESSION_SECRET;
-if (!sessionSecret || sessionSecret.length < 32) {
-  throw new Error(
-    "SESSION_SECRET is not set or is shorter than 32 chars. Generate one with: node -e \"console.log(require('node:crypto').randomBytes(32).toString('base64'))\"",
-  );
+/**
+ * Reads and validates the session secret from the environment.
+ *
+ * Exposed as a getter on {@link sessionOptions} so the check is deferred to the
+ * first request that actually opens a session — NOT to module load. Validating
+ * eagerly broke `next build`: its "Collecting page data" step imports every
+ * route module (including ones reachable from this one) while `SESSION_SECRET`
+ * is legitimately unset inside the build container, throwing before the app runs.
+ *
+ * @returns The validated secret (>= 32 chars).
+ * @throws If `SESSION_SECRET` is unset or shorter than 32 chars.
+ */
+function requireSessionSecret(): string {
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (!sessionSecret || sessionSecret.length < 32) {
+    throw new Error(
+      "SESSION_SECRET is not set or is shorter than 32 chars. Generate one with: node -e \"console.log(require('node:crypto').randomBytes(32).toString('base64'))\"",
+    );
+  }
+  return sessionSecret;
 }
 
 // One year. You're the only user. You set up the box. Forcing periodic re-auth
@@ -28,7 +43,12 @@ const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365;
 
 export const sessionOptions: SessionOptions = {
   cookieName: "money_session",
-  password: sessionSecret,
+  // Lazy: iron-session reads `password` when a session is opened (request time),
+  // so the env check runs then rather than at import. `.cookieName` (used by the
+  // logout route) stays accessible without requiring the secret.
+  get password(): string {
+    return requireSessionSecret();
+  },
   cookieOptions: {
     httpOnly: true,
     sameSite: "lax",

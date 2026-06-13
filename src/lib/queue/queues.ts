@@ -48,57 +48,51 @@ export const QUEUE_NAMES = {
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
-export const heartbeatQueue = new Queue(QUEUE_NAMES.HEARTBEAT, {
-  connection: redisConnection,
-  defaultJobOptions,
-});
+/**
+ * Creates a lazily-constructed BullMQ queue.
+ *
+ * The real `Queue` is built on first property access, not at module load.
+ * Constructing a `Queue` eagerly touches {@link redisConnection} (BullMQ
+ * duck-types it), which would open a socket / require `REDIS_URL` during
+ * `next build` — when the webhook route imports this module but the env var is
+ * legitimately unset inside the build container. Deferring keeps importing this
+ * module side-effect-free; the queue (and its connection) materialize only when
+ * something actually enqueues or inspects a job at request/worker time.
+ *
+ * @param name - The queue name from {@link QUEUE_NAMES}.
+ * @returns A proxy that behaves as a `Queue`, instantiated on first use.
+ */
+function lazyQueue(name: QueueName): Queue {
+  let queue: Queue | undefined;
+  return new Proxy({} as Queue, {
+    get(_target, prop) {
+      if (!queue) {
+        queue = new Queue(name, { connection: redisConnection, defaultJobOptions });
+      }
+      const value = Reflect.get(queue, prop, queue);
+      return typeof value === "function" ? value.bind(queue) : value;
+    },
+  });
+}
 
-export const computeSnapshotsDailyQueue = new Queue(QUEUE_NAMES.COMPUTE_SNAPSHOTS_DAILY, {
-  connection: redisConnection,
-  defaultJobOptions,
-});
+export const heartbeatQueue = lazyQueue(QUEUE_NAMES.HEARTBEAT);
 
-export const fetchPricesDailyQueue = new Queue(QUEUE_NAMES.FETCH_PRICES_DAILY, {
-  connection: redisConnection,
-  defaultJobOptions,
-});
+export const computeSnapshotsDailyQueue = lazyQueue(QUEUE_NAMES.COMPUTE_SNAPSHOTS_DAILY);
 
-export const processImportQueue = new Queue(QUEUE_NAMES.PROCESS_IMPORT, {
-  connection: redisConnection,
-  defaultJobOptions,
-});
+export const fetchPricesDailyQueue = lazyQueue(QUEUE_NAMES.FETCH_PRICES_DAILY);
 
-export const recategorizeAllQueue = new Queue(QUEUE_NAMES.RECATEGORIZE_ALL, {
-  connection: redisConnection,
-  defaultJobOptions,
-});
+export const processImportQueue = lazyQueue(QUEUE_NAMES.PROCESS_IMPORT);
 
-export const syncPlaidItemQueue = new Queue(QUEUE_NAMES.SYNC_PLAID_ITEM, {
-  connection: redisConnection,
-  defaultJobOptions,
-});
+export const recategorizeAllQueue = lazyQueue(QUEUE_NAMES.RECATEGORIZE_ALL);
 
-export const syncInvestmentsItemQueue = new Queue(QUEUE_NAMES.SYNC_INVESTMENTS_ITEM, {
-  connection: redisConnection,
-  defaultJobOptions,
-});
+export const syncPlaidItemQueue = lazyQueue(QUEUE_NAMES.SYNC_PLAID_ITEM);
 
-export const enqueuePlaidSyncsDailyQueue = new Queue(QUEUE_NAMES.ENQUEUE_PLAID_SYNCS_DAILY, {
-  connection: redisConnection,
-  defaultJobOptions,
-});
+export const syncInvestmentsItemQueue = lazyQueue(QUEUE_NAMES.SYNC_INVESTMENTS_ITEM);
 
-export const backupDatabaseDailyQueue = new Queue(QUEUE_NAMES.BACKUP_DATABASE_DAILY, {
-  connection: redisConnection,
-  defaultJobOptions,
-});
+export const enqueuePlaidSyncsDailyQueue = lazyQueue(QUEUE_NAMES.ENQUEUE_PLAID_SYNCS_DAILY);
 
-export const exportBeancountDailyQueue = new Queue(QUEUE_NAMES.EXPORT_BEANCOUNT_DAILY, {
-  connection: redisConnection,
-  defaultJobOptions,
-});
+export const backupDatabaseDailyQueue = lazyQueue(QUEUE_NAMES.BACKUP_DATABASE_DAILY);
 
-export const detectAnomaliesDailyQueue = new Queue(QUEUE_NAMES.DETECT_ANOMALIES_DAILY, {
-  connection: redisConnection,
-  defaultJobOptions,
-});
+export const exportBeancountDailyQueue = lazyQueue(QUEUE_NAMES.EXPORT_BEANCOUNT_DAILY);
+
+export const detectAnomaliesDailyQueue = lazyQueue(QUEUE_NAMES.DETECT_ANOMALIES_DAILY);
