@@ -21,6 +21,15 @@
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 
+# Disable libuv's io_uring backend. Node 22's bundled libuv turns io_uring on by
+# default, but QEMU (used to emulate linux/arm64 on an amd64 build host) emulates
+# those syscalls incorrectly — Node finishes its work and then aborts on event-
+# loop teardown with `uv__io_poll: Assertion errno == EEXIST failed`, killing
+# `pnpm install` / `next build` with SIGABRT (exit 134). Skipping io_uring avoids
+# the emulation bug; on real arm64/amd64 hardware the cost is negligible for a
+# single-user app. Set in every Node-running stage below.
+ENV UV_USE_IO_URING=0
+
 # Enable corepack to use the pnpm version pinned in package.json.
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
@@ -29,6 +38,8 @@ RUN pnpm install --frozen-lockfile
 # ── build stage: compile Next.js (standalone output) ────────────────────────
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
+# See deps stage: avoid the QEMU io_uring abort during `next build`.
+ENV UV_USE_IO_URING=0
 RUN corepack enable
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -36,6 +47,10 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc tsconfig.json next.c
 COPY postcss.config.mjs biome.json drizzle.config.ts ./
 COPY src ./src
 COPY drizzle ./drizzle
+# Static assets served from /public. Kept even when empty (a `.gitkeep` holds the
+# dir) so the runtime stage's `COPY --from=build /app/public` always resolves and
+# the Next standalone server has its public root.
+COPY public ./public
 
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN pnpm exec next build

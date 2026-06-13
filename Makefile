@@ -12,6 +12,19 @@
 # missing).
 COMPOSE := docker compose -f docker/compose.yaml --env-file .env.local
 
+# ---------------------------------------------------------------------------
+# Container image publishing (Docker Hub: robermar2/my-money)
+# ---------------------------------------------------------------------------
+# IMAGE_REPO  — the Docker Hub repository the multi-arch image is pushed to.
+# GIT_REV     — short git SHA, used as the immutable image tag. `$(shell ...)`
+#               runs on both cmd.exe (native make) and bash, since `git` is git.
+# PLATFORMS   — buildx target platforms; arm64 covers the Pi (IDEAS.md §1).
+# BUILDER     — dedicated buildx builder so we don't disturb the default one.
+IMAGE_REPO ?= robermar2/my-money
+GIT_REV    := $(shell git rev-parse --short HEAD)
+PLATFORMS  ?= linux/amd64,linux/arm64
+BUILDER    ?= my-money-builder
+
 # Domain tables for `db-reset` — a DEV convenience that wipes rows, keeping the
 # schema. CASCADE handles children: holdings → holding_lots; accounts →
 # transactions, import_batches, investment_transactions. Listed explicitly
@@ -53,6 +66,11 @@ help:
 	@echo   prod-up         Start the full stack from images
 	@echo   prod-down       Stop the full stack
 	@echo   prod-logs       Tail app + worker logs
+	@echo ----------------------------------------------------------
+	@echo PUBLISH (Docker Hub robermar2/my-money, multi-arch)
+	@echo   buildx-init     Create/bootstrap the buildx builder (one-time)
+	@echo   image-build     Build amd64+arm64 image locally (no push)
+	@echo   image-push      Build amd64+arm64 and push, tagged with git SHA + latest
 	@echo ----------------------------------------------------------
 	@echo APP (local dev)
 	@echo   dev             Next.js dev server (http://127.0.0.1:4000)
@@ -170,6 +188,37 @@ prod-down:
 .PHONY: prod-logs
 prod-logs:
 	$(COMPOSE) --profile prod logs -f app worker
+
+# ---------------------------------------------------------------------------
+# Publish multi-arch image to Docker Hub (robermar2/my-money)
+# ---------------------------------------------------------------------------
+# A multi-arch (amd64+arm64) image can't be loaded into the local docker engine
+# in one go, so `image-push` builds + pushes in a single buildx invocation (the
+# manifest list lands in the registry directly). `image-build` is a local
+# verification build (--load only works single-arch, so it stays multi-arch and
+# just discards the result). Tags: the immutable short git SHA plus `latest`.
+#
+# Prereqs: `docker login` (push access to robermar2/*) and a buildx builder —
+# run `make buildx-init` once. Override the repo/platforms if needed:
+#   make image-push IMAGE_REPO=myuser/my-money PLATFORMS=linux/arm64
+
+# Create the buildx builder if it doesn't already exist, then bootstrap it.
+# Idempotent: the `inspect || create` guard makes re-running a no-op.
+.PHONY: buildx-init
+buildx-init:
+	docker buildx inspect $(BUILDER) >/dev/null 2>&1 || docker buildx create --name $(BUILDER) --driver docker-container
+	docker buildx inspect $(BUILDER) --bootstrap
+
+# Build for both platforms without pushing (verification only — result discarded).
+.PHONY: image-build
+image-build:
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORMS) -f Dockerfile -t $(IMAGE_REPO):$(GIT_REV) .
+
+# Build both platforms and push the manifest list, tagged with the git SHA + latest.
+.PHONY: image-push
+image-push:
+	@echo Pushing $(IMAGE_REPO):$(GIT_REV) for $(PLATFORMS)
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORMS) -f Dockerfile -t $(IMAGE_REPO):$(GIT_REV) -t $(IMAGE_REPO):latest --push .
 
 # ---------------------------------------------------------------------------
 # App
