@@ -62,7 +62,7 @@ help:
 	@echo   redis-cli       Open redis-cli in Redis container
 	@echo ----------------------------------------------------------
 	@echo DOCKER STACK (full prod-style -- adds app + worker)
-	@echo   prod-build      Build the app + worker images
+	@echo   prod-pull       Pull the published app + worker image (robermar2/my-money)
 	@echo   prod-up         Start the full stack from images
 	@echo   prod-down       Stop the full stack
 	@echo   prod-logs       Tail app + worker logs
@@ -173,9 +173,9 @@ redis-cli:
 # Docker stack -- full prod-style
 # ---------------------------------------------------------------------------
 
-.PHONY: prod-build
-prod-build:
-	$(COMPOSE) --profile prod build
+.PHONY: prod-pull
+prod-pull:
+	$(COMPOSE) --profile prod pull
 
 .PHONY: prod-up
 prod-up:

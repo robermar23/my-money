@@ -92,6 +92,17 @@ COPY --from=build /app/src ./src
 COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/package.json /app/tsconfig.json ./
 
+# Operational tooling for a repo-free (pull-only) deploy. `drizzle.config.ts`
+# lets the running container apply migrations itself —
+#   docker compose run --rm app node_modules/.bin/drizzle-kit migrate
+# — and `scripts/` carries the Plaid/maintenance one-shots (set-webhook-url,
+# rotate-encryption, plaid-ping) referenced by docs/DEPLOY.md, so the server
+# never needs a git checkout. Both run via the already-present tsx (drizzle-kit
+# ships in node_modules). Copied from the build context (not the build stage,
+# which doesn't carry them).
+COPY drizzle.config.ts ./
+COPY scripts ./scripts
+
 EXPOSE 4000
 
 # Default to the web server. Compose overrides for the worker service.

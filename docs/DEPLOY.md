@@ -5,7 +5,7 @@ worker, and a Cloudflare Tunnel for Plaid webhooks. Self-hosted, single-user,
 never phones home.
 
 The compose stack assumes you've already followed the Phase 0/3 docs and have
-`.env.local` populated. This document focuses on the **production** profile and
+`.env` populated. This document focuses on the **production** profile and
 the **Cloudflare Tunnel** that exposes Plaid webhooks to the internet without
 opening a single port on your home router.
 
@@ -20,10 +20,15 @@ opening a single port on your home router.
 ## Prerequisites
 
 - Docker Engine ≥ 24 + the `compose` plugin.
+- Network access to Docker Hub to pull the prebuilt image `robermar2/my-money`
+  (public — no registry login). **No build toolchain, Node, pnpm, or git checkout
+  is needed on the server** — just the `docker/compose.yaml` file and a `.env`.
 - A Cloudflare account (free is fine).
 - A domain pointed at Cloudflare for nameservers, OR willing use of a
   `*.trycloudflare.com` quick tunnel (dev-only — the URL changes per session).
-- `.env.local` filled in from [.env.example](../.env.example).
+- `.env` filled in from [.env.example](../.env.example). (The bare `docker
+  compose` commands below auto-load `.env` from the project dir — not `.env.local`,
+  which is the dev convenience the `make` targets pass via `--env-file`.)
 
 ## Running on Unraid (homelab)
 
@@ -52,14 +57,20 @@ Everything below also works verbatim from the **Unraid terminal** with the same
 `docker compose -f …` commands used elsewhere in this doc — use whichever you
 prefer.
 
-### U.2 — Get the repo + secrets onto the box
+### U.2 — Get the compose file + secrets onto the box
 
-The image builds from source, so the repo must be on the server:
+The app image is **pulled** from Docker Hub (`robermar2/my-money`), so there's no
+clone and no build on the server. You only need two files in the stack directory:
+`compose.yaml` and a `.env`. Grab the compose files (and the env template) — e.g.
+fetch the raw files, or copy them over:
 
 ```sh
-# Unraid terminal (or a git container):
-mkdir -p /mnt/user/appdata/my-money && cd /mnt/user/appdata/my-money
-git clone <your-fork-url> repo && cd repo
+# Unraid terminal:
+mkdir -p /mnt/user/appdata/my-money/repo/docker && cd /mnt/user/appdata/my-money/repo
+# Fetch the two compose files + the env template from your fork (raw URLs):
+curl -fsSL <raw-url>/docker/compose.yaml          -o docker/compose.yaml
+curl -fsSL <raw-url>/docker/unraid.override.yaml  -o docker/unraid.override.yaml  # from U.3
+curl -fsSL <raw-url>/.env.example                 -o .env.example
 ```
 
 Create the env file. Compose auto-loads a file named **`.env`** (not `.env.local`)
@@ -73,10 +84,9 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 nano .env   # also set POSTGRES_PASSWORD, and CLOUDFLARED_TOKEN once you have it (§3)
 ```
 
-> First build pulls Node base images and compiles Next — it needs a few GB of
-> free space and a few minutes. If your Unraid box is RAM-light, build on a
-> beefier machine and move the image over with `docker save my-money:latest | gzip > money.tgz`
-> → copy → `gunzip -c money.tgz | docker load`.
+> No build toolchain, Node, or git checkout is needed on the box — `docker
+> compose pull` fetches the prebuilt image (a few hundred MB). Pin a specific
+> build with `MONEY_IMAGE_TAG=<git-sha>` in `.env`; it defaults to `latest`.
 
 ### U.3 — Put the data on a cache pool, not the array
 
@@ -188,46 +198,52 @@ With U.3 applied, the nightly `age`-encrypted dumps (§6) land in
 The rest of this doc (§1–§8) is platform-agnostic; the notes above are the only
 Unraid-specific deltas.
 
-## 1. Build images + bring up data services
+## 1. Pull images + bring up data services
 
 ```sh
-# From the repo root.
-docker compose -f docker/compose.yaml --profile prod build
+# From the directory holding docker/compose.yaml (+ your .env).
+docker compose -f docker/compose.yaml --profile prod pull   # fetch robermar2/my-money
 docker compose -f docker/compose.yaml up -d postgres redis
 ```
 
-Wait for the `(healthy)` status on both, then run the migration:
+Wait for the `(healthy)` status on both, then apply migrations **inside a one-off
+app container** — no Node/pnpm/repo needed on the host. The image carries
+`drizzle-kit`, the migration files, and `drizzle.config.ts`; `DATABASE_URL` comes
+from the compose env:
 
 ```sh
-DATABASE_URL=<your prod url> pnpm db:migrate
+docker compose -f docker/compose.yaml --profile prod run --rm app \
+  node_modules/.bin/drizzle-kit migrate
 ```
 
 (`make db-reset` is for dev only — it drops all data.)
 
-### 1.1 — ARM64 (Raspberry Pi / ARM NAS) builds
+### 1.1 — Architecture (Raspberry Pi / ARM NAS)
 
-The image builds clean for both `linux/amd64` and `linux/arm64` — every native
-dependency has a glibc arm64 prebuild (`@node-rs/argon2`, Next's SWC, Tailwind's
-`lightningcss`) and the runtime-stage `pg_dump` (PGDG apt) + `age` (bookworm
-main) both ship arm64. The base is **Debian bookworm-slim (glibc)**, not alpine,
-which is what makes those `-gnu` prebuilds the right ones.
+`docker compose pull` automatically fetches the image variant matching the host's
+architecture — nothing special to do on an arm64 box **if** that arch is published
+to the registry. The Dockerfile builds clean for both `linux/amd64` and
+`linux/arm64`: every native dependency has a glibc arm64 prebuild
+(`@node-rs/argon2`, Next's SWC, Tailwind's `lightningcss`), and the runtime-stage
+`pg_dump` (PGDG apt) + `age` (bookworm main) both ship arm64. The base is **Debian
+bookworm-slim (glibc)**, not alpine, which is what makes those `-gnu` prebuilds the
+right ones.
 
-If you build **on the Pi itself**, the plain `docker compose build` above is
-already native arm64 — nothing extra to do. To cross-build from an amd64 machine
-and push a multi-arch image (or just produce an arm64 image via emulation):
+Publishing is done from a dev machine, not the server, via the Makefile targets
+(tag = git SHA + `latest`, pushed to `IMAGE_REPO`, default `robermar2/my-money`):
 
 ```sh
-# One-time: enable QEMU emulation + a buildx builder.
-docker run --privileged --rm tonistiigi/binfmt --install arm64
-docker buildx create --use --name money-builder   # once
-
-# Build both arches. Add --push to send to a registry, or --load for a single
-# arch into the local daemon (--load can't hold a multi-arch manifest).
-docker buildx build --platform linux/amd64,linux/arm64 -t my-money:latest .
+make buildx-init                               # one-time: buildx builder
+make image-push                                # amd64 + arm64 → registry
+make image-push PLATFORMS=linux/amd64          # single-arch (e.g. amd64 only)
 ```
 
-Emulated arm64 builds are slow but correct; building on the Pi is faster if you
-can spare the time there.
+> **arm64 via emulation is unreliable on some hosts.** Cross-building arm64 from
+> an amd64 machine uses QEMU, which can crash `pnpm install` under load
+> (`uv__io_poll` assertion). If `make image-push` fails on the arm64 leg, build
+> arm64 **natively on the Pi** (`make image-push PLATFORMS=linux/arm64` there) and
+> let `buildx` merge it into the same multi-arch tag, or run the Pi as a remote
+> buildx node.
 
 ## 2. Bring up app + worker
 
@@ -300,8 +316,8 @@ this because it shares the `money_net` network with the app container.
 ### 3.3 — Wire the token into compose
 
 ```sh
-# Append to your .env.local
-echo 'CLOUDFLARED_TOKEN=eyJhI…the_long_string_from_the_dashboard…' >> .env.local
+# Append to your .env
+echo 'CLOUDFLARED_TOKEN=eyJhI…the_long_string_from_the_dashboard…' >> .env
 ```
 
 Then bring the tunnel up:
@@ -347,29 +363,35 @@ Existing Plaid Items still have the old `PLAID_WEBHOOK_URL` (or none — Items
 created during local dev typically have no webhook URL). Update them in one
 shot:
 
-First, set `PLAID_WEBHOOK_URL` in `.env.local` (or export it inline). Then:
-
-```sh
-# Dry run first — prints what would change, no Plaid calls.
-pnpm plaid:set-webhook-url -- --dry-run
-
-# Commit.
-pnpm plaid:set-webhook-url
-```
-
-You can override the URL per-run with `-- --url https://other.example.com/api/plaid/webhook`
-without touching `.env.local`. (The leading `--` is the pnpm convention for
-"pass the rest to the script.")
-
-Verify in the Plaid dashboard → Items → each Item's "Webhook" field.
-
-Also bake the URL into `.env.local`:
+First bake the URL into your **`.env`** so the containers (and freshly-minted
+link tokens) carry it:
 
 ```ini
 PLAID_WEBHOOK_URL=https://money.your-domain.com/api/plaid/webhook
 ```
 
-so future `link/token/create` calls mint tokens carrying this URL by default.
+Recreate the prod services so they pick it up, then run the updater **inside a
+one-off container** (the maintenance scripts are baked into the image; the Plaid
+creds come from the compose env):
+
+```sh
+docker compose -f docker/compose.yaml --profile prod up -d app worker
+
+# Dry run first — prints what would change, no Plaid calls.
+docker compose -f docker/compose.yaml --profile prod run --rm app \
+  node --import tsx --import ./scripts/loaders/register.mjs \
+  scripts/plaid-set-webhook-url.ts --dry-run
+
+# Commit (drop --dry-run).
+docker compose -f docker/compose.yaml --profile prod run --rm app \
+  node --import tsx --import ./scripts/loaders/register.mjs \
+  scripts/plaid-set-webhook-url.ts
+```
+
+Override the URL per-run with `--url https://other.example.com/api/plaid/webhook`
+(appended after the script path) without touching `.env`.
+
+Verify in the Plaid dashboard → Items → each Item's "Webhook" field.
 
 ## 5. Smoke test the live path
 
@@ -403,7 +425,7 @@ The worker runs two longevity jobs nightly (both **opt-in** via env):
    # prints:  Public key: age1qz...   ← the RECIPIENT
    ```
 
-2. Put **only the public key** in `.env.local`:
+2. Put **only the public key** in `.env`:
 
    ```ini
    BACKUP_AGE_RECIPIENT=age1qz...
@@ -464,7 +486,7 @@ Those live only behind auth on `/alerts`. We ship no default mail relay; the
 transport is your own SMTP server.
 
 ```ini
-# .env.local — leave SMTP_URL empty to use only the in-app /alerts page.
+# .env — leave SMTP_URL empty to use only the in-app /alerts page.
 SMTP_URL=smtp://user:pass@mail.example.com:587
 ALERT_EMAIL_TO=you@example.com
 # ALERT_EMAIL_FROM=        # defaults to ALERT_EMAIL_TO
@@ -511,7 +533,17 @@ safe; BullMQ retries failures with exponential backoff.
 # Pull new images, recreate.
 docker compose -f docker/compose.yaml --profile prod pull
 docker compose -f docker/compose.yaml --profile prod up -d
+
+# If the release includes schema changes, apply migrations (idempotent — a no-op
+# when already current):
+docker compose -f docker/compose.yaml --profile prod run --rm app \
+  node_modules/.bin/drizzle-kit migrate
 ```
+
+By default `pull` tracks `latest`. To deploy a **specific** build, set
+`MONEY_IMAGE_TAG=<git-sha>` in `.env` (the SHA `make image-push` stamped on the
+image) and re-run the two commands — this also lets you roll back by pinning the
+previous SHA.
 
 `cloudflared` updates take a connection-cycle (~10s). Plaid retries any
 webhook that misses delivery for 24h, so a brief tunnel restart is safe.
@@ -520,6 +552,6 @@ webhook that misses delivery for 24h, so a brief tunnel restart is safe.
 
 The Cloudflare side: dashboard → Tunnel → **Delete tunnel**.
 The local side: `docker compose -f docker/compose.yaml stop cloudflared` then
-remove `CLOUDFLARED_TOKEN` from `.env.local`. The app keeps running locally;
+remove `CLOUDFLARED_TOKEN` from `.env`. The app keeps running locally;
 webhooks just stop arriving (the daily 03:00 safety-net cron — P4-27 — picks
 up the slack).

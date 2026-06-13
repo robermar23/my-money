@@ -86,10 +86,11 @@ services:
 
   app:
     profiles: ["prod"]
-    build:
-      context: ..
-      dockerfile: Dockerfile
-    image: my-money:latest
+    # Pull the prebuilt multi-arch image from Docker Hub — no build/clone on the
+    # server. Pin a specific git-SHA tag with MONEY_IMAGE_TAG in .env; defaults to
+    # `latest`. To run your own build instead, `make image-push IMAGE_REPO=...`
+    # and set MONEY_IMAGE_TAG / this repo accordingly.
+    image: robermar2/my-money:${MONEY_IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -99,6 +100,14 @@ services:
       REDIS_URL: redis://redis:6379
       SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
       MONEY_ENCRYPTION_KEY: ${MONEY_ENCRYPTION_KEY:?MONEY_ENCRYPTION_KEY is required}
+      # Plaid (Phase 4+). Empty defaults so a manual-only deploy starts fine; the
+      # Plaid client validates lazily and only errors when a Plaid feature is
+      # actually used (Link, webhook processing, sync jobs). PLAID_WEBHOOK_URL is
+      # baked into newly-minted link tokens — set it once the tunnel is up (§4).
+      PLAID_CLIENT_ID: ${PLAID_CLIENT_ID:-}
+      PLAID_SECRET: ${PLAID_SECRET:-}
+      PLAID_ENV: ${PLAID_ENV:-sandbox}
+      PLAID_WEBHOOK_URL: ${PLAID_WEBHOOK_URL:-}
     ports:
       # Bind only to localhost; the public webhook path is exposed via the
       # Cloudflare Tunnel sidecar below (ADR-010, P4-29). The home router stays
@@ -130,10 +139,9 @@ services:
 
   worker:
     profiles: ["prod"]
-    image: my-money:latest
-    build:
-      context: ..
-      dockerfile: Dockerfile
+    # Same published image as `app` (shared codebase, different entrypoint via the
+    # `command` below). Pin with MONEY_IMAGE_TAG in .env; defaults to `latest`.
+    image: robermar2/my-money:${MONEY_IMAGE_TAG:-latest}
     restart: unless-stopped
     command:
       ["node", "--experimental-strip-types", "--import", "tsx", "src/worker/index.ts"]
@@ -142,6 +150,12 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-money}:${POSTGRES_PASSWORD:-dev_password_change_me}@postgres:5432/${POSTGRES_DB:-money}
       REDIS_URL: redis://redis:6379
       MONEY_ENCRYPTION_KEY: ${MONEY_ENCRYPTION_KEY:?MONEY_ENCRYPTION_KEY is required}
+      # Plaid (Phase 4+): the worker runs the sync jobs and the in-container
+      # set-webhook-url maintenance script (§4). Empty defaults — lazy-validated.
+      PLAID_CLIENT_ID: ${PLAID_CLIENT_ID:-}
+      PLAID_SECRET: ${PLAID_SECRET:-}
+      PLAID_ENV: ${PLAID_ENV:-sandbox}
+      PLAID_WEBHOOK_URL: ${PLAID_WEBHOOK_URL:-}
       # Phase 6 (P6-06, ADR-014): nightly encrypted backup. Recipient is an age
       # PUBLIC key (safe here); empty/unset disables the backup job. The private
       # identity is NEVER on this box — it lives off-host (see docs/RESTORE.md).
