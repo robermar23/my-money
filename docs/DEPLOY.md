@@ -12,6 +12,10 @@ opening a single port on your home router.
 > See also: [RESTORE.md](RESTORE.md) for backup/restore, [PLAID.md](PLAID.md) for
 > Plaid Link + reauth troubleshooting, [CRYPTO_ROTATION.md](CRYPTO_ROTATION.md)
 > for the encryption-key rotation runbook (P4-37).
+>
+> **On Unraid?** Read [Running on Unraid (homelab)](#running-on-unraid-homelab)
+> first for the platform-specific glue (Compose Manager plugin, cache-pool data
+> placement, LAN access), then follow §1–§8 below with the override file it adds.
 
 ## Prerequisites
 
@@ -20,6 +24,169 @@ opening a single port on your home router.
 - A domain pointed at Cloudflare for nameservers, OR willing use of a
   `*.trycloudflare.com` quick tunnel (dev-only — the URL changes per session).
 - `.env.local` filled in from [.env.example](../.env.example).
+
+## Running on Unraid (homelab)
+
+Unraid runs the **exact same compose stack** — only three things differ: how you
+launch compose, where the persistent data lives, and how you reach the web UI on
+your LAN. The **Cloudflare Tunnel (§3) is unchanged and ideal here**: it dials
+*outbound* to Cloudflare, so you never port-forward on your router or expose
+Unraid to the internet.
+
+> Do U.1–U.4 first, then follow **§1–§8** as written — passing the extra override
+> file from U.3 on every `docker compose` command.
+
+### U.1 — Install the Docker Compose Manager plugin
+
+Unraid's built-in Docker tab manages single containers, not compose stacks. Add
+the community plugin:
+
+- **Apps** (Community Applications) → search **"Docker Compose Manager"** →
+  **Install**. A **Compose** panel appears at the bottom of the **Docker** tab.
+- **Add New Stack** → name it `my-money` → **Edit Stack** to paste/point at the
+  repo's `docker/compose.yaml`. The plugin keeps each stack's files under
+  `/boot/config/plugins/compose.manager/projects/my-money/` (including its
+  `.env`), and gives you one-click **build / up / down / update**.
+
+Everything below also works verbatim from the **Unraid terminal** with the same
+`docker compose -f …` commands used elsewhere in this doc — use whichever you
+prefer.
+
+### U.2 — Get the repo + secrets onto the box
+
+The image builds from source, so the repo must be on the server:
+
+```sh
+# Unraid terminal (or a git container):
+mkdir -p /mnt/user/appdata/my-money && cd /mnt/user/appdata/my-money
+git clone <your-fork-url> repo && cd repo
+```
+
+Create the env file. Compose auto-loads a file named **`.env`** (not `.env.local`)
+from the project directory — or set it in the Compose Manager stack's env field:
+
+```sh
+cp .env.example .env
+# Generate the two required secrets and paste them in:
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"  # SESSION_SECRET
+node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"  # MONEY_ENCRYPTION_KEY
+nano .env   # also set POSTGRES_PASSWORD, and CLOUDFLARED_TOKEN once you have it (§3)
+```
+
+> First build pulls Node base images and compiles Next — it needs a few GB of
+> free space and a few minutes. If your Unraid box is RAM-light, build on a
+> beefier machine and move the image over with `docker save my-money:latest | gzip > money.tgz`
+> → copy → `gunzip -c money.tgz | docker load`.
+
+### U.3 — Put the data on a cache pool, not the array
+
+Postgres and Redis must **not** live on spinning array disks — it's slow and
+keeps the disks spinning 24/7. Point their volumes (and the backup/export dirs)
+at an **SSD cache pool**. Save this as `docker/unraid.override.yaml`:
+
+```yaml
+# docker/unraid.override.yaml — homelab data placement + local timezone.
+# Adjust the device paths to your cache-pool appdata share, and TZ to yours.
+volumes:
+  postgres_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: /mnt/user/appdata/my-money/postgres }
+  redis_data:
+    driver: local
+    driver_opts: { type: none, o: bind, device: /mnt/user/appdata/my-money/redis }
+  backups:
+    driver: local
+    driver_opts: { type: none, o: bind, device: /mnt/user/appdata/my-money/backups }
+  exports:
+    driver: local
+    driver_opts: { type: none, o: bind, device: /mnt/user/appdata/my-money/exports }
+
+services:
+  app:
+    environment:
+      TZ: America/New_York     # so display timestamps use your local time
+  worker:
+    environment:
+      TZ: America/New_York     # so the nightly jobs (§8) fire at your local time
+```
+
+Create the bind directories first — Postgres only initializes into an **empty**
+data dir:
+
+```sh
+mkdir -p /mnt/user/appdata/my-money/{postgres,redis,backups,exports}
+```
+
+> Set the share holding `my-money` to **Cache: Only** (or a dedicated SSD pool)
+> in Unraid so the DB never spills onto the array. If you already ran an `up`
+> once with the default named volumes, remove them
+> (`docker compose … down -v`) before applying this override so the bind
+> definitions take effect.
+
+Then pass the override on **every** compose command (§1, §2, §3, updates):
+
+```sh
+docker compose -f docker/compose.yaml -f docker/unraid.override.yaml --profile prod up -d
+```
+
+### U.4 — Reach the web UI from your LAN
+
+The base compose binds the app to `127.0.0.1:4000` — reachable only from the
+Unraid box itself. For a homelab you almost certainly want it on your LAN. Edit
+`app.ports` in **`docker/compose.yaml`** (edit the base file, not the override —
+compose *concatenates* `ports`, so an override would leave both bindings fighting
+over host 4000):
+
+```yaml
+    ports:
+      - "4000:4000"     # was "127.0.0.1:4000:4000" → now http://<unraid-ip>:4000
+```
+
+The app's single-password auth protects the UI on your trusted LAN. For **remote**
+access without opening a port, route the UI through the tunnel and put Cloudflare
+Access in front (U.6).
+
+### U.5 — The Cloudflare Tunnel is unchanged
+
+All of **§3 (Stand up the Cloudflare Tunnel)** applies verbatim on Unraid — the
+`cloudflared` sidecar is already in the stack, dials outbound to Cloudflare's
+edge, and needs **no router port-forward** and **no Unraid Docker port mapping**.
+Set `CLOUDFLARED_TOKEN` in `.env`, point the tunnel's public hostname at
+`app:4000`, and bring it up. That outbound-only model is exactly why the tunnel
+suits Unraid: your router stays closed and Plaid still reaches
+`/api/plaid/webhook`.
+
+### U.6 — (Optional) Remote UI access via the tunnel + Cloudflare Access
+
+Plaid only needs `/api/plaid/webhook` exposed (§3.2 scopes the **Path** to it). If
+you also want the **UI** reachable from outside the LAN:
+
+1. In the tunnel's **Public Hostnames**, add a hostname → `app:4000` with the
+   **Path** left blank (forward everything).
+2. In **Cloudflare → Zero Trust → Access → Applications**, add an application for
+   that hostname with a policy (e.g. one-time-PIN to your email). Cloudflare's
+   auth then sits in front of the app so it isn't world-reachable — defense in
+   depth on top of the app's own password.
+
+### U.7 — Backups, the Unraid way
+
+With U.3 applied, the nightly `age`-encrypted dumps (§6) land in
+`/mnt/user/appdata/my-money/backups`. Two Unraid-specific notes:
+
+- **Off-host replication (§6.3) still applies** — a cache pool is still one
+  machine. Use the **Appdata Backup** plugin (CA) to sweep
+  `/mnt/user/appdata/my-money` onto the array, *and* push the `backups` dir
+  off-site (rclone/B2). The dumps are already encrypted, so any destination is
+  safe.
+- **Don't rely on an Appdata-Backup copy of the live `postgres/` dir for DB
+  recovery** — copying a running Postgres data directory isn't crash-consistent.
+  The `age`-encrypted `pg_dump` ([RESTORE.md](RESTORE.md)) is the real backup; the
+  appdata copy is just bytes.
+
+---
+
+The rest of this doc (§1–§8) is platform-agnostic; the notes above are the only
+Unraid-specific deltas.
 
 ## 1. Build images + bring up data services
 
