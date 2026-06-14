@@ -6,7 +6,7 @@ import { accounts } from "@/db/schema/index.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { plaidClient, plaidWebhookUrl } from "@/lib/plaid/client.ts";
 import { clearAccessToken, createPlaidItem, loadAccessToken } from "@/lib/plaid/tokens.ts";
-import { syncPlaidItemQueue } from "@/lib/queue/queues.ts";
+import { syncInvestmentsItemQueue, syncPlaidItemQueue } from "@/lib/queue/queues.ts";
 import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -328,7 +328,11 @@ export async function forceSyncAction(plaidItemPk: string): Promise<ForceSyncRes
   }
 
   const [item] = await db
-    .select({ id: plaidItems.id, status: plaidItems.status })
+    .select({
+      id: plaidItems.id,
+      status: plaidItems.status,
+      productsConsented: plaidItems.productsConsented,
+    })
     .from(plaidItems)
     .where(eq(plaidItems.id, plaidItemPk))
     .limit(1);
@@ -338,11 +342,24 @@ export async function forceSyncAction(plaidItemPk: string): Promise<ForceSyncRes
     return { error: "Reconnect this Item before forcing a sync" };
   }
 
-  await syncPlaidItemQueue.add(
-    "sync-plaid-item",
-    { plaidItemPk, trigger: "manual" },
-    { jobId: `sync-plaid-item-manual-${plaidItemPk}-${Date.now()}` },
-  );
+  // Route to the sync that matches the Item's products (mirrors the daily cron,
+  // P4-27): an investments Item must run the investments sync, not transactions —
+  // otherwise the button silently no-ops for a brokerage/401k Item.
+  const now = Date.now();
+  if (item.productsConsented.includes("investments")) {
+    await syncInvestmentsItemQueue.add(
+      "sync-investments-item",
+      { plaidItemPk, trigger: "manual" },
+      { jobId: `sync-investments-item-manual-${plaidItemPk}-${now}` },
+    );
+  }
+  if (item.productsConsented.includes("transactions")) {
+    await syncPlaidItemQueue.add(
+      "sync-plaid-item",
+      { plaidItemPk, trigger: "manual" },
+      { jobId: `sync-plaid-item-manual-${plaidItemPk}-${now}` },
+    );
+  }
 
   revalidatePath("/settings/connections");
   return {};
