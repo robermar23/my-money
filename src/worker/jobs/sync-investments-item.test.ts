@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { db } from "@/db/client.ts";
 import {
+  accountSnapshots,
   accounts,
   holdingLots,
   holdings,
@@ -258,5 +259,60 @@ describe("syncInvestmentsItemProcessor (P5-16)", () => {
 
     expect(mockHoldingsGet).not.toHaveBeenCalled();
     expect(await db.select().from(holdings)).toHaveLength(0);
+  });
+});
+
+describe("syncInvestmentsItemProcessor — balance anchoring", () => {
+  it("snapshots an investment account at Plaid's reported balance, not the holdings sum", async () => {
+    const { plaidItemPk, accountId } = await freshSetup();
+    // Holdings sum to 1500 (10 AAPL × 150), but Plaid's account balance is
+    // 27354.77 (positions/cash Plaid didn't itemize). The balance is authoritative.
+    mockHoldingsGet.mockResolvedValueOnce({
+      data: {
+        holdings: [holdAapl()],
+        securities: [SEC_AAPL],
+        accounts: [
+          { account_id: PLAID_ACCT, balances: { current: 27354.77, iso_currency_code: "USD" } },
+        ],
+        request_id: "r",
+      },
+    });
+    mockTxnsGet.mockResolvedValueOnce(txnsResp([], [], 0));
+
+    await syncInvestmentsItemProcessor(makeJob({ plaidItemPk }));
+
+    const [snap] = await db
+      .select({ balance: accountSnapshots.balance })
+      .from(accountSnapshots)
+      .where(eq(accountSnapshots.accountId, accountId));
+    expect(snap?.balance).toBe("27354.77");
+  });
+
+  it("snapshots a holdings-less account (e.g. a 401k) from its Plaid balance", async () => {
+    const { plaidItemPk, accountId } = await freshSetup();
+    // Plaid returns a balance but no positions (common for 401k plans). Summing
+    // holdings would give $0; we must use the reported balance.
+    mockHoldingsGet.mockResolvedValueOnce({
+      data: {
+        holdings: [],
+        securities: [],
+        accounts: [
+          { account_id: PLAID_ACCT, balances: { current: 509368.06, iso_currency_code: "USD" } },
+        ],
+        request_id: "r",
+      },
+    });
+    mockTxnsGet.mockResolvedValueOnce(txnsResp([], [], 0));
+
+    await syncInvestmentsItemProcessor(makeJob({ plaidItemPk }));
+
+    const [snap] = await db
+      .select({ balance: accountSnapshots.balance })
+      .from(accountSnapshots)
+      .where(eq(accountSnapshots.accountId, accountId));
+    expect(snap?.balance).toBe("509368.06");
+    expect(await db.select().from(holdings).where(eq(holdings.accountId, accountId))).toHaveLength(
+      0,
+    );
   });
 });

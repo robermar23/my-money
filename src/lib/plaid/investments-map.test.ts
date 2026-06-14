@@ -97,9 +97,14 @@ describe("institutionPriceQuote", () => {
     expect(quote?.source).toBe("plaid");
   });
 
-  it("returns null for a tickered security (the Yahoo fetch prices it)", () => {
-    const quote = institutionPriceQuote(holding(), security({ tickerSymbol: "AAPL" }));
-    expect(quote).toBeNull();
+  it("also emits a quote for a tickered security (Plaid seed; Yahoo refreshes)", () => {
+    const quote = institutionPriceQuote(
+      holding({ institution_price: 150 }),
+      security({ tickerSymbol: "AAPL", symbol: "AAPL" }),
+    );
+    expect(quote).not.toBeNull();
+    expect(quote?.symbol).toBe("AAPL");
+    expect(quote?.close).toBe("150");
   });
 
   it("falls back to today's date when Plaid omits institution_price_as_of", () => {

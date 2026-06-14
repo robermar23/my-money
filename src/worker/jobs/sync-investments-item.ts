@@ -116,13 +116,14 @@ export async function syncInvestmentsItemProcessor(
       id: accounts.id,
       plaidAccountId: accounts.plaidAccountId,
       currency: accounts.currency,
+      type: accounts.type,
     })
     .from(accounts)
     .where(eq(accounts.plaidItemId, item.id));
-  const accountByPlaidId = new Map<string, { id: string; currency: string }>();
+  const accountByPlaidId = new Map<string, { id: string; currency: string; type: string }>();
   for (const r of accountRows) {
     if (r.plaidAccountId)
-      accountByPlaidId.set(r.plaidAccountId, { id: r.id, currency: r.currency });
+      accountByPlaidId.set(r.plaidAccountId, { id: r.id, currency: r.currency, type: r.type });
   }
 
   const [run] = await db
@@ -143,6 +144,20 @@ export async function syncInvestmentsItemProcessor(
   try {
     const holdingsResp = await plaidClient.investmentsHoldingsGet({ access_token: accessToken });
     paginationCount++;
+
+    // Capture each account's Plaid-reported current balance — the authoritative
+    // value for an investment account. Holdings can be absent (many 401k plans
+    // expose only a balance through Plaid, not positions), in which case summing
+    // holdings yields $0; we snapshot from this balance below instead.
+    const plaidBalanceByAccountId = new Map<string, string>();
+    for (const pa of holdingsResp.data.accounts) {
+      const ours = accountByPlaidId.get(pa.account_id);
+      if (!ours) continue;
+      if (ours.type !== "investment" && ours.type !== "crypto_ira") continue;
+      const current = pa.balances?.current;
+      if (current == null || !Number.isFinite(current)) continue;
+      plaidBalanceByAccountId.set(ours.id, current.toFixed(2));
+    }
 
     await db.transaction(async (tx) => {
       // Upsert every security from the holdings response, keyed by Plaid id.
@@ -337,14 +352,20 @@ export async function syncInvestmentsItemProcessor(
       }
     });
 
-    // Snapshot affected accounts post-commit (reads committed holdings + prices)
-    // so the dashboard shows a value immediately after the initial sync.
-    if (affectedAccountIds.size > 0) {
+    // Snapshot post-commit so the dashboard shows a value immediately. Snapshot
+    // every account Plaid reported a balance for (so a holdings-less 401k still
+    // gets its real value) plus any others touched this run. Prefer Plaid's
+    // reported balance; fall back to summing priced holdings only when no
+    // balance came back.
+    const toSnapshot = new Set<string>([...affectedAccountIds, ...plaidBalanceByAccountId.keys()]);
+    if (toSnapshot.size > 0) {
       const today = new Date().toISOString().slice(0, 10);
-      for (const acctId of affectedAccountIds) {
+      for (const acctId of toSnapshot) {
         const currency = accountRows.find((a) => a.id === acctId)?.currency ?? "USD";
-        const value = await valueAccountHoldings(acctId, currency, today);
-        await upsertSnapshots(acctId, new Map([[today, value.toString()]]));
+        const plaidBalance = plaidBalanceByAccountId.get(acctId);
+        const value =
+          plaidBalance ?? (await valueAccountHoldings(acctId, currency, today)).toString();
+        await upsertSnapshots(acctId, new Map([[today, value]]));
       }
     }
   } catch (err) {

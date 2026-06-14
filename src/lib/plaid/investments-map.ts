@@ -98,21 +98,25 @@ export function plaidHoldingToHolding(
 }
 
 /**
- * Build a `prices` quote from a holding's `institution_price` — but only for
- * non-tickered (synthetic `SEC:`) securities. Tickered securities are priced by
- * the daily Yahoo fetch, so we return null to avoid a duplicate/stale source.
+ * Build a `prices` quote from a holding's `institution_price`.
+ *
+ * Emitted for EVERY security — tickered (AAPL, MSTR) and synthetic (`SEC:`)
+ * alike — so a freshly-synced holding has a value immediately. Previously this
+ * was gated to synthetic securities only, which left tickered positions reading
+ * $0 (and the account total wrong) until the nightly Yahoo `fetch-prices-daily`
+ * ran. Plaid's price is the seed; the daily Yahoo fetch overwrites the same
+ * `(symbol, date)` row and remains the ongoing source of truth.
  *
  * @param h - The Plaid holding (carries `institution_price`).
- * @param security - Resolved security info (its `tickerSymbol` gates this).
+ * @param security - Resolved security info (provides the price symbol).
  * @param now - Clock injection for the date fallback (testability).
- * @returns A `PriceQuote` for synthetic securities, else null.
+ * @returns A `PriceQuote`, or null when Plaid omitted a usable price.
  */
 export function institutionPriceQuote(
   h: PlaidHoldingLike,
   security: SecurityInfo,
   now: Date = new Date(),
 ): PriceQuote | null {
-  if (security.tickerSymbol && security.tickerSymbol.length > 0) return null;
   if (!Number.isFinite(h.institution_price)) return null;
   return {
     symbol: security.symbol,

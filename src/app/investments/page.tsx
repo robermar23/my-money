@@ -13,6 +13,7 @@ import { Money } from "@/lib/money/money.ts";
 import Link from "next/link";
 import { AllocationChart } from "./allocation-chart.tsx";
 import { IncomeChart } from "./income-chart.tsx";
+import { RefreshPricesButton } from "./refresh-prices-button.tsx";
 
 interface InvestmentsPageProps {
   readonly searchParams?: Promise<{ period?: string }>;
@@ -109,6 +110,7 @@ export default async function InvestmentsPage(
           <p className="mt-1 text-sm text-zinc-500">
             Positions, cost basis, and gain/loss across your brokerage, IRA, and crypto accounts.
           </p>
+          <RefreshPricesButton />
         </div>
         <div className="text-right">
           <div className="font-mono text-3xl tabular-nums">{portfolio.totalValue.format()}</div>
