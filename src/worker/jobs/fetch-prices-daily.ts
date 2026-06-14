@@ -1,3 +1,4 @@
+import { sleep } from "@/lib/prices/retry.ts";
 import {
   type PriceRouter,
   defaultRouter,
@@ -23,6 +24,8 @@ import type { Job } from "bullmq";
  * `failed_jobs` (Phase 6) can pick up the diff later.
  *
  * `router` is injectable so tests can run the job offline with mock fetchers.
+ * `delayMs` spaces out upstream calls to avoid tripping Yahoo's burst throttle
+ * (tests pass 0 to stay fast). Per-symbol retry/backoff lives in the fetchers.
  */
 export interface FetchPricesResult {
   readonly succeeded: number;
@@ -33,14 +36,19 @@ export interface FetchPricesResult {
 export async function fetchPricesDailyProcessor(
   _job: Job,
   router: PriceRouter = defaultRouter(),
+  delayMs = 250,
 ): Promise<FetchPricesResult> {
   const held = await distinctHeldSymbols();
   let succeeded = 0;
   let failed = 0;
+  let processedAny = false;
   const errors: Array<{ symbol: string; error: string }> = [];
 
   for (const { symbol, assetClass } of held) {
     if (!isFetchableAssetClass(assetClass)) continue; // cash, property: no fetch
+    // Space out fetched symbols (not the first) to stay under rate limits.
+    if (processedAny && delayMs > 0) await sleep(delayMs);
+    processedAny = true;
     try {
       const fetcher = fetcherFor(router, assetClass);
       const quote = await fetcher.quote(symbol);

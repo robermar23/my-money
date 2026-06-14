@@ -1,5 +1,6 @@
 import yahooFinance from "yahoo-finance2";
 import { z } from "zod";
+import { withRateLimitRetry } from "./retry.ts";
 import { type PriceFetcher, type PriceQuote, todayIso } from "./types.ts";
 
 /**
@@ -40,7 +41,8 @@ export class YahooMetalsFetcher implements PriceFetcher {
         `Unsupported metal symbol "${symbol}". Supported: ${Object.keys(YAHOO_BY_METAL).join(", ")}.`,
       );
     }
-    const raw = await yahooFinance.quote(yahooSymbol);
+    // Retry through Yahoo's 429 throttle (metals use the same Yahoo backend).
+    const raw = await withRateLimitRetry(() => yahooFinance.quote(yahooSymbol));
     const parsed = yahooQuoteSchema.safeParse(raw);
     if (!parsed.success) {
       throw new Error(

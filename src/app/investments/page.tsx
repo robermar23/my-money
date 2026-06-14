@@ -5,6 +5,7 @@ import { gainLoss, portfolioGainLoss } from "@/lib/investments/gain-loss.ts";
 import { type IncomePeriod, incomeByPeriod } from "@/lib/investments/income.ts";
 import { resolveCostBasis } from "@/lib/investments/lots.ts";
 import {
+  listBalanceOnlyInvestmentAccounts,
   listInvestmentIncome,
   listInvestmentLots,
   listInvestmentPositions,
@@ -33,10 +34,11 @@ export default async function InvestmentsPage(
   const baseCurrency = "USD";
   const today = new Date().toISOString().slice(0, 10);
 
-  const [positions, lots, incomeTxns] = await Promise.all([
+  const [positions, lots, incomeTxns, balanceOnly] = await Promise.all([
     listInvestmentPositions(),
     listInvestmentLots(),
     listInvestmentIncome(),
+    listBalanceOnlyInvestmentAccounts(),
   ]);
 
   const lotsByHolding = new Map<string, { quantity: string; costBasisTotal: string }[]>();
@@ -64,13 +66,31 @@ export default async function InvestmentsPage(
     baseCurrency,
   );
 
-  // Allocation by asset class (only priced value contributes).
+  // Balance-only investment accounts: value (latest snapshot) but no itemized
+  // holdings — e.g. a 401k Plaid reports only as a total. Fold their value into
+  // the page total so it reconciles with net worth.
+  const balanceOnlyInBase = balanceOnly.filter((a) => a.currency === baseCurrency);
+  const balanceOnlyTotal = Money.sum(
+    balanceOnlyInBase.map((a) => Money.fromString(a.balance, baseCurrency)),
+    baseCurrency,
+  );
+  const totalValue = portfolio.totalValue.add(balanceOnlyTotal);
+
+  // Allocation by asset class — priced holdings plus a single "other" bucket for
+  // the balance-only accounts, so the donut sums to the page total.
   const slices = allocationByAssetClass(
-    rows.map((r) => ({
-      assetClass: r.p.holding.assetClass,
-      accountId: r.p.accountId,
-      value: r.valuation.value,
-    })),
+    [
+      ...rows.map((r) => ({
+        assetClass: r.p.holding.assetClass,
+        accountId: r.p.accountId,
+        value: r.valuation.value,
+      })),
+      ...balanceOnlyInBase.map((a) => ({
+        assetClass: "other",
+        accountId: a.accountId,
+        value: Money.fromString(a.balance, baseCurrency),
+      })),
+    ],
     baseCurrency,
   ).map((s) => ({
     label: s.label,
@@ -113,7 +133,7 @@ export default async function InvestmentsPage(
           <RefreshPricesButton />
         </div>
         <div className="text-right">
-          <div className="font-mono text-3xl tabular-nums">{portfolio.totalValue.format()}</div>
+          <div className="font-mono text-3xl tabular-nums">{totalValue.format()}</div>
           <div className="mt-0.5 text-sm text-zinc-500">
             Cost basis {portfolio.totalCostBasis ? portfolio.totalCostBasis.format() : "—"}
             {portfolio.absolute && (
@@ -131,7 +151,7 @@ export default async function InvestmentsPage(
         </div>
       </div>
 
-      {positions.length === 0 ? (
+      {positions.length === 0 && balanceOnly.length === 0 ? (
         <p className="mt-8 rounded-md border border-zinc-200 border-dashed p-6 text-center text-sm text-zinc-500 dark:border-zinc-800">
           No investment holdings yet. Add a holding on an investment or crypto/metals account, or{" "}
           <Link href="/settings/connections" className="underline">
@@ -212,6 +232,21 @@ export default async function InvestmentsPage(
               </section>
             );
           })}
+
+          {balanceOnly.map((a) => (
+            <section key={a.accountId} className="mt-8">
+              <div className="flex items-center justify-between">
+                <h2 className="font-medium">{a.accountName}</h2>
+                <span className="font-mono text-sm text-zinc-600 tabular-nums dark:text-zinc-400">
+                  {Money.fromString(a.balance, a.currency).format()}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-zinc-500">
+                Plaid reports this account's balance but not its individual holdings, so positions
+                aren't itemized. The value above is included in the total and your net worth.
+              </p>
+            </section>
+          ))}
 
           <section className="mt-10">
             <div className="flex flex-wrap items-center justify-between gap-2">

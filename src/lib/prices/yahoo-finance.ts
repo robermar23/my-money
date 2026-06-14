@@ -1,5 +1,6 @@
 import yahooFinance from "yahoo-finance2";
 import { z } from "zod";
+import { withRateLimitRetry } from "./retry.ts";
 import { type PriceFetcher, type PriceQuote, todayIso } from "./types.ts";
 
 /**
@@ -16,7 +17,8 @@ export class YahooFinanceFetcher implements PriceFetcher {
   readonly source = "yahoo";
 
   async quote(symbol: string): Promise<PriceQuote> {
-    const raw = await yahooFinance.quote(symbol);
+    // Retry through Yahoo's 429 throttle (common on bursts / shared IPs).
+    const raw = await withRateLimitRetry(() => yahooFinance.quote(symbol));
     const parsed = yahooQuoteSchema.safeParse(raw);
     if (!parsed.success) {
       throw new Error(

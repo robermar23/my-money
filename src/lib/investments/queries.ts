@@ -3,13 +3,14 @@ import "server-only";
 import { db } from "@/db/client.ts";
 import {
   type Holding,
+  accountSnapshots,
   accounts,
   holdingLots,
   holdings,
   investmentTransactions,
   securities,
 } from "@/db/schema/index.ts";
-import { and, asc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
 
 /**
  * Read helpers for the /investments dashboard (Phase 5, P5-21 → P5-23).
@@ -60,6 +61,60 @@ export interface InvestmentLotRow {
   readonly holdingId: string;
   readonly quantity: string;
   readonly costBasisTotal: string;
+}
+
+export interface BalanceOnlyAccount {
+  readonly accountId: string;
+  readonly accountName: string;
+  readonly accountType: string;
+  readonly currency: string;
+  /** Latest snapshot balance (Plaid's reported balance for Plaid accounts). */
+  readonly balance: string;
+}
+
+/**
+ * Investment/crypto_ira accounts that carry a balance but NO itemized holdings —
+ * e.g. a 401k whose plan Plaid reports only as a total, not per-fund. They have
+ * value (their latest snapshot) yet contribute no positions, so the
+ * holdings-centric queries above skip them. The /investments page lists them
+ * separately and folds their value into the page total so it reconciles with
+ * net worth.
+ */
+export async function listBalanceOnlyInvestmentAccounts(): Promise<BalanceOnlyAccount[]> {
+  const invAccounts = await db
+    .select({
+      id: accounts.id,
+      name: accounts.name,
+      type: accounts.type,
+      currency: accounts.currency,
+    })
+    .from(accounts)
+    .where(inArray(accounts.type, [...INVESTMENT_TYPES]));
+
+  const out: BalanceOnlyAccount[] = [];
+  for (const a of invAccounts) {
+    const [held] = await db
+      .select({ id: holdings.id })
+      .from(holdings)
+      .where(eq(holdings.accountId, a.id))
+      .limit(1);
+    if (held) continue; // itemized — surfaced via listInvestmentPositions
+    const [snap] = await db
+      .select({ balance: accountSnapshots.balance })
+      .from(accountSnapshots)
+      .where(eq(accountSnapshots.accountId, a.id))
+      .orderBy(desc(accountSnapshots.date))
+      .limit(1);
+    if (!snap) continue;
+    out.push({
+      accountId: a.id,
+      accountName: a.name,
+      accountType: a.type,
+      currency: a.currency,
+      balance: snap.balance,
+    });
+  }
+  return out;
 }
 
 /** All cost-basis lots for investment-account holdings (for resolved basis). */
