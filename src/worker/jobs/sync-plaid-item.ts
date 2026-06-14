@@ -8,12 +8,13 @@ import {
   webhookLog,
 } from "@/db/schema/index.ts";
 import { matchCategory, sortRules } from "@/lib/categorization/match.ts";
+import { Money } from "@/lib/money/money.ts";
 import { plaidClient } from "@/lib/plaid/client.ts";
 import { plaidToTransaction } from "@/lib/plaid/map.ts";
 import { loadAccessToken } from "@/lib/plaid/tokens.ts";
 import { upsertSnapshots } from "@/lib/snapshots/upsert.ts";
 import type { Job } from "bullmq";
-import { and, eq, lte, sql } from "drizzle-orm";
+import { and, eq, gt, lte, sql } from "drizzle-orm";
 import type { Transaction as PlaidTransaction, RemovedTransaction } from "plaid";
 
 /**
@@ -111,13 +112,14 @@ export async function syncPlaidItemProcessor(job: Job<SyncPlaidItemJobData>): Pr
       id: accounts.id,
       plaidAccountId: accounts.plaidAccountId,
       currency: accounts.currency,
+      type: accounts.type,
     })
     .from(accounts)
     .where(eq(accounts.plaidItemId, item.id));
-  const accountByPlaidId = new Map<string, { id: string; currency: string }>();
+  const accountByPlaidId = new Map<string, { id: string; currency: string; type: string }>();
   for (const r of accountRows) {
     if (r.plaidAccountId)
-      accountByPlaidId.set(r.plaidAccountId, { id: r.id, currency: r.currency });
+      accountByPlaidId.set(r.plaidAccountId, { id: r.id, currency: r.currency, type: r.type });
   }
 
   // 1. Open a `plaid_sync_runs` row in-flight.
@@ -137,6 +139,32 @@ export async function syncPlaidItemProcessor(job: Job<SyncPlaidItemJobData>): Pr
       accessToken,
       initialCursor: item.transactionsCursor,
     });
+
+    // 2b. Fetch the CACHED current balance per account to anchor snapshots to
+    // reality. Per CLAUDE.md §Plaid Safety Rules this uses `accountsGet` (cached),
+    // never the real-time `accountsBalanceGet` — we're a read-only tracker.
+    // Without this anchor, balances were reconstructed as a running sum from $0
+    // over Plaid's bounded transaction window, so the true opening balance was
+    // lost (a savings account showing negative). Net-worth sign: depository =
+    // +current, credit card = -current (it's a liability; net-worth/compute.ts
+    // sums snapshots directly and only negates loans).
+    const currentByAccountId = new Map<string, { signed: string; currency: string }>();
+    try {
+      const balResp = await plaidClient.accountsGet({ access_token: accessToken });
+      for (const pa of balResp.data.accounts) {
+        const ours = accountByPlaidId.get(pa.account_id);
+        if (!ours) continue;
+        const current = pa.balances?.current;
+        if (current == null || !Number.isFinite(current)) continue;
+        const m = Money.fromString(current.toFixed(2), ours.currency);
+        const signed = (ours.type === "credit_card" ? m.negate() : m).toString();
+        currentByAccountId.set(ours.id, { signed, currency: ours.currency });
+      }
+    } catch (err) {
+      // Non-fatal: fall back to the (less accurate) affected-dates recompute
+      // rather than failing the whole sync if the balance call errors.
+      console.error(`[sync-plaid-item] accountsGet failed for item ${item.id}:`, err);
+    }
 
     // 3. Apply all changes in a single DB transaction.
     const rules = sortRules(await db.select().from(categoryRules));
@@ -222,10 +250,28 @@ export async function syncPlaidItemProcessor(job: Job<SyncPlaidItemJobData>): Pr
         }
       }
 
-      // --- Snapshot recomputation for affected (account, date) pairs ---
-      for (const [acctId, dates] of affectedDatesByAccount.entries()) {
-        const balancesByDate = await computeBalancesForDates(tx, acctId, dates);
-        await upsertSnapshots(acctId, balancesByDate, tx);
+      // --- Snapshot recomputation ---
+      // Anchor each account's full snapshot history to its current balance and
+      // walk backward (balance(d) = current − SUM(amount WHERE posted_at > d)),
+      // which fixes the old sum-from-zero that ignored the pre-window opening
+      // balance. Accounts whose balance couldn't be fetched fall back to the
+      // affected-dates recompute.
+      const today = new Date().toISOString().slice(0, 10);
+      const acctsToRecompute = new Set<string>([
+        ...affectedDatesByAccount.keys(),
+        ...currentByAccountId.keys(),
+      ]);
+      for (const acctId of acctsToRecompute) {
+        const anchor = currentByAccountId.get(acctId);
+        if (anchor) {
+          await recomputeAnchoredHistory(tx, acctId, anchor.signed, anchor.currency, today);
+        } else {
+          const dates = affectedDatesByAccount.get(acctId);
+          if (dates) {
+            const balancesByDate = await computeBalancesForDates(tx, acctId, dates);
+            await upsertSnapshots(acctId, balancesByDate, tx);
+          }
+        }
       }
 
       // --- Advance the Item's cursor + clear error fields ---
@@ -363,13 +409,59 @@ function addAffectedDate(map: Map<string, Set<string>>, accountId: string, date:
 }
 
 /**
+ * Rewrite an account's snapshot history anchored to its current balance.
+ *
+ * For every date the account has a transaction on (plus `today`), compute:
+ *   balance(date) = currentSigned − SUM(amount WHERE posted_at > date)
+ * i.e. walk backward from the known current balance, undoing each later
+ * transaction. `transactions.amount` is stored in OFX convention (positive =
+ * inflow) and `currentSigned` already carries the net-worth sign (credit cards
+ * negative), so this one formula is correct for both depository and credit.
+ *
+ * This replaces the sum-from-zero approach, which assumed every account opened
+ * at $0 immediately before Plaid's transaction window — wrong by exactly the
+ * opening balance, which is why a savings account could read negative.
+ *
+ * @param tx - Active DB transaction.
+ * @param accountId - Our account UUID.
+ * @param currentSigned - Plaid's current balance, net-worth-signed, as a string.
+ * @param currency - The account's currency.
+ * @param today - ISO date (YYYY-MM-DD) anchor point for the current balance.
+ */
+async function recomputeAnchoredHistory(
+  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
+  accountId: string,
+  currentSigned: string,
+  currency: string,
+  today: string,
+): Promise<void> {
+  const dateRows = await tx
+    .selectDistinct({ date: transactions.postedAt })
+    .from(transactions)
+    .where(eq(transactions.accountId, accountId));
+  const dates = new Set<string>(dateRows.map((r) => r.date));
+  dates.add(today);
+
+  const current = Money.fromString(currentSigned, currency);
+  for (const date of dates) {
+    const [row] = await tx
+      .select({ after: sql<string>`COALESCE(SUM(${transactions.amount})::text, '0')` })
+      .from(transactions)
+      .where(and(eq(transactions.accountId, accountId), gt(transactions.postedAt, date)));
+    const balance = current.sub(Money.fromString(row?.after ?? "0", currency)).toString();
+    await upsertSnapshots(accountId, new Map([[date, balance]]), tx);
+  }
+}
+
+/**
  * Compute the cumulative balance at each requested date for `accountId`.
  *
  * Strategy: for each date, SUM(amount) WHERE posted_at <= date. Simple and
  * exact; called only for the (typically small) set of dates affected by this
- * sync run. The Phase-3 importer uses a richer running-balance walk because
- * it has anchor + statement-end semantics; the Plaid sync has neither, so
- * this direct approach is the cleaner choice.
+ * sync run. Used as a FALLBACK when the current balance couldn't be fetched —
+ * `recomputeAnchoredHistory` is the primary, anchored path. The Phase-3 importer
+ * uses a richer running-balance walk because it has anchor + statement-end
+ * semantics; the Plaid sync's anchor is the live balance instead.
  */
 async function computeBalancesForDates(
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0],

@@ -20,8 +20,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * --------------------------------------------------------------------------- */
 
 const mockSync = vi.fn();
+const mockAccountsGet = vi.fn();
 vi.mock("@/lib/plaid/client.ts", () => ({
-  plaidClient: { transactionsSync: mockSync },
+  plaidClient: { transactionsSync: mockSync, accountsGet: mockAccountsGet },
   plaidEnvironment: () => "sandbox",
   plaidWebhookUrl: () => undefined,
 }));
@@ -154,6 +155,11 @@ function plaidTxn(
 
 beforeEach(() => {
   mockSync.mockReset();
+  // Default: no balances returned, so tests that don't care about anchoring
+  // fall back to the affected-dates recompute (the pre-anchoring behavior the
+  // older assertions were written against). The anchoring tests override this.
+  mockAccountsGet.mockReset();
+  mockAccountsGet.mockResolvedValue({ data: { accounts: [] } });
 });
 
 afterEach(() => {
@@ -498,6 +504,87 @@ describe("syncPlaidItemProcessor — Item error handling (P4-24 wiring)", () => 
     const [run] = await db.select().from(plaidSyncRuns);
     expect(run?.finishedAt).toBeInstanceOf(Date);
     expect(run?.error).toBe("ITEM_LOGIN_REQUIRED");
+  });
+});
+
+describe("syncPlaidItemProcessor — balance anchoring (current-balance reconstruction)", () => {
+  it("anchors snapshots to Plaid's current balance and walks backward (not sum-from-zero)", async () => {
+    const setup = await freshSetup(); // depository
+    mockAccountsGet.mockResolvedValueOnce({
+      data: {
+        accounts: [
+          {
+            account_id: setup.plaidAccountId,
+            balances: { current: 1000, iso_currency_code: "USD" },
+          },
+        ],
+      },
+    });
+    mockSyncPages([
+      {
+        added: [
+          // Plaid amount -200 = inflow → stored +200.00 on 05-20 (a deposit).
+          plaidTxn(setup, {
+            transaction_id: "DEP",
+            amount: -200,
+            date: "2026-05-20",
+            authorized_date: "2026-05-20",
+          }),
+          // Plaid amount 30 = outflow → stored -30.00 on 05-25 (a purchase).
+          plaidTxn(setup, {
+            transaction_id: "BUY",
+            amount: 30,
+            date: "2026-05-25",
+            authorized_date: "2026-05-25",
+          }),
+        ],
+        next_cursor: "cur",
+        has_more: false,
+      },
+    ]);
+
+    await syncPlaidItemProcessor(makeJob({ plaidItemPk: setup.plaidItemPk }));
+
+    const byDate = new Map(
+      (
+        await db
+          .select({ date: accountSnapshots.date, balance: accountSnapshots.balance })
+          .from(accountSnapshots)
+          .where(eq(accountSnapshots.accountId, setup.accountUuid))
+      ).map((r) => [r.date, r.balance]),
+    );
+    // Anchored to current=1000, walking backward:
+    //   05-25 (incl BUY)            = 1000.00
+    //   05-20 (incl DEP, pre-BUY)   = 1030.00
+    // The old sum-from-zero would have produced 170.00 and 200.00 respectively.
+    expect(byDate.get("2026-05-25")).toBe("1000.00");
+    expect(byDate.get("2026-05-20")).toBe("1030.00");
+  });
+
+  it("stores credit-card balances negative (liability), anchored to Plaid current", async () => {
+    const setup = await freshSetup();
+    await db.update(accounts).set({ type: "credit_card" }).where(eq(accounts.id, setup.accountUuid));
+    mockAccountsGet.mockResolvedValueOnce({
+      data: {
+        accounts: [
+          {
+            account_id: setup.plaidAccountId,
+            balances: { current: 104.94, iso_currency_code: "USD" },
+          },
+        ],
+      },
+    });
+    mockSyncPages([{ next_cursor: "cur", has_more: false }]); // no transactions
+
+    await syncPlaidItemProcessor(makeJob({ plaidItemPk: setup.plaidItemPk }));
+
+    const snaps = await db
+      .select({ balance: accountSnapshots.balance })
+      .from(accountSnapshots)
+      .where(eq(accountSnapshots.accountId, setup.accountUuid));
+    // One snapshot (today), anchored to -104.94 — a credit card is a liability.
+    expect(snaps).toHaveLength(1);
+    expect(snaps[0]?.balance).toBe("-104.94");
   });
 });
 
