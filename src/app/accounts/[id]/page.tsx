@@ -18,6 +18,7 @@ import Decimal from "decimal.js";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BalanceForm } from "./balance-form.tsx";
+import { DeleteHoldingButton } from "./delete-holding-button.tsx";
 import { HoldingForm } from "./holding-form.tsx";
 import { type LotView, LotsEditor } from "./lot-form.tsx";
 import { MortgageForm } from "./mortgage-form.tsx";
@@ -238,6 +239,7 @@ export default async function AccountDetailPage(
                     <th className="py-2 text-right">Value</th>
                     <th className="py-2 text-right">Cost basis</th>
                     <th className="py-2 text-right">Gain/Loss</th>
+                    <th className="py-2" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
@@ -281,6 +283,13 @@ export default async function AccountDetailPage(
                       >
                         {gl?.absolute ? `${gl.absolute.format()} (${gl.percent}%)` : "—"}
                       </td>
+                      <td className="py-2 text-right">
+                        <DeleteHoldingButton
+                          accountId={account.id}
+                          holdingId={v.holding.id}
+                          symbol={v.holding.symbol}
+                        />
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -292,7 +301,7 @@ export default async function AccountDetailPage(
                     <td className="py-2 text-right font-medium font-mono">
                       {holdingsTotal.format()}
                     </td>
-                    <td colSpan={2} />
+                    <td colSpan={3} />
                   </tr>
                 </tfoot>
               </table>

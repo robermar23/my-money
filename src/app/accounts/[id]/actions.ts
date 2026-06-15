@@ -200,6 +200,36 @@ export async function deleteLotAction(
 }
 
 /**
+ * Delete a holding (and its cost-basis lots) from an account.
+ *
+ * Permanent for manual holdings. A Plaid-sourced holding will be re-created by
+ * the next investments sync (which reflects Plaid's full snapshot), so this is
+ * mainly for cleaning up mistaken manual entries.
+ */
+export async function deleteHoldingAction(
+  accountIdRaw: string,
+  holdingIdRaw: string,
+): Promise<ActionResult> {
+  const { accountId } = await loadAccount(accountIdRaw);
+  if (!LOT_UUID_RE.test(holdingIdRaw)) {
+    return { error: "Invalid id" };
+  }
+  if (!(await assertHoldingOnAccount(holdingIdRaw, accountId))) {
+    return { error: "Holding not found on this account" };
+  }
+  await db.transaction(async (tx) => {
+    await tx.delete(holdingLots).where(eq(holdingLots.holdingId, holdingIdRaw));
+    await tx
+      .delete(holdings)
+      .where(and(eq(holdings.id, holdingIdRaw), eq(holdings.accountId, accountId)));
+  });
+  revalidatePath(`/accounts/${accountIdRaw}`);
+  revalidatePath("/investments");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/**
  * Set up the amortization parameters for a `loan` account. One row per loan
  * account (FK is unique) — submitting again updates the parameters.
  *
