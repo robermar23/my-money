@@ -1,3 +1,4 @@
+import type { CategoryOption } from "@/components/category-picker.tsx";
 import type { Transaction } from "@/db/schema/index.ts";
 import { Money } from "@/lib/money/money.ts";
 import Link from "next/link";
@@ -8,7 +9,7 @@ interface Props {
   readonly accountCurrency: string;
   readonly flipSign: boolean;
   readonly rows: readonly Transaction[];
-  readonly suggestions: readonly string[];
+  readonly categories: readonly CategoryOption[];
   readonly page: number;
   readonly totalPages: number;
   readonly totalCount: number;
@@ -24,7 +25,7 @@ export function TransactionsSection({
   accountCurrency,
   flipSign,
   rows,
-  suggestions,
+  categories,
   page,
   totalPages,
   totalCount,
@@ -74,8 +75,9 @@ export function TransactionsSection({
                       <CategoryCell
                         accountId={accountId}
                         transactionId={t.id}
-                        current={t.category}
-                        suggestions={suggestions}
+                        currentId={t.categoryId}
+                        currentName={t.category}
+                        categories={categories}
                       />
                     </td>
                     <td

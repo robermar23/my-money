@@ -7,12 +7,13 @@ import {
   listSnapshots,
 } from "@/lib/accounts/queries.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
+import { listCategoriesWithGroups } from "@/lib/categories/queries.ts";
 import { valueHolding } from "@/lib/holdings/value.ts";
 import { gainLoss } from "@/lib/investments/gain-loss.ts";
 import { lotCoverage, resolveCostBasis } from "@/lib/investments/lots.ts";
 import { Money } from "@/lib/money/money.ts";
 import { balanceAtMonth } from "@/lib/mortgage/amortization.ts";
-import { distinctCategories, listTransactions } from "@/lib/transactions/queries.ts";
+import { listTransactions } from "@/lib/transactions/queries.ts";
 import { toAccountId } from "@/lib/types/ids.ts";
 import Decimal from "decimal.js";
 import Link from "next/link";
@@ -67,25 +68,27 @@ export default async function AccountDetailPage(
     account.type === "credit_card" ||
     account.type === "investment";
 
-  const [
-    latestSnap,
-    snapshots,
-    accountHoldings,
-    accountLots,
-    liability,
-    txnResult,
-    categorySuggestions,
-  ] = await Promise.all([
-    getLatestSnapshot(accountId),
-    listSnapshots(accountId),
-    listHoldings(accountId),
-    listLots(accountId),
-    getLiability(accountId),
-    showTransactions
-      ? listTransactions({ accountId, page })
-      : Promise.resolve({ rows: [], totalCount: 0, page: 1, pageSize: 50, totalPages: 1 }),
-    showTransactions ? distinctCategories() : Promise.resolve([] as string[]),
-  ]);
+  const [latestSnap, snapshots, accountHoldings, accountLots, liability, txnResult, categoryData] =
+    await Promise.all([
+      getLatestSnapshot(accountId),
+      listSnapshots(accountId),
+      listHoldings(accountId),
+      listLots(accountId),
+      getLiability(accountId),
+      showTransactions
+        ? listTransactions({ accountId, page })
+        : Promise.resolve({ rows: [], totalCount: 0, page: 1, pageSize: 50, totalPages: 1 }),
+      showTransactions
+        ? listCategoriesWithGroups()
+        : Promise.resolve({ groups: [], categories: [] }),
+    ]);
+
+  const categoryOptions = categoryData.categories.map((c) => ({
+    id: c.id,
+    name: c.name,
+    groupName: c.groupName,
+    kind: c.kind,
+  }));
 
   // Phase 2: price each holding using cached `prices` (closeUsed: null means
   // no price has been fetched yet — UI displays "—" for value).
@@ -389,7 +392,7 @@ export default async function AccountDetailPage(
           accountCurrency={account.currency}
           flipSign={account.type === "credit_card"}
           rows={txnResult.rows}
-          suggestions={categorySuggestions}
+          categories={categoryOptions}
           page={txnResult.page}
           totalPages={txnResult.totalPages}
           totalCount={txnResult.totalCount}

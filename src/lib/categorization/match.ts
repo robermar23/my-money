@@ -44,6 +44,18 @@ export function clearRegexCache(): void {
 }
 
 /**
+ * Escape a string so it can be embedded in a regex as a literal. Used to build
+ * an auto-categorization rule from a payee without a metacharacter in the
+ * merchant name (e.g. "AT&T", "STORE (MAIN)") corrupting the pattern.
+ *
+ * @param input - The literal text to escape.
+ * @returns The input with all regex metacharacters backslash-escaped.
+ */
+export function escapeRegexLiteral(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
  * Validate a regex at write time. Returns null when valid, error string when not.
  */
 export function validateRegex(pattern: string, flags: string): string | null {

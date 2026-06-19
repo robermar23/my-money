@@ -2,8 +2,10 @@ import "server-only";
 
 import { db } from "@/db/client.ts";
 import { type Transaction, transactions } from "@/db/schema/index.ts";
+import { normalizePayee } from "@/lib/importers/normalize.ts";
+import { Money } from "@/lib/money/money.ts";
 import type { AccountId } from "@/lib/types/ids.ts";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 
 export interface ListTransactionsArgs {
   readonly accountId: AccountId;
@@ -69,6 +71,67 @@ export async function setCategory(transactionId: string, category: string | null
       categoryOverriddenAt: new Date(),
     })
     .where(eq(transactions.id, transactionId));
+}
+
+/** One normalized-payee bucket of uncategorized transactions (P8-09). */
+export interface UncategorizedPayeeGroup {
+  /** Normalized grouping key (see {@link normalizePayee}). */
+  readonly payeeKey: string;
+  /** A representative raw name for display. */
+  readonly sampleName: string;
+  readonly count: number;
+  /** Signed sum of amounts in the group, as a Money string (USD assumed). */
+  readonly total: string;
+  readonly txnIds: readonly string[];
+}
+
+/**
+ * Group every uncategorized transaction (`category_id IS NULL`) across all
+ * accounts by normalized payee, for the bulk "review uncategorized" queue
+ * (P8-09). Categorizing a whole group at once — optionally creating a rule — is
+ * the fast path out of the "everything is Uncategorized" state.
+ *
+ * Amounts are summed as USD (the single-user app is USD-dominant); the figure is
+ * an at-a-glance magnitude, not a cross-currency-correct total.
+ *
+ * @param maxGroups - Cap on returned groups (largest by count first).
+ * @returns Payee groups sorted by transaction count descending.
+ */
+export async function listUncategorizedByPayee(
+  maxGroups = 200,
+): Promise<UncategorizedPayeeGroup[]> {
+  const rows = await db
+    .select({ id: transactions.id, name: transactions.name, amount: transactions.amount })
+    .from(transactions)
+    .where(isNull(transactions.categoryId))
+    .orderBy(desc(transactions.postedAt));
+
+  const byKey = new Map<string, { sampleName: string; total: Money; txnIds: string[] }>();
+  for (const r of rows) {
+    const key = normalizePayee(r.name);
+    const bucket = byKey.get(key);
+    if (bucket) {
+      bucket.total = bucket.total.add(Money.fromString(r.amount, "USD"));
+      bucket.txnIds.push(r.id);
+    } else {
+      byKey.set(key, {
+        sampleName: r.name,
+        total: Money.fromString(r.amount, "USD"),
+        txnIds: [r.id],
+      });
+    }
+  }
+
+  return [...byKey.entries()]
+    .map(([payeeKey, b]) => ({
+      payeeKey,
+      sampleName: b.sampleName,
+      count: b.txnIds.length,
+      total: b.total.toString(),
+      txnIds: b.txnIds,
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, maxGroups);
 }
 
 export async function deleteTransaction(

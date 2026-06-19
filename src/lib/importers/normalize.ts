@@ -2,6 +2,31 @@ import type { ParsedCsv } from "./csv/types.ts";
 import type { ParsedQfx, ParsedQfxStatement } from "./qfx/types.ts";
 
 /**
+ * Normalize a payee/name into a stable grouping key.
+ *
+ * Used by the "review uncategorized" queue to group raw bank descriptions, and
+ * by the inline "create rule from this payee" affordance to derive a regex that
+ * matches the merchant rather than one specific charge. Uppercases, replaces
+ * punctuation with spaces, drops standalone number tokens (store numbers,
+ * reference ids), and collapses whitespace — so "STARBUCKS #123" and
+ * "Starbucks 456" both normalize to "STARBUCKS".
+ *
+ * @param name - The raw transaction name / payee description.
+ * @returns A normalized uppercase key. Falls back to the trimmed uppercase
+ *   original when normalization would otherwise empty the string (e.g. a name
+ *   that is purely digits).
+ */
+export function normalizePayee(name: string): string {
+  const cleaned = name
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]+/g, " ")
+    .replace(/\b\d+\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.length > 0 ? cleaned : name.trim().toUpperCase();
+}
+
+/**
  * NormalizedTransaction — the single shape that flows from every importer
  * source into the `transactions` table. The categorizer and the persistence
  * step both consume this; they never see the raw parser output.

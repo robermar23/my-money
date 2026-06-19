@@ -1,6 +1,12 @@
 import type { CategoryRule } from "@/db/schema/index.ts";
 import { describe, expect, it } from "vitest";
-import { clearRegexCache, matchCategory, sortRules, validateRegex } from "./match.ts";
+import {
+  clearRegexCache,
+  escapeRegexLiteral,
+  matchCategory,
+  sortRules,
+  validateRegex,
+} from "./match.ts";
 
 function rule(
   partial: Partial<CategoryRule> & { pattern: string; category: string },
@@ -81,6 +87,26 @@ describe("validateRegex", () => {
   });
   it("rejects invalid flags", () => {
     expect(validateRegex("a", "zzz")).toMatch(/flag/i);
+  });
+});
+
+describe("escapeRegexLiteral", () => {
+  it("escapes regex metacharacters so a payee matches literally", () => {
+    const escaped = escapeRegexLiteral("AT&T STORE (MAIN) $5+");
+    // The escaped string compiled as a regex must match the original literally.
+    expect(new RegExp(escaped).test("AT&T STORE (MAIN) $5+")).toBe(true);
+    // And metacharacters must not act as operators.
+    expect(new RegExp(escaped).test("ATTTT STORE MAIN 5")).toBe(false);
+  });
+
+  it("leaves plain text unchanged", () => {
+    expect(escapeRegexLiteral("STARBUCKS")).toBe("STARBUCKS");
+  });
+
+  it("escapes every reserved character", () => {
+    expect(escapeRegexLiteral(".*+?^${}()|[]\\")).toBe(
+      "\\.\\*\\+\\?\\^\\$\\{\\}\\(\\)\\|\\[\\]\\\\",
+    );
   });
 });
 

@@ -1,7 +1,7 @@
 "use server";
 
 import { db } from "@/db/client.ts";
-import { categoryRules, transactions } from "@/db/schema/index.ts";
+import { categories, categoryRules, transactions } from "@/db/schema/index.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { validateRegex } from "@/lib/categorization/match.ts";
 import { recategorizeAll } from "@/lib/importers/persist.ts";
@@ -19,9 +19,26 @@ const RULE_INPUT_SCHEMA = z.object({
   pattern: z.string().trim().min(1, "Pattern is required"),
   flags: z.string().trim().max(8).default("i"),
   field: z.enum(["name", "memo"]).default("name"),
-  category: z.string().trim().min(1, "Category is required").max(60),
+  categoryId: z.string().uuid("Pick a category"),
   priority: z.coerce.number().int().min(0).max(1000).default(100),
 });
+
+/**
+ * Resolve a category's name for the rule's legacy text cache (ADR-018). The
+ * `category` text column on `category_rules` mirrors the picked category so
+ * existing displays keep working; `category_id` is the source of truth.
+ *
+ * @param categoryId - The category UUID picked in the rule form.
+ * @returns The category name, or null if the id no longer exists.
+ */
+async function categoryNameForId(categoryId: string): Promise<string | null> {
+  const [cat] = await db
+    .select({ name: categories.name })
+    .from(categories)
+    .where(eq(categories.id, categoryId))
+    .limit(1);
+  return cat?.name ?? null;
+}
 
 export async function createRuleAction(
   _prev: RuleActionResult,
@@ -32,7 +49,7 @@ export async function createRuleAction(
     pattern: formData.get("pattern"),
     flags: formData.get("flags") || "i",
     field: formData.get("field") || "name",
-    category: formData.get("category"),
+    categoryId: formData.get("categoryId"),
     priority: formData.get("priority") || 100,
   });
   if (!parsed.success) {
@@ -42,13 +59,66 @@ export async function createRuleAction(
   if (validationError) {
     return { error: `Bad regex: ${validationError}` };
   }
+  const categoryName = await categoryNameForId(parsed.data.categoryId);
+  if (!categoryName) return { error: "Category not found" };
+
   await db.insert(categoryRules).values({
     pattern: parsed.data.pattern,
     flags: parsed.data.flags,
     field: parsed.data.field,
-    category: parsed.data.category,
+    category: categoryName,
+    categoryId: parsed.data.categoryId,
     priority: parsed.data.priority,
   });
+  revalidatePath("/settings/categories");
+  return { ok: true };
+}
+
+const RULE_UPDATE_SCHEMA = RULE_INPUT_SCHEMA.extend({
+  id: z.string().uuid("Invalid rule id"),
+});
+
+/**
+ * Update an existing rule's pattern/flags/field/category/priority (P8-10).
+ *
+ * @param _prev - Previous action state (unused; required by useActionState).
+ * @param formData - Form fields incl. the rule `id` and picked `categoryId`.
+ * @returns RuleActionResult with `ok`, or `error` on bad input.
+ */
+export async function updateRuleAction(
+  _prev: RuleActionResult,
+  formData: FormData,
+): Promise<RuleActionResult> {
+  await requireUser();
+  const parsed = RULE_UPDATE_SCHEMA.safeParse({
+    id: formData.get("id"),
+    pattern: formData.get("pattern"),
+    flags: formData.get("flags") || "i",
+    field: formData.get("field") || "name",
+    categoryId: formData.get("categoryId"),
+    priority: formData.get("priority") || 100,
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  const validationError = validateRegex(parsed.data.pattern, parsed.data.flags);
+  if (validationError) {
+    return { error: `Bad regex: ${validationError}` };
+  }
+  const categoryName = await categoryNameForId(parsed.data.categoryId);
+  if (!categoryName) return { error: "Category not found" };
+
+  await db
+    .update(categoryRules)
+    .set({
+      pattern: parsed.data.pattern,
+      flags: parsed.data.flags,
+      field: parsed.data.field,
+      category: categoryName,
+      categoryId: parsed.data.categoryId,
+      priority: parsed.data.priority,
+    })
+    .where(eq(categoryRules.id, parsed.data.id));
   revalidatePath("/settings/categories");
   return { ok: true };
 }
