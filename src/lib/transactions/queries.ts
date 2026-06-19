@@ -1,11 +1,11 @@
 import "server-only";
 
 import { db } from "@/db/client.ts";
-import { type Transaction, transactions } from "@/db/schema/index.ts";
+import { type Transaction, accounts, transactions } from "@/db/schema/index.ts";
 import { normalizePayee } from "@/lib/importers/normalize.ts";
 import { Money } from "@/lib/money/money.ts";
 import type { AccountId } from "@/lib/types/ids.ts";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 
 export interface ListTransactionsArgs {
   readonly accountId: AccountId;
@@ -132,6 +132,76 @@ export async function listUncategorizedByPayee(
     }))
     .sort((a, b) => b.count - a.count)
     .slice(0, maxGroups);
+}
+
+/** A transaction row joined with its account name, for cross-account lists. */
+export interface TransactionWithAccount extends Transaction {
+  readonly accountName: string;
+}
+
+export interface ListByCategoryArgs {
+  readonly categoryId: string;
+  /** Inclusive start date, `YYYY-MM-DD`. */
+  readonly from: string;
+  /** Inclusive end date, `YYYY-MM-DD`. */
+  readonly to: string;
+  readonly accountIds?: readonly string[];
+  readonly page?: number;
+  readonly pageSize?: number;
+}
+
+/**
+ * Paginated transactions for a single category over a date range, across all
+ * accounts (or a filtered subset), newest first. Powers the category drill-down
+ * (P8-15). Each row carries its account name so the list is legible without a
+ * second lookup.
+ *
+ * @param args - Category id + inclusive range + optional account filter + paging.
+ * @returns Page of rows + paging metadata.
+ */
+export async function listTransactionsForCategory(args: ListByCategoryArgs): Promise<{
+  rows: readonly TransactionWithAccount[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}> {
+  const safePage = Math.max(1, args.page ?? 1);
+  const safePageSize = Math.min(200, Math.max(10, args.pageSize ?? 50));
+  const offset = (safePage - 1) * safePageSize;
+
+  const where = and(
+    eq(transactions.categoryId, args.categoryId),
+    gte(transactions.postedAt, args.from),
+    lte(transactions.postedAt, args.to),
+    args.accountIds && args.accountIds.length > 0
+      ? inArray(transactions.accountId, [...args.accountIds])
+      : undefined,
+  );
+
+  const [rows, [count]] = await Promise.all([
+    db
+      .select({
+        transaction: transactions,
+        accountName: accounts.name,
+      })
+      .from(transactions)
+      .innerJoin(accounts, eq(transactions.accountId, accounts.id))
+      .where(where)
+      .orderBy(desc(transactions.postedAt), desc(transactions.createdAt))
+      .limit(safePageSize)
+      .offset(offset),
+    db.select({ count: sql<number>`COUNT(*)::int` }).from(transactions).where(where),
+  ]);
+
+  const totalCount = count?.count ?? 0;
+  return {
+    rows: rows.map((r) => ({ ...r.transaction, accountName: r.accountName })),
+    totalCount,
+    page: safePage,
+    pageSize: safePageSize,
+    totalPages: Math.max(1, Math.ceil(totalCount / safePageSize)),
+  };
 }
 
 export async function deleteTransaction(
