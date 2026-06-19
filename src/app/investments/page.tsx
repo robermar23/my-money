@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { valueHolding } from "@/lib/holdings/value.ts";
 import { allocationByAssetClass } from "@/lib/investments/allocation.ts";
+import { formatQuantity } from "@/lib/investments/format.ts";
 import { gainLoss, portfolioGainLoss } from "@/lib/investments/gain-loss.ts";
 import { type IncomePeriod, incomeByPeriod } from "@/lib/investments/income.ts";
 import { resolveCostBasis } from "@/lib/investments/lots.ts";
@@ -52,9 +53,17 @@ export default async function InvestmentsPage(
     positions.map(async (p) => {
       const currency = p.accountCurrency;
       const valuation = await valueHolding(p.holding, currency, today);
+      // Cash / cash-equivalent positions (e.g. a Fidelity sweep fund like FDRXX)
+      // are how money is parked or transferred in before it buys real positions.
+      // They have no cost basis or gain/loss: the inflow isn't a "purchase" that
+      // can gain or lose. Treating their leftover basis as a loss produces a huge
+      // phantom drawdown (and distorts the portfolio total), so suppress it.
+      const isCash = p.holding.assetClass === "cash";
       const lotInputs = lotsByHolding.get(p.holding.id) ?? [];
-      const costBasis = resolveCostBasis({ costBasis: p.holding.costBasis }, lotInputs, currency);
-      const priced = valuation.closeUsed !== null || p.holding.assetClass === "cash";
+      const costBasis = isCash
+        ? null
+        : resolveCostBasis({ costBasis: p.holding.costBasis }, lotInputs, currency);
+      const priced = valuation.closeUsed !== null || isCash;
       const gl = priced && costBasis ? gainLoss({ value: valuation.value, costBasis }) : null;
       return { p, valuation, priced, costBasis, gl };
     }),
@@ -182,39 +191,55 @@ export default async function InvestmentsPage(
                   </span>
                 </div>
                 <div className="mt-3 overflow-x-auto">
-                  <table className="w-full min-w-[44rem] text-sm">
+                  <table className="w-full min-w-[48rem] table-fixed text-sm">
+                    {/* Fixed widths keep every account's table aligned to the same
+                        grid (auto layout sizes each table to its own content). */}
+                    <colgroup>
+                      <col className="w-[10%]" />
+                      <col className="w-[24%]" />
+                      <col className="w-[13%]" />
+                      <col className="w-[10%]" />
+                      <col className="w-[13%]" />
+                      <col className="w-[13%]" />
+                      <col className="w-[17%]" />
+                    </colgroup>
                     <thead className="text-left text-xs text-zinc-500 uppercase">
                       <tr>
-                        <th className="py-2">Symbol</th>
-                        <th className="py-2">Name</th>
-                        <th className="py-2 text-right">Quantity</th>
-                        <th className="py-2 text-right">Price</th>
-                        <th className="py-2 text-right">Value</th>
-                        <th className="py-2 text-right">Cost basis</th>
+                        <th className="py-2 pr-2">Symbol</th>
+                        <th className="py-2 pr-2">Name</th>
+                        <th className="py-2 pr-2 text-right">Quantity</th>
+                        <th className="py-2 pr-2 text-right">Price</th>
+                        <th className="py-2 pr-2 text-right">Value</th>
+                        <th className="py-2 pr-2 text-right">Cost basis</th>
                         <th className="py-2 text-right">Gain/Loss</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
                       {group.rows.map((r) => (
                         <tr key={r.p.holding.id}>
-                          <td className="py-2 font-mono">{r.p.holding.symbol}</td>
-                          <td className="py-2 text-zinc-600 dark:text-zinc-400">
+                          <td className="truncate py-2 pr-2 font-mono">{r.p.holding.symbol}</td>
+                          <td
+                            className="truncate py-2 pr-2 text-zinc-600 dark:text-zinc-400"
+                            title={r.p.securityName ?? undefined}
+                          >
                             {r.p.securityName ?? "—"}
                           </td>
-                          <td className="py-2 text-right font-mono">{r.p.holding.quantity}</td>
-                          <td className="py-2 text-right font-mono">
+                          <td className="py-2 pr-2 text-right font-mono tabular-nums">
+                            {formatQuantity(r.p.holding.quantity)}
+                          </td>
+                          <td className="py-2 pr-2 text-right font-mono tabular-nums">
                             {r.valuation.closeUsed
                               ? Money.fromString(r.valuation.closeUsed, group.currency).format()
                               : "—"}
                           </td>
-                          <td className="py-2 text-right font-mono">
+                          <td className="py-2 pr-2 text-right font-mono tabular-nums">
                             {r.priced ? r.valuation.value.format() : "—"}
                           </td>
-                          <td className="py-2 text-right font-mono">
+                          <td className="py-2 pr-2 text-right font-mono tabular-nums">
                             {r.costBasis ? r.costBasis.format() : "—"}
                           </td>
                           <td
-                            className={`py-2 text-right font-mono ${
+                            className={`whitespace-nowrap py-2 text-right font-mono tabular-nums ${
                               r.gl?.absolute
                                 ? r.gl.absolute.isNegative()
                                   ? "text-red-600 dark:text-red-400"
