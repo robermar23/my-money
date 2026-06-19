@@ -11,6 +11,7 @@ function rule(
     flags: partial.flags ?? "i",
     field: partial.field ?? "name",
     category: partial.category,
+    categoryId: partial.categoryId ?? null,
     priority: partial.priority ?? 100,
     enabled: partial.enabled ?? true,
     createdAt: partial.createdAt ?? new Date(2026, 0, 1),
@@ -26,7 +27,21 @@ describe("matchCategory", () => {
 
   it("matches case-insensitively by default", () => {
     const rules = [rule({ pattern: "starbucks", category: "Coffee" })];
-    expect(matchCategory("STARBUCKS STORE 4521", null, rules)).toBe("Coffee");
+    expect(matchCategory("STARBUCKS STORE 4521", null, rules)?.name).toBe("Coffee");
+  });
+
+  it("returns the matched rule's categoryId alongside the name", () => {
+    const id = crypto.randomUUID();
+    const rules = [rule({ pattern: "STARBUCKS", category: "Coffee", categoryId: id })];
+    expect(matchCategory("STARBUCKS STORE 4521", null, rules)).toEqual({
+      categoryId: id,
+      name: "Coffee",
+    });
+  });
+
+  it("returns a null categoryId when the rule has not been linked yet", () => {
+    const rules = [rule({ pattern: "STARBUCKS", category: "Coffee", categoryId: null })];
+    expect(matchCategory("STARBUCKS", null, rules)).toEqual({ categoryId: null, name: "Coffee" });
   });
 
   it("returns the first matching rule when sorted by priority", () => {
@@ -35,7 +50,7 @@ describe("matchCategory", () => {
       rule({ pattern: "AMAZON", category: "Shopping", priority: 50 }),
     ]);
     // Both could match "AMAZON PAYMENT" but priority 10 wins.
-    expect(matchCategory("AMAZON PAYMENT", null, rules)).toBe("Payment");
+    expect(matchCategory("AMAZON PAYMENT", null, rules)?.name).toBe("Payment");
   });
 
   it("skips disabled rules", () => {
@@ -45,7 +60,7 @@ describe("matchCategory", () => {
 
   it("matches against memo when field='memo'", () => {
     const rules = [rule({ pattern: "GROCERY", category: "Groceries", field: "memo" })];
-    expect(matchCategory("WHOLEFDS", "GROCERY", rules)).toBe("Groceries");
+    expect(matchCategory("WHOLEFDS", "GROCERY", rules)?.name).toBe("Groceries");
     expect(matchCategory("WHOLEFDS", null, rules)).toBeNull();
   });
 

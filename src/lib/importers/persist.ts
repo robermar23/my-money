@@ -10,7 +10,7 @@ import {
   transactions,
 } from "@/db/schema/index.ts";
 import { matchCategory, sortRules } from "@/lib/categorization/match.ts";
-import { seedDefaultRulesIfEmpty } from "@/lib/categorization/seed.ts";
+import { seedDefaultCategoriesAndRulesIfEmpty } from "@/lib/categorization/seed.ts";
 import { upsertSnapshots } from "@/lib/snapshots/upsert.ts";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { NormalizedBatch, NormalizedTransaction } from "./normalize.ts";
@@ -31,7 +31,10 @@ export interface PreviewRow {
   readonly amount: string;
   readonly name: string;
   readonly memo: string | null;
+  /** Legacy/display category name cache (ADR-018). */
   readonly category: string | null;
+  /** Structured category FK resolved by the rule engine (ADR-018). */
+  readonly categoryId: string | null;
 }
 
 export interface InvalidRow {
@@ -57,8 +60,8 @@ export async function buildPreview(
   accountId: string,
   normalized: NormalizedBatch,
 ): Promise<PreviewBuckets> {
-  // Seed default rules on first ever import (cheap idempotent check).
-  await seedDefaultRulesIfEmpty();
+  // Seed default taxonomy + rules on first ever import (cheap idempotent check).
+  await seedDefaultCategoriesAndRulesIfEmpty();
 
   const rules = sortRules(await db.select().from(categoryRules));
 
@@ -77,13 +80,15 @@ export async function buildPreview(
   const newRows: PreviewRow[] = [];
   const dupes: PreviewRow[] = [];
   for (const t of valid) {
+    const matched = matchCategory(t.name, t.memo, rules);
     const row: PreviewRow = {
       fitid: t.fitid,
       postedAt: t.postedAt,
       amount: t.amount,
       name: t.name,
       memo: t.memo,
-      category: matchCategory(t.name, t.memo, rules),
+      category: matched?.name ?? null,
+      categoryId: matched?.categoryId ?? null,
     };
     if (existing.has(t.fitid)) {
       dupes.push(row);
@@ -136,6 +141,7 @@ export async function persistImportBatch(batchId: string): Promise<PersistResult
     name: r.name,
     memo: r.memo,
     category: r.category,
+    categoryId: r.categoryId,
     fitid: r.fitid,
     source: normalized.source,
     importBatchId: batch.id,
@@ -199,15 +205,21 @@ export async function recategorizeAll(): Promise<number> {
       name: transactions.name,
       memo: transactions.memo,
       category: transactions.category,
+      categoryId: transactions.categoryId,
     })
     .from(transactions)
     .where(isNull(transactions.categoryOverriddenAt));
 
   let updated = 0;
   for (const r of rows) {
-    const newCategory = matchCategory(r.name, r.memo, rules);
-    if (newCategory !== r.category) {
-      await db.update(transactions).set({ category: newCategory }).where(eq(transactions.id, r.id));
+    const matched = matchCategory(r.name, r.memo, rules);
+    const nextName = matched?.name ?? null;
+    const nextId = matched?.categoryId ?? null;
+    if (nextName !== r.category || nextId !== r.categoryId) {
+      await db
+        .update(transactions)
+        .set({ category: nextName, categoryId: nextId })
+        .where(eq(transactions.id, r.id));
       updated++;
     }
   }

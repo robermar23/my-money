@@ -179,10 +179,15 @@ export async function syncPlaidItemProcessor(job: Job<SyncPlaidItemJobData>): Pr
         const ours = accountByPlaidId.get(t.account_id);
         if (!ours) continue; // skipped account
         const normalized = plaidToTransaction(t, ours.id);
-        const category = matchCategory(normalized.name, normalized.memo ?? null, rules);
+        const matched = matchCategory(normalized.name, normalized.memo ?? null, rules);
         const result = await tx
           .insert(transactions)
-          .values({ ...normalized, category, source: "plaid" })
+          .values({
+            ...normalized,
+            category: matched?.name ?? null,
+            categoryId: matched?.categoryId ?? null,
+            source: "plaid",
+          })
           .onConflictDoNothing({ target: [transactions.accountId, transactions.fitid] })
           .returning({ id: transactions.id });
         if (result.length > 0) {
@@ -207,8 +212,8 @@ export async function syncPlaidItemProcessor(job: Job<SyncPlaidItemJobData>): Pr
           .where(and(eq(transactions.accountId, ours.id), eq(transactions.fitid, normalized.fitid)))
           .limit(1);
         const overridden = existing?.categoryOverriddenAt != null;
-        const category = overridden
-          ? undefined
+        const matched = overridden
+          ? null
           : matchCategory(normalized.name, normalized.memo ?? null, rules);
 
         const updateSet: Record<string, unknown> = {
@@ -218,11 +223,19 @@ export async function syncPlaidItemProcessor(job: Job<SyncPlaidItemJobData>): Pr
           postedAt: normalized.postedAt,
           raw: normalized.raw,
         };
-        if (!overridden) updateSet.category = category ?? null;
+        if (!overridden) {
+          updateSet.category = matched?.name ?? null;
+          updateSet.categoryId = matched?.categoryId ?? null;
+        }
 
         await tx
           .insert(transactions)
-          .values({ ...normalized, category: category ?? null, source: "plaid" })
+          .values({
+            ...normalized,
+            category: matched?.name ?? null,
+            categoryId: matched?.categoryId ?? null,
+            source: "plaid",
+          })
           .onConflictDoUpdate({
             target: [transactions.accountId, transactions.fitid],
             set: updateSet,
