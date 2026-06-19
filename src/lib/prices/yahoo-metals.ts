@@ -1,7 +1,5 @@
-import yahooFinance from "yahoo-finance2";
-import { z } from "zod";
-import { withRateLimitRetry } from "./retry.ts";
 import { type PriceFetcher, type PriceQuote, todayIso } from "./types.ts";
+import { fetchYahooClose } from "./yahoo-chart.ts";
 
 /**
  * Physical-metal price fetcher backed by Yahoo Finance.
@@ -26,10 +24,6 @@ const YAHOO_BY_METAL = {
 
 export type MetalSymbol = keyof typeof YAHOO_BY_METAL;
 
-const yahooQuoteSchema = z.object({
-  regularMarketPrice: z.number().finite().positive(),
-});
-
 export class YahooMetalsFetcher implements PriceFetcher {
   readonly source = "yahoo";
 
@@ -41,18 +35,11 @@ export class YahooMetalsFetcher implements PriceFetcher {
         `Unsupported metal symbol "${symbol}". Supported: ${Object.keys(YAHOO_BY_METAL).join(", ")}.`,
       );
     }
-    // Retry through Yahoo's 429 throttle (metals use the same Yahoo backend).
-    const raw = await withRateLimitRetry(() => yahooFinance.quote(yahooSymbol));
-    const parsed = yahooQuoteSchema.safeParse(raw);
-    if (!parsed.success) {
-      throw new Error(
-        `Yahoo metals response for ${canonical} (${yahooSymbol}) did not match schema: ${parsed.error.issues[0]?.message}`,
-      );
-    }
+    const close = await fetchYahooClose(yahooSymbol);
     return {
       symbol: canonical,
       date: todayIso(),
-      close: parsed.data.regularMarketPrice.toFixed(8),
+      close: close.toFixed(8),
       source: this.source,
     };
   }

@@ -31,7 +31,7 @@ Inventory before writing code. Phase 7 mirrors conventions already in the repo:
 
 ## ADR-017 — Manual data management: edit/close/delete with guardrails
 
-**Status**: 🔲 Proposed — confirm at kickoff, then append to [IDEAS.md](IDEAS.md) §11.
+**Status**: ✅ Locked 2026-06-15 — appended to [IDEAS.md](IDEAS.md) §11. Kickoff decisions: typed-name delete confirm; type/currency lock once data exists; closed accounts drop from current net worth but keep historical chart points. Batch 1 shipped 2026-06-15.
 
 **Context**: The single owner needs to correct their own data (rename a misnamed account, remove a mistyped balance, delete a junk holding/transaction). The risk is destroying historical financial data — the entire value of the app — or corrupting valuation by changing a typed field after data exists.
 

@@ -563,7 +563,10 @@ describe("syncPlaidItemProcessor — balance anchoring (current-balance reconstr
 
   it("stores credit-card balances negative (liability), anchored to Plaid current", async () => {
     const setup = await freshSetup();
-    await db.update(accounts).set({ type: "credit_card" }).where(eq(accounts.id, setup.accountUuid));
+    await db
+      .update(accounts)
+      .set({ type: "credit_card" })
+      .where(eq(accounts.id, setup.accountUuid));
     mockAccountsGet.mockResolvedValueOnce({
       data: {
         accounts: [

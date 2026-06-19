@@ -5,7 +5,7 @@ import { accountSnapshots, accounts, liabilities } from "@/db/schema/index.ts";
 import { valueAccountHoldings } from "@/lib/holdings/value.ts";
 import { Money } from "@/lib/money/money.ts";
 import { balanceAtMonth } from "@/lib/mortgage/amortization.ts";
-import { and, desc, eq, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 
 function monthsBetween(startIso: string, asOf: Date): number {
   const start = new Date(`${startIso}T00:00:00Z`);
@@ -49,7 +49,13 @@ export async function computeNetWorth(
   baseCurrency = "USD",
 ): Promise<NetWorthBreakdown> {
   const asOfIso = asOf.toISOString().slice(0, 10);
-  const all = await db.select().from(accounts);
+  // Exclude accounts closed on or before `asOf` (P7-04). A closed account
+  // contributes $0 going forward, but historical points (asOf earlier than the
+  // close) still include it — its past value stays in old chart points.
+  const all = await db
+    .select()
+    .from(accounts)
+    .where(or(isNull(accounts.closedAt), gt(accounts.closedAt, asOf)));
 
   const items: NetWorthLineItem[] = [];
 

@@ -51,6 +51,15 @@ export const createAccountSchema = z.object({
 
 export type CreateAccountInput = z.infer<typeof createAccountSchema>;
 
+/**
+ * Edit an existing account. Same field set as create (P7-01). The server action
+ * enforces that `type`/`currency` are only applied when the account has no data
+ * (changing them after data exists corrupts valuation/aggregation).
+ */
+export const updateAccountSchema = createAccountSchema;
+
+export type UpdateAccountInput = z.infer<typeof updateAccountSchema>;
+
 export const recordBalanceSchema = z.object({
   date: isoDateSchema,
   balance: moneyAmountSchema,

@@ -1,35 +1,22 @@
-import yahooFinance from "yahoo-finance2";
-import { z } from "zod";
-import { withRateLimitRetry } from "./retry.ts";
 import { type PriceFetcher, type PriceQuote, todayIso } from "./types.ts";
+import { fetchYahooClose } from "./yahoo-chart.ts";
 
 /**
- * Zod schema for the subset of yahoo-finance2's `quote()` response that we
- * actually use. The library returns a much wider shape — we validate only what
- * we depend on so an upstream addition can't break us.
+ * Equity price fetcher backed by Yahoo Finance's chart endpoint.
+ *
+ * Stores the price under the requested symbol (uppercased) so it joins back to
+ * `holdings.symbol`; see `fetchYahooClose` for why we use chart() over quote().
  */
-const yahooQuoteSchema = z.object({
-  symbol: z.string(),
-  regularMarketPrice: z.number().finite().positive(),
-});
-
 export class YahooFinanceFetcher implements PriceFetcher {
   readonly source = "yahoo";
 
   async quote(symbol: string): Promise<PriceQuote> {
-    // Retry through Yahoo's 429 throttle (common on bursts / shared IPs).
-    const raw = await withRateLimitRetry(() => yahooFinance.quote(symbol));
-    const parsed = yahooQuoteSchema.safeParse(raw);
-    if (!parsed.success) {
-      throw new Error(
-        `Yahoo response for ${symbol} did not match schema: ${parsed.error.issues[0]?.message}`,
-      );
-    }
+    const close = await fetchYahooClose(symbol);
     return {
-      symbol: parsed.data.symbol.toUpperCase(),
+      symbol: symbol.toUpperCase(),
       date: todayIso(),
       // toFixed(8) keeps NUMERIC(18,8) shape; sufficient even for sub-cent ETFs.
-      close: parsed.data.regularMarketPrice.toFixed(8),
+      close: close.toFixed(8),
       source: this.source,
     };
   }
