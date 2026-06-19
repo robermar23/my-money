@@ -1,22 +1,35 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { YahooMetalsFetcher } from "./yahoo-metals.ts";
 
-// Mock yahoo-finance2 before importing the fetcher so its
-// `import yahooFinance from "yahoo-finance2"` resolves to our stub.
-vi.mock("yahoo-finance2", () => ({
-  default: { quote: vi.fn() },
-}));
+/** Build a stub `fetch` Response carrying a minimal chart payload. */
+function chartResponse(regularMarketPrice: number | undefined) {
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      chart: {
+        error: null,
+        result: [
+          {
+            meta: regularMarketPrice !== undefined ? { regularMarketPrice } : {},
+            indicators: { quote: [{ close: [] }] },
+          },
+        ],
+      },
+    }),
+  } as Response;
+}
 
-const yahooModule = await import("yahoo-finance2");
-const { YahooMetalsFetcher } = await import("./yahoo-metals.ts");
+afterEach(() => vi.restoreAllMocks());
 
 describe("YahooMetalsFetcher", () => {
   it("translates XAU to GC=F and returns the canonical symbol", async () => {
-    const mock = yahooModule.default.quote as ReturnType<typeof vi.fn>;
-    mock.mockResolvedValueOnce({ regularMarketPrice: 2345.6, currency: "USD" });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(chartResponse(2345.6));
 
     const q = await new YahooMetalsFetcher().quote("XAU");
 
-    expect(mock).toHaveBeenCalledWith("GC=F");
+    // GC=F is URL-encoded in the chart path.
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("/v8/finance/chart/GC%3DF");
     expect(q.symbol).toBe("XAU");
     expect(q.close).toBe("2345.60000000");
     expect(q.source).toBe("yahoo");
@@ -24,22 +37,20 @@ describe("YahooMetalsFetcher", () => {
   });
 
   it("translates XAG to SI=F", async () => {
-    const mock = yahooModule.default.quote as ReturnType<typeof vi.fn>;
-    mock.mockResolvedValueOnce({ regularMarketPrice: 30.25 });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(chartResponse(30.25));
 
     const q = await new YahooMetalsFetcher().quote("XAG");
 
-    expect(mock).toHaveBeenCalledWith("SI=F");
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("/v8/finance/chart/SI%3DF");
     expect(q.symbol).toBe("XAG");
   });
 
   it("uppercases lowercase input", async () => {
-    const mock = yahooModule.default.quote as ReturnType<typeof vi.fn>;
-    mock.mockResolvedValueOnce({ regularMarketPrice: 2345.6 });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(chartResponse(2345.6));
 
     const q = await new YahooMetalsFetcher().quote("xau");
 
-    expect(mock).toHaveBeenCalledWith("GC=F");
+    expect(fetchMock.mock.calls[0]?.[0]).toContain("/v8/finance/chart/GC%3DF");
     expect(q.symbol).toBe("XAU");
   });
 
@@ -49,15 +60,13 @@ describe("YahooMetalsFetcher", () => {
     );
   });
 
-  it("throws when regularMarketPrice is missing", async () => {
-    const mock = yahooModule.default.quote as ReturnType<typeof vi.fn>;
-    mock.mockResolvedValueOnce({ symbol: "GC=F" });
-    await expect(new YahooMetalsFetcher().quote("XAU")).rejects.toThrow(/schema/);
+  it("throws when no usable price is present", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(chartResponse(undefined));
+    await expect(new YahooMetalsFetcher().quote("XAU")).rejects.toThrow(/no usable price/);
   });
 
   it("propagates upstream errors", async () => {
-    const mock = yahooModule.default.quote as ReturnType<typeof vi.fn>;
-    mock.mockRejectedValueOnce(new Error("network blip"));
+    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("network blip"));
     await expect(new YahooMetalsFetcher().quote("XAU")).rejects.toThrow(/network blip/);
   });
 });
