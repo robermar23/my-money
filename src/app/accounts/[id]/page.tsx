@@ -17,6 +17,7 @@ import { toAccountId } from "@/lib/types/ids.ts";
 import Decimal from "decimal.js";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { AccountAdmin } from "./account-admin.tsx";
 import { BalanceForm } from "./balance-form.tsx";
 import { DeleteHoldingButton } from "./delete-holding-button.tsx";
 import { HoldingForm } from "./holding-form.tsx";
@@ -142,6 +143,9 @@ export default async function AccountDetailPage(
     return !latest || h.updatedAt > latest ? h.updatedAt : latest;
   }, null);
 
+  const hasData =
+    snapshots.length > 0 || accountHoldings.length > 0 || txnResult.totalCount > 0 || !!liability;
+
   const showBalanceForm = account.type === "depository" || account.type === "credit_card";
   const showHoldingsForm = account.type === "investment" || account.type === "crypto_ira";
   const showMortgageForm = account.type === "loan";
@@ -164,7 +168,14 @@ export default async function AccountDetailPage(
       </Link>
       <div className="mt-2 flex items-start justify-between">
         <div>
-          <h1 className="font-semibold text-2xl tracking-tight">{account.name}</h1>
+          <h1 className="font-semibold text-2xl tracking-tight">
+            {account.name}
+            {account.closedAt !== null && (
+              <span className="ml-2 rounded bg-zinc-200 px-1.5 py-0.5 align-middle text-[10px] text-zinc-600 uppercase dark:bg-zinc-800 dark:text-zinc-400">
+                Closed
+              </span>
+            )}
+          </h1>
           <p className="mt-1 text-sm text-zinc-500">
             {account.institution} · {TYPE_LABEL[account.type] ?? account.type} · {account.currency}
           </p>
@@ -185,6 +196,17 @@ export default async function AccountDetailPage(
           )}
         </div>
       </div>
+
+      <AccountAdmin
+        accountId={account.id}
+        name={account.name}
+        institution={account.institution}
+        type={account.type}
+        currency={account.currency}
+        hasData={hasData}
+        closed={account.closedAt !== null}
+        isPlaidLinked={account.plaidItemId !== null}
+      />
 
       {justImported !== null && justImported > 0 && (
         <div className="mt-4 rounded-md border border-emerald-300 bg-emerald-50 p-3 text-emerald-800 text-sm dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">

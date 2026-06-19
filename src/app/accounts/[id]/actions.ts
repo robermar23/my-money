@@ -3,6 +3,7 @@
 import { db } from "@/db/client.ts";
 import {
   accountSnapshots,
+  accounts,
   holdingLots,
   holdings,
   liabilities,
@@ -16,16 +17,20 @@ import {
   createMortgageSchema,
   recordBalanceSchema,
   recordPropertyValueSchema,
+  updateAccountSchema,
   upsertHoldingSchema,
   upsertLotSchema,
 } from "@/lib/schemas/account.ts";
 import { toAccountId } from "@/lib/types/ids.ts";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 
 export interface ActionResult {
   error?: string;
   ok?: boolean;
+  /** Non-error advisory message (e.g. "type was kept because the account has data"). */
+  note?: string;
 }
 
 async function loadAccount(accountIdRaw: string) {
@@ -36,6 +41,156 @@ async function loadAccount(accountIdRaw: string) {
     throw new Error("Account not found");
   }
   return { accountId, account };
+}
+
+/**
+ * Whether the account has any data that would make a type/currency change unsafe
+ * (P7-01). True if it has at least one transaction, holding, or snapshot.
+ *
+ * @param accountId - The account to inspect.
+ * @returns True when changing type/currency would corrupt valuation.
+ */
+async function accountHasData(accountId: string): Promise<boolean> {
+  const [txn, hold, snap] = await Promise.all([
+    db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(eq(transactions.accountId, accountId))
+      .limit(1),
+    db.select({ id: holdings.id }).from(holdings).where(eq(holdings.accountId, accountId)).limit(1),
+    db
+      .select({ d: accountSnapshots.date })
+      .from(accountSnapshots)
+      .where(eq(accountSnapshots.accountId, accountId))
+      .limit(1),
+  ]);
+  return txn.length > 0 || hold.length > 0 || snap.length > 0;
+}
+
+/**
+ * Edit an account's metadata (P7-01).
+ *
+ * `name` and `institution` are always editable. `type` and `currency` are only
+ * applied when the account has no transactions/holdings/snapshots — changing
+ * them after data exists would corrupt valuation/aggregation, so submitted
+ * values are ignored and a note is returned.
+ *
+ * @param accountIdRaw - The account UUID from the route.
+ * @param _prev - Previous action state (unused; required by useActionState).
+ * @param formData - Form fields: name, institution, type, currency.
+ * @returns ActionResult with `ok` on success, optional `note`, or `error`.
+ */
+export async function updateAccountAction(
+  accountIdRaw: string,
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const { accountId, account } = await loadAccount(accountIdRaw);
+  const parsed = updateAccountSchema.safeParse({
+    name: formData.get("name"),
+    institution: formData.get("institution"),
+    type: formData.get("type"),
+    currency: formData.get("currency") || "USD",
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  const hasData = await accountHasData(accountId);
+  const typeOrCurrencyChanged =
+    parsed.data.type !== account.type || parsed.data.currency !== account.currency;
+
+  await db
+    .update(accounts)
+    .set(
+      hasData
+        ? { name: parsed.data.name, institution: parsed.data.institution, updatedAt: new Date() }
+        : {
+            name: parsed.data.name,
+            institution: parsed.data.institution,
+            type: parsed.data.type,
+            currency: parsed.data.currency,
+            updatedAt: new Date(),
+          },
+    )
+    .where(eq(accounts.id, accountId));
+
+  revalidatePath(`/accounts/${accountIdRaw}`);
+  revalidatePath("/accounts");
+  revalidatePath("/");
+
+  if (hasData && typeOrCurrencyChanged) {
+    return {
+      ok: true,
+      note: "Type and currency were kept — clear this account's data to change them.",
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Close (archive) an account (P7-02). Sets `closed_at` to now. Historical
+ * snapshots are preserved; the account is dropped from net worth going forward.
+ *
+ * @param accountIdRaw - The account UUID from the route.
+ * @returns ActionResult with `ok` on success.
+ */
+export async function closeAccountAction(accountIdRaw: string): Promise<ActionResult> {
+  const { accountId } = await loadAccount(accountIdRaw);
+  await db
+    .update(accounts)
+    .set({ closedAt: new Date(), updatedAt: new Date() })
+    .where(eq(accounts.id, accountId));
+  revalidatePath(`/accounts/${accountIdRaw}`);
+  revalidatePath("/accounts");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/**
+ * Reopen a previously-closed account (P7-02). Clears `closed_at`.
+ *
+ * @param accountIdRaw - The account UUID from the route.
+ * @returns ActionResult with `ok` on success.
+ */
+export async function reopenAccountAction(accountIdRaw: string): Promise<ActionResult> {
+  const { accountId } = await loadAccount(accountIdRaw);
+  await db
+    .update(accounts)
+    .set({ closedAt: null, updatedAt: new Date() })
+    .where(eq(accounts.id, accountId));
+  revalidatePath(`/accounts/${accountIdRaw}`);
+  revalidatePath("/accounts");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/**
+ * Permanently delete an account and all of its child rows (P7-03).
+ *
+ * Every FK referencing `accounts.id` is `ON DELETE CASCADE` (transactions,
+ * holdings → holding_lots, investment_transactions, account_snapshots,
+ * liabilities, import_batches), so a single row delete cascades atomically.
+ *
+ * Plaid-linked accounts are blocked: deleting one out from under a live Item
+ * orphans it and breaks the next sync. The user must Disconnect the connection
+ * first (existing `disconnectItemAction`).
+ *
+ * On success this redirects to `/accounts` (the account page no longer exists).
+ *
+ * @param accountIdRaw - The account UUID from the route.
+ * @returns ActionResult with `error` when blocked; otherwise redirects.
+ */
+export async function deleteAccountAction(accountIdRaw: string): Promise<ActionResult> {
+  const { accountId, account } = await loadAccount(accountIdRaw);
+  if (account.plaidItemId) {
+    return { error: "Disconnect this account's connection first." };
+  }
+  await db.delete(accounts).where(eq(accounts.id, accountId));
+  revalidatePath("/accounts");
+  revalidatePath("/investments");
+  revalidatePath("/");
+  redirect("/accounts");
 }
 
 /**

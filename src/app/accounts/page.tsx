@@ -6,6 +6,11 @@ import { Money } from "@/lib/money/money.ts";
 import { toAccountId } from "@/lib/types/ids.ts";
 import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
+import { ReopenAccountButton } from "./reopen-account-button.tsx";
+
+interface AccountsPageProps {
+  readonly searchParams?: Promise<{ closed?: string }>;
+}
 
 const TYPE_LABEL: Record<string, string> = {
   depository: "Cash",
@@ -26,13 +31,19 @@ async function getLatestBalanceString(accountId: string): Promise<string | null>
   return snap?.balance ?? null;
 }
 
-export default async function AccountsPage(): Promise<React.JSX.Element> {
+export default async function AccountsPage(props: AccountsPageProps): Promise<React.JSX.Element> {
   await requireUser();
+  const search = (await props.searchParams) ?? {};
+  const showClosed = search.closed === "1";
+
   const all = await listAccounts();
+  // Closed accounts are hidden by default (P7-04); a URL toggle reveals them.
+  const visible = showClosed ? all : all.filter((a) => a.closedAt === null);
+  const closedCount = all.length - all.filter((a) => a.closedAt === null).length;
 
   // Fetch latest balance per account in parallel.
   const enriched = await Promise.all(
-    all.map(async (a) => ({
+    visible.map(async (a) => ({
       account: a,
       latestBalance: await getLatestBalanceString(a.id),
     })),
@@ -43,6 +54,14 @@ export default async function AccountsPage(): Promise<React.JSX.Element> {
       <div className="flex items-center justify-between">
         <h1 className="font-semibold text-2xl tracking-tight">Accounts</h1>
         <div className="flex items-center gap-4">
+          {closedCount > 0 && (
+            <Link
+              href={showClosed ? "/accounts" : "/accounts?closed=1"}
+              className="text-sm text-zinc-500 hover:underline"
+            >
+              {showClosed ? "Hide closed" : `Show closed (${closedCount})`}
+            </Link>
+          )}
           <Link href="/investments" className="text-sm text-zinc-500 hover:underline">
             Investments →
           </Link>
@@ -68,27 +87,42 @@ export default async function AccountsPage(): Promise<React.JSX.Element> {
                 <th className="py-2">Institution</th>
                 <th className="py-2">Type</th>
                 <th className="py-2 text-right">Latest balance</th>
+                <th className="py-2 text-right" />
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
-              {enriched.map(({ account, latestBalance }) => (
-                <tr key={account.id}>
-                  <td className="py-3">
-                    <Link href={`/accounts/${account.id}`} className="font-medium hover:underline">
-                      {account.name}
-                    </Link>
-                  </td>
-                  <td className="py-3 text-zinc-600 dark:text-zinc-400">{account.institution}</td>
-                  <td className="py-3 text-zinc-600 dark:text-zinc-400">
-                    {TYPE_LABEL[account.type] ?? account.type}
-                  </td>
-                  <td className="py-3 text-right font-mono">
-                    {latestBalance
-                      ? Money.fromString(latestBalance, account.currency).format()
-                      : "—"}
-                  </td>
-                </tr>
-              ))}
+              {enriched.map(({ account, latestBalance }) => {
+                const closed = account.closedAt !== null;
+                return (
+                  <tr key={account.id} className={closed ? "text-zinc-400 dark:text-zinc-600" : ""}>
+                    <td className="py-3">
+                      <Link
+                        href={`/accounts/${account.id}`}
+                        className="font-medium hover:underline"
+                      >
+                        {account.name}
+                      </Link>
+                      {closed && (
+                        <span className="ml-2 rounded bg-zinc-200 px-1.5 py-0.5 text-[10px] text-zinc-600 uppercase dark:bg-zinc-800 dark:text-zinc-400">
+                          Closed
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-3 text-zinc-600 dark:text-zinc-400">{account.institution}</td>
+                    <td className="py-3 text-zinc-600 dark:text-zinc-400">
+                      {TYPE_LABEL[account.type] ?? account.type}
+                    </td>
+                    <td className="py-3 text-right font-mono">
+                      {latestBalance
+                        ? Money.fromString(latestBalance, account.currency).format()
+                        : "—"}
+                    </td>
+                    <td className="py-3 text-right">
+                      {closed && <ReopenAccountButton accountId={account.id} />}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
