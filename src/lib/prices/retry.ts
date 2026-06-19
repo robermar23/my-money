@@ -44,7 +44,10 @@ export interface RetryOptions {
  * @returns The resolved value of `fn`.
  * @throws The last error if all attempts fail (or any non-429 error).
  */
-export async function withRateLimitRetry<T>(fn: () => Promise<T>, opts: RetryOptions = {}): Promise<T> {
+export async function withRateLimitRetry<T>(
+  fn: () => Promise<T>,
+  opts: RetryOptions = {},
+): Promise<T> {
   const attempts = opts.attempts ?? 3;
   const baseDelayMs = opts.baseDelayMs ?? 1000;
   const doSleep = opts.sleepFn ?? sleep;
