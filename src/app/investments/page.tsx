@@ -1,6 +1,14 @@
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { valueHolding } from "@/lib/holdings/value.ts";
-import { allocationByAssetClass } from "@/lib/investments/allocation.ts";
+import {
+  type AllocationSlice,
+  type ValuedHolding,
+  allocationByAccount,
+  allocationByAssetClass,
+  allocationByRegion,
+  allocationBySector,
+  concentration,
+} from "@/lib/investments/allocation.ts";
 import { formatQuantity } from "@/lib/investments/format.ts";
 import { gainLoss, portfolioGainLoss } from "@/lib/investments/gain-loss.ts";
 import { type IncomePeriod, incomeByPeriod } from "@/lib/investments/income.ts";
@@ -18,7 +26,7 @@ import { IncomeChart } from "./income-chart.tsx";
 import { RefreshPricesButton } from "./refresh-prices-button.tsx";
 
 interface InvestmentsPageProps {
-  readonly searchParams?: Promise<{ period?: string }>;
+  readonly searchParams?: Promise<{ period?: string; dim?: string }>;
 }
 
 const PERIODS: readonly IncomePeriod[] = ["month", "quarter", "year"];
@@ -27,11 +35,26 @@ function parsePeriod(raw: string | undefined): IncomePeriod {
   return PERIODS.includes(raw as IncomePeriod) ? (raw as IncomePeriod) : "month";
 }
 
+/** Allocation slice dimensions (URL `dim` param, P9-16). */
+type SliceDim = "assetClass" | "sector" | "region" | "account";
+const SLICE_DIMS: readonly { key: SliceDim; label: string }[] = [
+  { key: "assetClass", label: "Asset class" },
+  { key: "sector", label: "Sector" },
+  { key: "region", label: "Region" },
+  { key: "account", label: "Account" },
+];
+
+function parseDim(raw: string | undefined): SliceDim {
+  return SLICE_DIMS.some((d) => d.key === raw) ? (raw as SliceDim) : "assetClass";
+}
+
 export default async function InvestmentsPage(
   props: InvestmentsPageProps,
 ): Promise<React.JSX.Element> {
   await requireUser();
-  const period = parsePeriod((await props.searchParams)?.period);
+  const search = (await props.searchParams) ?? {};
+  const period = parsePeriod(search.period);
+  const dim = parseDim(search.dim);
   const baseCurrency = "USD";
   const today = new Date().toISOString().slice(0, 10);
 
@@ -85,27 +108,70 @@ export default async function InvestmentsPage(
   );
   const totalValue = portfolio.totalValue.add(balanceOnlyTotal);
 
-  // Allocation by asset class — priced holdings plus a single "other" bucket for
-  // the balance-only accounts, so the donut sums to the page total.
-  const slices = allocationByAssetClass(
-    [
-      ...rows.map((r) => ({
-        assetClass: r.p.holding.assetClass,
-        accountId: r.p.accountId,
-        value: r.valuation.value,
-      })),
-      ...balanceOnlyInBase.map((a) => ({
-        assetClass: "other",
-        accountId: a.accountId,
-        value: Money.fromString(a.balance, baseCurrency),
-      })),
-    ],
-    baseCurrency,
-  ).map((s) => ({
+  // Valued holdings for allocation slicing — priced positions (with enrichment
+  // metadata) plus a single "other" bucket per balance-only account, so the
+  // donut always sums to the page total regardless of the slice dimension.
+  const valued: ValuedHolding[] = [
+    ...rows.map((r) => ({
+      assetClass: r.p.holding.assetClass,
+      accountId: r.p.accountId,
+      value: r.valuation.value,
+      sector: r.p.sector,
+      region: r.p.region,
+      assetType: r.p.assetType,
+    })),
+    ...balanceOnlyInBase.map((a) => ({
+      assetClass: "other",
+      accountId: a.accountId,
+      value: Money.fromString(a.balance, baseCurrency),
+      sector: null,
+      region: null,
+      assetType: null,
+    })),
+  ];
+
+  const nameByAccountId: Record<string, string> = {};
+  for (const r of rows) nameByAccountId[r.p.accountId] = r.p.accountName;
+  for (const a of balanceOnlyInBase) nameByAccountId[a.accountId] = a.accountName;
+
+  const allocate = (d: SliceDim): AllocationSlice[] => {
+    switch (d) {
+      case "sector":
+        return allocationBySector(valued, baseCurrency);
+      case "region":
+        return allocationByRegion(valued, baseCurrency);
+      case "account":
+        return allocationByAccount(valued, baseCurrency, nameByAccountId);
+      default:
+        return allocationByAssetClass(valued, baseCurrency);
+    }
+  };
+
+  const slices = allocate(dim).map((s) => ({
     label: s.label,
     value: Number(s.value.toString()),
     percent: s.percent,
     valueFormatted: s.value.format(),
+  }));
+
+  // Concentration — top positions as a share of the whole portfolio. Each priced
+  // holding is one position (labeled by symbol); each balance-only account is
+  // one position (labeled by name).
+  const conc = concentration(
+    [
+      ...rows.map((r) => ({ label: r.p.holding.symbol, value: r.valuation.value })),
+      ...balanceOnlyInBase.map((a) => ({
+        label: a.accountName,
+        value: Money.fromString(a.balance, baseCurrency),
+      })),
+    ],
+    baseCurrency,
+    10,
+  );
+  const concentrationRows = conc.top.map((row) => ({
+    label: row.label,
+    valueFormatted: row.value.format(),
+    percent: row.percent,
   }));
 
   // Income breakdown.
@@ -176,9 +242,53 @@ export default async function InvestmentsPage(
       ) : (
         <>
           <section className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-            <h2 className="font-medium text-sm">Asset allocation</h2>
-            <div className="mt-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="font-medium text-sm">Allocation</h2>
+              <div className="flex flex-wrap gap-1 text-sm">
+                {SLICE_DIMS.map((d) => (
+                  <Link
+                    key={d.key}
+                    href={`/investments?period=${period}&dim=${d.key}`}
+                    className={`rounded-md px-2 py-1 ${
+                      d.key === dim
+                        ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
+                        : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                    }`}
+                  >
+                    {d.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+            <div className="mt-3 grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
               <AllocationChart slices={slices} />
+              <div>
+                <h3 className="text-xs text-zinc-500 uppercase">Top holdings</h3>
+                {concentrationRows.length === 0 ? (
+                  <p className="mt-2 text-sm text-zinc-500">No priced holdings yet.</p>
+                ) : (
+                  <>
+                    <table className="mt-2 w-full text-sm">
+                      <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
+                        {concentrationRows.map((row) => (
+                          <tr key={row.label}>
+                            <td className="truncate py-1.5 pr-2 font-mono">{row.label}</td>
+                            <td className="py-1.5 pr-2 text-right font-mono text-zinc-600 tabular-nums dark:text-zinc-400">
+                              {row.valueFormatted}
+                            </td>
+                            <td className="py-1.5 text-right font-mono tabular-nums">
+                              {row.percent}%
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p className="mt-2 text-xs text-zinc-500">
+                      Top {concentrationRows.length} = {conc.topPercent}% of portfolio.
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
           </section>
 
@@ -222,7 +332,14 @@ export default async function InvestmentsPage(
                     <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
                       {group.rows.map((r) => (
                         <tr key={r.p.holding.id}>
-                          <td className="truncate py-2 pr-2 font-mono">{r.p.holding.symbol}</td>
+                          <td className="truncate py-2 pr-2 font-mono">
+                            <Link
+                              href={`/investments/security/${r.p.holding.id}`}
+                              className="hover:underline"
+                            >
+                              {r.p.holding.symbol}
+                            </Link>
+                          </td>
                           <td
                             className="truncate py-2 pr-2 text-zinc-600 dark:text-zinc-400"
                             title={r.p.securityName ?? undefined}
@@ -285,7 +402,7 @@ export default async function InvestmentsPage(
                 {PERIODS.map((p) => (
                   <Link
                     key={p}
-                    href={`/investments?period=${p}`}
+                    href={`/investments?period=${p}&dim=${dim}`}
                     className={`rounded-md px-2 py-1 capitalize ${
                       p === period
                         ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"

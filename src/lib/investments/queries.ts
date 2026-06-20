@@ -31,6 +31,11 @@ export interface InvestmentPosition {
   readonly accountCurrency: string;
   /** Security display name (Plaid-sourced); null for hand-typed symbols. */
   readonly securityName: string | null;
+  /** Enrichment metadata (ADR-020); null until the weekly job fills it. */
+  readonly sector: string | null;
+  readonly industry: string | null;
+  readonly region: string | null;
+  readonly assetType: string | null;
 }
 
 /** Every holding across investment/crypto_ira accounts, with account + security meta. */
@@ -42,6 +47,10 @@ export async function listInvestmentPositions(): Promise<InvestmentPosition[]> {
       accountType: accounts.type,
       accountCurrency: accounts.currency,
       securityName: securities.name,
+      sector: securities.sector,
+      industry: securities.industry,
+      region: securities.region,
+      assetType: securities.assetType,
     })
     .from(holdings)
     .innerJoin(accounts, eq(holdings.accountId, accounts.id))
@@ -56,6 +65,10 @@ export async function listInvestmentPositions(): Promise<InvestmentPosition[]> {
     accountType: r.accountType,
     accountCurrency: r.accountCurrency,
     securityName: r.securityName,
+    sector: r.sector,
+    industry: r.industry,
+    region: r.region,
+    assetType: r.assetType,
   }));
 }
 
@@ -345,4 +358,136 @@ export async function benchmarkCloseSeries(
     .from(prices)
     .where(and(...conds))
     .orderBy(asc(prices.date));
+}
+
+// ── Per-security drill-down (PLAN9 P9-17) ────────────────────────────────────
+//
+// Backs /investments/security/[id], keyed by HOLDING id (one position in one
+// account). A `SEC:`-synthetic or manual holding simply has null security meta;
+// every query degrades gracefully rather than 404-ing.
+
+export interface SecurityDetail {
+  readonly holding: Holding;
+  readonly accountId: string;
+  readonly accountName: string;
+  readonly accountType: string;
+  readonly accountCurrency: string;
+  /** Security metadata; null for hand-typed symbols with no `security_id`. */
+  readonly security: {
+    readonly id: string;
+    readonly name: string;
+    readonly sector: string | null;
+    readonly industry: string | null;
+    readonly region: string | null;
+    readonly assetType: string | null;
+    readonly expenseRatio: string | null;
+    readonly dividendRate: string | null;
+    readonly dividendExDate: string | null;
+  } | null;
+  readonly lots: InvestmentLotRow[];
+}
+
+/** Full detail for one holding: account, security metadata, and cost-basis lots. */
+export async function securityDetail(holdingId: string): Promise<SecurityDetail | null> {
+  const [row] = await db
+    .select({
+      holding: holdings,
+      accountName: accounts.name,
+      accountType: accounts.type,
+      accountCurrency: accounts.currency,
+      secId: securities.id,
+      secName: securities.name,
+      sector: securities.sector,
+      industry: securities.industry,
+      region: securities.region,
+      assetType: securities.assetType,
+      expenseRatio: securities.expenseRatio,
+      dividendRate: securities.dividendRate,
+      dividendExDate: securities.dividendExDate,
+    })
+    .from(holdings)
+    .innerJoin(accounts, eq(holdings.accountId, accounts.id))
+    .leftJoin(securities, eq(holdings.securityId, securities.id))
+    .where(and(eq(holdings.id, holdingId), inArray(accounts.type, [...INVESTMENT_TYPES])))
+    .limit(1);
+  if (!row) return null;
+
+  const lots = await db
+    .select({
+      holdingId: holdingLots.holdingId,
+      quantity: holdingLots.quantity,
+      costBasisTotal: holdingLots.costBasisTotal,
+    })
+    .from(holdingLots)
+    .where(eq(holdingLots.holdingId, holdingId));
+
+  return {
+    holding: row.holding,
+    accountId: row.holding.accountId,
+    accountName: row.accountName,
+    accountType: row.accountType,
+    accountCurrency: row.accountCurrency,
+    security: row.secId
+      ? {
+          id: row.secId,
+          name: row.secName ?? row.holding.symbol,
+          sector: row.sector,
+          industry: row.industry,
+          region: row.region,
+          assetType: row.assetType,
+          expenseRatio: row.expenseRatio,
+          dividendRate: row.dividendRate,
+          dividendExDate: row.dividendExDate,
+        }
+      : null,
+    lots,
+  };
+}
+
+/** Daily closes for a symbol within the range — the per-security price sparkline. */
+export async function securityPriceHistory(
+  symbol: string,
+  range: Pick<SnapshotRange, "from" | "to"> = {},
+): Promise<ValuePoint[]> {
+  return benchmarkCloseSeries(symbol, range);
+}
+
+/** Value & cost-basis history for a single holding (its own snapshots). */
+export async function holdingSnapshotSeries(
+  holdingId: string,
+  range: Pick<SnapshotRange, "from" | "to"> = {},
+): Promise<HoldingSnapshotRow[]> {
+  return listHoldingSnapshots({ ...range, holdingIds: [holdingId] });
+}
+
+/**
+ * Dividend/interest income recorded for one holding's security in its account.
+ * Returns `[]` when the holding has no linked security (manual symbol).
+ */
+export async function securityIncome(holdingId: string): Promise<IncomeTxnRow[]> {
+  const [h] = await db
+    .select({ accountId: holdings.accountId, securityId: holdings.securityId })
+    .from(holdings)
+    .where(eq(holdings.id, holdingId))
+    .limit(1);
+  if (!h || !h.securityId) return [];
+  return db
+    .select({
+      subtype: investmentTransactions.subtype,
+      tradeDate: investmentTransactions.tradeDate,
+      amount: investmentTransactions.amount,
+      isoCurrencyCode: investmentTransactions.isoCurrencyCode,
+    })
+    .from(investmentTransactions)
+    .where(
+      and(
+        eq(investmentTransactions.accountId, h.accountId),
+        eq(investmentTransactions.securityId, h.securityId),
+        or(
+          eq(investmentTransactions.subtype, "dividend"),
+          eq(investmentTransactions.subtype, "interest"),
+        ),
+      ),
+    )
+    .orderBy(asc(investmentTransactions.tradeDate));
 }
