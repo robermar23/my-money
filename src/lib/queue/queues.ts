@@ -44,6 +44,8 @@ export const QUEUE_NAMES = {
   EXPORT_BEANCOUNT_DAILY: "export-beancount-daily",
   /** Phase 6 (P6-16): 05:00 nightly anomaly detection → `alerts` + notification. */
   DETECT_ANOMALIES_DAILY: "detect-anomalies-daily",
+  /** Phase 9 (P9-07): weekly security enrichment (sector/industry/dividend) refresh. */
+  REFRESH_FUNDAMENTALS_WEEKLY: "refresh-fundamentals-weekly",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -96,3 +98,5 @@ export const backupDatabaseDailyQueue = lazyQueue(QUEUE_NAMES.BACKUP_DATABASE_DA
 export const exportBeancountDailyQueue = lazyQueue(QUEUE_NAMES.EXPORT_BEANCOUNT_DAILY);
 
 export const detectAnomaliesDailyQueue = lazyQueue(QUEUE_NAMES.DETECT_ANOMALIES_DAILY);
+
+export const refreshFundamentalsWeeklyQueue = lazyQueue(QUEUE_NAMES.REFRESH_FUNDAMENTALS_WEEKLY);

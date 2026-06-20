@@ -1,5 +1,16 @@
 import { relations, sql } from "drizzle-orm";
-import { boolean, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  check,
+  date,
+  jsonb,
+  numeric,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { holdings } from "./holdings.ts";
 import { investmentTransactions } from "./investment-transactions.ts";
 
@@ -35,6 +46,29 @@ export const securities = pgTable(
     isoCurrencyCode: text("iso_currency_code").notNull().default("USD"),
     /** Full Plaid security payload for debug + re-derivation. */
     raw: jsonb("raw"),
+    // ── Enrichment (Phase 9, ADR-020) — public market metadata, refreshed weekly.
+    // All nullable: coverage is patchy (proprietary/401k funds, foreign tickers,
+    // SEC: synthetics). Sourced from Yahoo's public profile/summary; only the
+    // ticker symbol egresses (no user data) — see lib/prices/yahoo-fundamentals.ts.
+    /** GICS sector, e.g. "Technology". */
+    sector: text("sector"),
+    /** GICS industry, e.g. "Consumer Electronics". */
+    industry: text("industry"),
+    /** Normalized asset type (CHECK below). Falls back to the Plaid `type` mapping. */
+    assetType: text("asset_type"),
+    /** Country / region, e.g. "United States". */
+    region: text("region"),
+    /** Fund expense ratio (funds only). */
+    expenseRatio: numeric("expense_ratio", { precision: 8, scale: 4 }),
+    /** Forward annual dividend, $/share. Yield is derived at display = rate ÷ price. */
+    dividendRate: numeric("dividend_rate", { precision: 18, scale: 8 }),
+    /** Next/last ex-dividend date. */
+    dividendExDate: date("dividend_ex_date", { mode: "string" }),
+    /** Staleness watermark; the weekly job refreshes when null or > 7 days old. */
+    fundamentalsRefreshedAt: timestamp("fundamentals_refreshed_at", {
+      withTimezone: true,
+      mode: "date",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },
@@ -43,6 +77,13 @@ export const securities = pgTable(
     plaidSecurityIdUnique: uniqueIndex("securities_plaid_security_id_unique")
       .on(table.plaidSecurityId)
       .where(sql`${table.plaidSecurityId} IS NOT NULL`),
+    // NULL passes the CHECK (un-enriched securities are valid); a non-null
+    // asset_type must be one of the known buckets. Plain text + CHECK, not an
+    // enum — same posture as holdings.source / asset_class stays the only enum.
+    assetTypeCheck: check(
+      "securities_asset_type_check",
+      sql`${table.assetType} IS NULL OR ${table.assetType} IN ('equity','etf','mutual_fund','bond','crypto','cash','other')`,
+    ),
   }),
 );
 
