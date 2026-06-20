@@ -139,7 +139,12 @@ export default async function InvestmentsPage(
           <p className="mt-1 text-sm text-zinc-500">
             Positions, cost basis, and gain/loss across your brokerage, IRA, and crypto accounts.
           </p>
-          <RefreshPricesButton />
+          <div className="mt-2 flex items-center gap-3">
+            <RefreshPricesButton />
+            <Link href="/investments/performance" className="text-sm text-zinc-500 hover:underline">
+              Performance →
+            </Link>
+          </div>
         </div>
         <div className="text-right">
           <div className="font-mono text-3xl tabular-nums">{totalValue.format()}</div>

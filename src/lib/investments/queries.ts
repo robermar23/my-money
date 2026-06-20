@@ -9,6 +9,7 @@ import {
   holdingSnapshots,
   holdings,
   investmentTransactions,
+  prices,
   securities,
 } from "@/db/schema/index.ts";
 import { type SQL, and, asc, desc, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
@@ -289,4 +290,59 @@ export async function valueSeriesByAccount(
     .groupBy(holdingSnapshots.date, holdings.accountId, accounts.name)
     .orderBy(asc(holdingSnapshots.date));
   return rows.map((r) => ({ date: r.date, key: r.key, label: r.label, value: r.value }));
+}
+
+// ── Performance inputs — flows + benchmark (PLAN9 P9-10 / P9-12) ─────────────
+//
+// These feed the pure performance math in performance.ts: the raw external-flow
+// transactions (classified there by `externalFlow`) and the benchmark close
+// series. Both stay strings; the math layer does all the Decimal work.
+
+export interface InvestmentFlowRow {
+  readonly type: string;
+  readonly subtype: string | null;
+  readonly amount: string;
+  readonly date: string;
+}
+
+/**
+ * Buy/sell/cash/transfer transactions across investment accounts within the
+ * range — the raw input to `externalFlow`/`netExternalFlows` (TWR/XIRR/
+ * attribution). Dividends/interest/fees are *included* here and filtered out by
+ * the classifier (single source of truth for what counts as external).
+ */
+export async function listInvestmentFlows(range: SnapshotRange = {}): Promise<InvestmentFlowRow[]> {
+  const conds: SQL[] = [inArray(accounts.type, [...INVESTMENT_TYPES])];
+  if (range.from) conds.push(gte(investmentTransactions.tradeDate, range.from));
+  if (range.to) conds.push(lte(investmentTransactions.tradeDate, range.to));
+  if (range.accountIds && range.accountIds.length > 0) {
+    conds.push(inArray(investmentTransactions.accountId, [...range.accountIds]));
+  }
+  const rows = await db
+    .select({
+      type: investmentTransactions.type,
+      subtype: investmentTransactions.subtype,
+      amount: investmentTransactions.amount,
+      date: investmentTransactions.tradeDate,
+    })
+    .from(investmentTransactions)
+    .innerJoin(accounts, eq(investmentTransactions.accountId, accounts.id))
+    .where(and(...conds))
+    .orderBy(asc(investmentTransactions.tradeDate));
+  return rows;
+}
+
+/** Benchmark (^GSPC) daily closes within the range, as a value series. */
+export async function benchmarkCloseSeries(
+  symbol: string,
+  range: Pick<SnapshotRange, "from" | "to"> = {},
+): Promise<ValuePoint[]> {
+  const conds: SQL[] = [eq(prices.symbol, symbol)];
+  if (range.from) conds.push(gte(prices.date, range.from));
+  if (range.to) conds.push(lte(prices.date, range.to));
+  return db
+    .select({ date: prices.date, value: prices.close })
+    .from(prices)
+    .where(and(...conds))
+    .orderBy(asc(prices.date));
 }
