@@ -12,9 +12,10 @@ import { Money } from "@/lib/money/money.ts";
 import { plaidClient } from "@/lib/plaid/client.ts";
 import { plaidToTransaction } from "@/lib/plaid/map.ts";
 import { loadAccessToken } from "@/lib/plaid/tokens.ts";
+import { recomputeAccountSnapshotsForDates } from "@/lib/snapshots/recompute.ts";
 import { upsertSnapshots } from "@/lib/snapshots/upsert.ts";
 import type { Job } from "bullmq";
-import { and, eq, gt, lte, sql } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import type { Transaction as PlaidTransaction, RemovedTransaction } from "plaid";
 
 /**
@@ -281,8 +282,7 @@ export async function syncPlaidItemProcessor(job: Job<SyncPlaidItemJobData>): Pr
         } else {
           const dates = affectedDatesByAccount.get(acctId);
           if (dates) {
-            const balancesByDate = await computeBalancesForDates(tx, acctId, dates);
-            await upsertSnapshots(acctId, balancesByDate, tx);
+            await recomputeAccountSnapshotsForDates(acctId, dates, tx);
           }
         }
       }
@@ -467,37 +467,9 @@ async function recomputeAnchoredHistory(
 }
 
 /**
- * Compute the cumulative balance at each requested date for `accountId`.
- *
- * Strategy: for each date, SUM(amount) WHERE posted_at <= date. Simple and
- * exact; called only for the (typically small) set of dates affected by this
- * sync run. Used as a FALLBACK when the current balance couldn't be fetched —
- * `recomputeAnchoredHistory` is the primary, anchored path. The Phase-3 importer
- * uses a richer running-balance walk because it has anchor + statement-end
- * semantics; the Plaid sync's anchor is the live balance instead.
+ * The affected-dates fallback recompute (cumulative SUM(amount) ≤ date) now
+ * lives in `src/lib/snapshots/recompute.ts` as
+ * {@link recomputeAccountSnapshotsForDates}, shared with the manual transaction
+ * delete/edit actions (P7-07). `recomputeAnchoredHistory` above remains the
+ * primary, live-balance-anchored path for Plaid accounts.
  */
-async function computeBalancesForDates(
-  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
-  accountId: string,
-  dates: ReadonlySet<string>,
-): Promise<Map<string, string>> {
-  const out = new Map<string, string>();
-  for (const date of dates) {
-    const [row] = await tx
-      .select({
-        balance: sql<string>`COALESCE(SUM(${transactions.amount})::text, '0')`,
-      })
-      .from(transactions)
-      .where(and(eq(transactions.accountId, accountId), lte(transactions.postedAt, date)));
-    out.set(date, formatMoney(row?.balance ?? "0"));
-  }
-  return out;
-}
-
-function formatMoney(raw: string): string {
-  // Postgres's SUM(numeric) returns canonical form like "12.34" or "-100.00"
-  // but a zero-sum returns "0". Normalize to 2 decimal places.
-  if (!raw.includes(".")) return `${raw}.00`;
-  const [int, frac] = raw.split(".");
-  return `${int}.${(frac ?? "00").padEnd(2, "0").slice(0, 2)}`;
-}

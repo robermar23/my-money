@@ -79,7 +79,7 @@ Inventory before writing code. Phase 7 mirrors conventions already in the repo:
 
 **P7-06 — Tests** (`actions` integration, real test DB): update applies name/institution; type/currency locked when data exists; delete cascades all child tables and is blocked for Plaid-linked; close removes the account from `computeNetWorth`.
 
-### Batch 2 — Transaction management (delete / edit)
+### Batch 2 — Transaction management (delete / edit) — ✅ Implemented 2026-06-19
 
 **P7-07 — Shared snapshot-recompute helper**
 - Extract the affected-date recompute used by [sync-plaid-item.ts](../../src/worker/jobs/sync-plaid-item.ts) / [importers/persist.ts](../../src/lib/importers/persist.ts) into e.g. `src/lib/snapshots/recompute.ts` (`recomputeAccountSnapshotsForDates(tx, accountId, dates)`), and call it from both the existing writers and the new transaction mutations. Keep behavior identical (verify against existing tests).
@@ -98,7 +98,7 @@ Inventory before writing code. Phase 7 mirrors conventions already in the repo:
 
 **P7-11 — Tests**: delete recomputes snapshot to correct balance; edit guarded off for Plaid rows; amount edit goes through `Money` and re-snapshots both dates.
 
-### Batch 3 — Balance-snapshot delete
+### Batch 3 — Balance-snapshot delete — ✅ Implemented 2026-06-19
 
 **P7-12 — `deleteSnapshotAction(accountIdRaw, dateRaw)`**
 - Validate `date` is `YYYY-MM-DD`; ownership-checked. Delete the `(account_id, date)` row. No recompute needed (snapshots are the source for balance-only accounts). Revalidate `/accounts/[id]`, `/accounts`, `/`.
@@ -108,7 +108,9 @@ Inventory before writing code. Phase 7 mirrors conventions already in the repo:
 
 **P7-14 — Tests**: delete removes the row + updates the account's current/latest value where that row was newest.
 
-### Batch 4 — Category-rule edit
+### Batch 4 — Category-rule edit — ✅ Implemented 2026-06-19
+
+> Note: `updateRuleAction` + `updateRuleSchema` (P7-15) had already landed under PLAN8's P8-10. Batch 4 here added the missing inline rule-edit UI (P7-16, `rule-row.tsx`) and the update-then-recategorize test (P7-17, `rule-update.test.ts`).
 
 **P7-15 — `updateRuleAction`** (`src/app/settings/categories/actions.ts`)
 - New `updateRuleSchema`: `{ pattern, field, category, priority }` (+ keep `flags`/`enabled`). Validate the regex compiles (reuse the create-action validation). Revalidate the categories page.

@@ -6,8 +6,9 @@ import { seedDefaultCategoriesAndRulesIfEmpty } from "@/lib/categorization/seed.
 import { asc } from "drizzle-orm";
 import Link from "next/link";
 import { CategoryManager } from "./category-manager.tsx";
-import { DeleteRule, RecategorizeAllButton, ToggleRule } from "./rule-actions.tsx";
+import { RecategorizeAllButton } from "./rule-actions.tsx";
 import { NewRuleForm } from "./rule-form.tsx";
+import { RuleRow } from "./rule-row.tsx";
 import { TestPanel } from "./test-panel.tsx";
 
 export default async function CategoriesSettingsPage(): Promise<React.JSX.Element> {
@@ -83,30 +84,20 @@ export default async function CategoriesSettingsPage(): Promise<React.JSX.Elemen
           </thead>
           <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
             {rules.map((r) => (
-              <tr key={r.id}>
-                <td className="py-1.5 font-mono">{r.priority}</td>
-                <td className="py-1.5 font-mono">{r.pattern}</td>
-                <td className="py-1.5 font-mono">{r.flags}</td>
-                <td className="py-1.5 text-zinc-600 dark:text-zinc-400">{r.field}</td>
-                <td className="py-1.5">{r.category}</td>
-                <td className="py-1.5 text-xs">
-                  {r.enabled ? (
-                    <span className="rounded bg-emerald-100 px-2 py-0.5 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200">
-                      enabled
-                    </span>
-                  ) : (
-                    <span className="rounded bg-zinc-100 px-2 py-0.5 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-                      disabled
-                    </span>
-                  )}
-                </td>
-                <td className="py-1.5">
-                  <div className="flex justify-end gap-1.5">
-                    <ToggleRule ruleId={r.id} enabled={r.enabled} />
-                    <DeleteRule ruleId={r.id} />
-                  </div>
-                </td>
-              </tr>
+              <RuleRow
+                key={r.id}
+                rule={{
+                  id: r.id,
+                  priority: r.priority,
+                  pattern: r.pattern,
+                  flags: r.flags,
+                  field: r.field,
+                  category: r.category,
+                  categoryId: r.categoryId,
+                  enabled: r.enabled,
+                }}
+                categories={categoryOptions}
+              />
             ))}
           </tbody>
         </table>

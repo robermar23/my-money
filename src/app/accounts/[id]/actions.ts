@@ -20,9 +20,11 @@ import {
   recordBalanceSchema,
   recordPropertyValueSchema,
   updateAccountSchema,
+  updateTransactionSchema,
   upsertHoldingSchema,
   upsertLotSchema,
 } from "@/lib/schemas/account.ts";
+import { recomputeAccountSnapshotsForDates } from "@/lib/snapshots/recompute.ts";
 import { toAccountId } from "@/lib/types/ids.ts";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -577,5 +579,146 @@ export async function setTransactionCategoryAction(
 
   revalidatePath(`/accounts/${accountIdRaw}`);
   revalidatePath("/analysis/review");
+  return { ok: true };
+}
+
+/**
+ * Delete a single transaction (P7-08).
+ *
+ * Ownership-checked (the row must belong to `accountIdRaw`). In one DB
+ * transaction the row's `posted_at` is captured, the row deleted, and the
+ * affected-date snapshot recomputed (shared helper, P7-07) so the account's
+ * balance history doesn't silently drift.
+ *
+ * Permanent for manual/imported rows. A Plaid-sourced row will re-appear on the
+ * next sync (the sync is a full-snapshot reconcile); the UI notes this.
+ *
+ * @param accountIdRaw - The owning account UUID (scopes the delete).
+ * @param transactionIdRaw - The transaction UUID.
+ * @returns ActionResult with `ok`, or `error` on bad input.
+ */
+export async function deleteTransactionAction(
+  accountIdRaw: string,
+  transactionIdRaw: string,
+): Promise<ActionResult> {
+  const { accountId } = await loadAccount(accountIdRaw);
+  if (!UUID_RE.test(transactionIdRaw)) {
+    return { error: "Invalid transaction id" };
+  }
+  await db.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ postedAt: transactions.postedAt })
+      .from(transactions)
+      .where(and(eq(transactions.id, transactionIdRaw), eq(transactions.accountId, accountId)))
+      .limit(1);
+    if (!row) return;
+    await tx
+      .delete(transactions)
+      .where(and(eq(transactions.id, transactionIdRaw), eq(transactions.accountId, accountId)));
+    await recomputeAccountSnapshotsForDates(accountId, new Set([row.postedAt]), tx);
+  });
+
+  revalidatePath(`/accounts/${accountIdRaw}`);
+  revalidatePath("/accounts");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/**
+ * Edit a manual/imported transaction's date, payee, memo, and amount (P7-09).
+ *
+ * Guarded to non-Plaid rows: a Plaid sync is authoritative for its rows and
+ * would overwrite the edit, so those are rejected with a note (their category
+ * stays editable via {@link setTransactionCategoryAction}). The amount is
+ * normalized through `Money` (never `Number`) to keep the canonical 2-decimal
+ * string. Snapshots are recomputed for both the old and new `posted_at` so a
+ * date move re-balances both days.
+ *
+ * @param accountIdRaw - The owning account UUID (scopes the update).
+ * @param transactionIdRaw - The transaction UUID.
+ * @param _prev - Previous action state (unused; required by useActionState).
+ * @param formData - Form fields: postedAt, name, memo, amount.
+ * @returns ActionResult with `ok`, or `error` on bad input / Plaid row.
+ */
+export async function updateTransactionAction(
+  accountIdRaw: string,
+  transactionIdRaw: string,
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const { accountId, account } = await loadAccount(accountIdRaw);
+  if (!UUID_RE.test(transactionIdRaw)) {
+    return { error: "Invalid transaction id" };
+  }
+  const [existing] = await db
+    .select({ source: transactions.source, postedAt: transactions.postedAt })
+    .from(transactions)
+    .where(and(eq(transactions.id, transactionIdRaw), eq(transactions.accountId, accountId)))
+    .limit(1);
+  if (!existing) {
+    return { error: "Transaction not found" };
+  }
+  if (existing.source === "plaid") {
+    return { error: "Synced transactions can't be edited — only the category is editable." };
+  }
+
+  const parsed = updateTransactionSchema.safeParse({
+    postedAt: formData.get("postedAt"),
+    name: formData.get("name"),
+    memo: formData.get("memo") ?? "",
+    amount: formData.get("amount"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  // Canonicalize the amount through Money — never native number math on money.
+  const amount = Money.fromString(parsed.data.amount, account.currency).toString();
+  const memo = parsed.data.memo && parsed.data.memo.length > 0 ? parsed.data.memo : null;
+
+  await db.transaction(async (tx) => {
+    await tx
+      .update(transactions)
+      .set({ postedAt: parsed.data.postedAt, name: parsed.data.name, memo, amount })
+      .where(and(eq(transactions.id, transactionIdRaw), eq(transactions.accountId, accountId)));
+    await recomputeAccountSnapshotsForDates(
+      accountId,
+      new Set([existing.postedAt, parsed.data.postedAt]),
+      tx,
+    );
+  });
+
+  revalidatePath(`/accounts/${accountIdRaw}`);
+  revalidatePath("/accounts");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/**
+ * Delete a single balance snapshot for `(account_id, date)` (P7-12).
+ *
+ * For balance-only accounts the snapshot is the source of truth, so no
+ * transaction recompute is needed — removing the row drops that day's data
+ * point. Useful for removing a wrong-dated manual balance (overwrite only fixes
+ * same-date mistakes).
+ *
+ * @param accountIdRaw - The owning account UUID.
+ * @param dateRaw - The snapshot date, `YYYY-MM-DD`.
+ * @returns ActionResult with `ok`, or `error` on bad input.
+ */
+export async function deleteSnapshotAction(
+  accountIdRaw: string,
+  dateRaw: string,
+): Promise<ActionResult> {
+  const { accountId } = await loadAccount(accountIdRaw);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) {
+    return { error: "Invalid date" };
+  }
+  await db
+    .delete(accountSnapshots)
+    .where(and(eq(accountSnapshots.accountId, accountId), eq(accountSnapshots.date, dateRaw)));
+  revalidatePath(`/accounts/${accountIdRaw}`);
+  revalidatePath("/accounts");
+  revalidatePath("/");
   return { ok: true };
 }

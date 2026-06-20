@@ -13,7 +13,7 @@ import {
 } from "@/db/schema/index.ts";
 import { matchCategory, sortRules } from "@/lib/categorization/match.ts";
 import { computeNetWorth } from "@/lib/net-worth/compute.ts";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 /* ---------------------------------------------------------------------------
@@ -38,6 +38,9 @@ const {
   reopenAccountAction,
   deleteAccountAction,
   setTransactionCategoryAction,
+  deleteTransactionAction,
+  updateTransactionAction,
+  deleteSnapshotAction,
 } = await import("./actions.ts");
 
 async function seedHolding(): Promise<{ accountId: string; holdingId: string }> {
@@ -398,5 +401,192 @@ describe("setTransactionCategoryAction (P8-08)", () => {
     expect(res.error).toBe("Category not found");
     const [row] = await db.select().from(transactions).where(eq(transactions.id, txnId));
     expect(row?.categoryId).toBeNull();
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * Phase 7 — Batch 2: transaction delete / edit (P7-08 / P7-09).
+ * --------------------------------------------------------------------------- */
+
+async function seedTxnAccount(): Promise<string> {
+  await db.execute(sql`TRUNCATE accounts, transactions, account_snapshots CASCADE`);
+  const [account] = await db
+    .insert(accounts)
+    .values({ name: "Checking", institution: "M&T", type: "depository", currency: "USD" })
+    .returning({ id: accounts.id });
+  if (!account) throw new Error("seed account");
+  return account.id;
+}
+
+async function snapshotOn(accountId: string, date: string): Promise<string | undefined> {
+  const [row] = await db
+    .select({ balance: accountSnapshots.balance })
+    .from(accountSnapshots)
+    .where(and(eq(accountSnapshots.accountId, accountId), eq(accountSnapshots.date, date)));
+  return row?.balance;
+}
+
+describe("deleteTransactionAction (P7-08)", () => {
+  it("deletes the row and recomputes the affected-date snapshot", async () => {
+    const accountId = await seedTxnAccount();
+    await db.insert(transactions).values([
+      {
+        accountId,
+        postedAt: "2026-05-01",
+        amount: "100.00",
+        name: "Paycheck",
+        fitid: "a",
+        source: "manual",
+      },
+      {
+        accountId,
+        postedAt: "2026-05-02",
+        amount: "-30.00",
+        name: "Groceries",
+        fitid: "b",
+        source: "manual",
+      },
+    ]);
+    // Snapshots as the importer would have written them (cumulative).
+    await db.insert(accountSnapshots).values([
+      { accountId, date: "2026-05-01", balance: "100.00" },
+      { accountId, date: "2026-05-02", balance: "70.00" },
+    ]);
+    const [groceries] = await db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(eq(transactions.fitid, "b"));
+    if (!groceries) throw new Error("seed txn");
+
+    const res = await deleteTransactionAction(accountId, groceries.id);
+    expect(res.ok).toBe(true);
+    expect(
+      await db.select().from(transactions).where(eq(transactions.id, groceries.id)),
+    ).toHaveLength(0);
+    // After deletion, SUM(amount <= 2026-05-02) is just the +100 paycheck.
+    expect(await snapshotOn(accountId, "2026-05-02")).toBe("100.00");
+  });
+
+  it("rejects a malformed transaction id without writing", async () => {
+    const accountId = await seedTxnAccount();
+    await db
+      .insert(transactions)
+      .values({
+        accountId,
+        postedAt: "2026-05-01",
+        amount: "100.00",
+        name: "Paycheck",
+        fitid: "a",
+        source: "manual",
+      });
+    const res = await deleteTransactionAction(accountId, "not-a-uuid");
+    expect(res.error).toBeTruthy();
+    expect(await db.select().from(transactions)).toHaveLength(1);
+  });
+});
+
+describe("updateTransactionAction (P7-09)", () => {
+  it("is blocked for Plaid-sourced rows", async () => {
+    const accountId = await seedTxnAccount();
+    const [txn] = await db
+      .insert(transactions)
+      .values({
+        accountId,
+        postedAt: "2026-05-01",
+        amount: "-5.00",
+        name: "STARBUCKS",
+        fitid: "p1",
+        source: "plaid",
+      })
+      .returning({ id: transactions.id });
+    if (!txn) throw new Error("seed txn");
+
+    const fd = accountForm({ postedAt: "2026-05-01", name: "Edited", memo: "", amount: "-9.00" });
+    const res = await updateTransactionAction(accountId, txn.id, {}, fd);
+    expect(res.error).toMatch(/synced/i);
+    const [row] = await db.select().from(transactions).where(eq(transactions.id, txn.id));
+    expect(row?.name).toBe("STARBUCKS");
+    expect(row?.amount).toBe("-5.00");
+  });
+
+  it("edits amount through Money and re-snapshots both old and new dates", async () => {
+    const accountId = await seedTxnAccount();
+    await db.insert(transactions).values([
+      {
+        accountId,
+        postedAt: "2026-05-01",
+        amount: "100.00",
+        name: "Paycheck",
+        fitid: "a",
+        source: "manual",
+      },
+      {
+        accountId,
+        postedAt: "2026-05-02",
+        amount: "-30.00",
+        name: "Groceries",
+        fitid: "b",
+        source: "manual",
+      },
+    ]);
+    await db.insert(accountSnapshots).values([
+      { accountId, date: "2026-05-01", balance: "100.00" },
+      { accountId, date: "2026-05-02", balance: "70.00" },
+    ]);
+    const [groceries] = await db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(eq(transactions.fitid, "b"));
+    if (!groceries) throw new Error("seed txn");
+
+    // Move the -30 groceries row to 2026-05-03 and re-enter the amount without
+    // decimals to prove Money canonicalizes it.
+    const fd = accountForm({ postedAt: "2026-05-03", name: "Groceries", memo: "", amount: "-30" });
+    const res = await updateTransactionAction(accountId, groceries.id, {}, fd);
+    expect(res.ok).toBe(true);
+
+    const [row] = await db.select().from(transactions).where(eq(transactions.id, groceries.id));
+    expect(row?.amount).toBe("-30.00");
+    expect(row?.postedAt).toBe("2026-05-03");
+
+    // Old date (05-02) no longer includes the moved row → 100.00.
+    expect(await snapshotOn(accountId, "2026-05-02")).toBe("100.00");
+    // New date (05-03) includes both rows → 70.00.
+    expect(await snapshotOn(accountId, "2026-05-03")).toBe("70.00");
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * Phase 7 — Batch 3: balance-snapshot delete (P7-12).
+ * --------------------------------------------------------------------------- */
+
+describe("deleteSnapshotAction (P7-12)", () => {
+  it("removes the row so the prior snapshot becomes the latest balance", async () => {
+    const accountId = await seedTxnAccount();
+    await db.insert(accountSnapshots).values([
+      { accountId, date: "2026-05-01", balance: "100.00" },
+      { accountId, date: "2026-05-02", balance: "200.00" },
+    ]);
+
+    const res = await deleteSnapshotAction(accountId, "2026-05-02");
+    expect(res.ok).toBe(true);
+
+    const remaining = await db
+      .select()
+      .from(accountSnapshots)
+      .where(eq(accountSnapshots.accountId, accountId));
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]?.date).toBe("2026-05-01");
+
+    const nw = await computeNetWorth();
+    expect(nw.total.toString()).toBe("100.00");
+  });
+
+  it("rejects a malformed date without writing", async () => {
+    const accountId = await seedTxnAccount();
+    await db.insert(accountSnapshots).values({ accountId, date: "2026-05-01", balance: "100.00" });
+    const res = await deleteSnapshotAction(accountId, "05/01/2026");
+    expect(res.error).toBeTruthy();
+    expect(await db.select().from(accountSnapshots)).toHaveLength(1);
   });
 });

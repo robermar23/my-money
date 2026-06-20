@@ -23,6 +23,7 @@ import { notFound } from "next/navigation";
 import { AccountAdmin } from "./account-admin.tsx";
 import { BalanceForm } from "./balance-form.tsx";
 import { DeleteHoldingButton } from "./delete-holding-button.tsx";
+import { DeleteSnapshotButton } from "./delete-snapshot-button.tsx";
 import { HoldingForm } from "./holding-form.tsx";
 import { type LotView, LotsEditor } from "./lot-form.tsx";
 import { MortgageForm } from "./mortgage-form.tsx";
@@ -460,6 +461,7 @@ export default async function AccountDetailPage(
                 <tr>
                   <th className="py-2">Date</th>
                   <th className="py-2 text-right">Balance</th>
+                  <th className="py-2 text-right" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
@@ -468,6 +470,9 @@ export default async function AccountDetailPage(
                     <td className="py-2 font-mono">{s.date}</td>
                     <td className="py-2 text-right font-mono">
                       {Money.fromString(s.balance, account.currency).format()}
+                    </td>
+                    <td className="py-2 text-right">
+                      <DeleteSnapshotButton accountId={account.id} date={s.date} />
                     </td>
                   </tr>
                 ))}

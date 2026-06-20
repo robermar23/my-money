@@ -65,6 +65,21 @@ export const recordBalanceSchema = z.object({
   balance: moneyAmountSchema,
 });
 
+/**
+ * Edit a manual/imported transaction (P7-09). Plaid-sourced rows are rejected
+ * by the action (the next sync would overwrite the edit); only the date, payee,
+ * memo, and signed amount are user-editable. `amount` keeps the stored OFX sign
+ * (positive = inflow, negative = outflow) and is normalized through `Money`.
+ */
+export const updateTransactionSchema = z.object({
+  postedAt: isoDateSchema,
+  name: z.string().trim().min(1, "Payee is required").max(500),
+  memo: z.string().trim().max(500).optional().or(z.literal("")),
+  amount: moneyAmountSchema,
+});
+
+export type UpdateTransactionInput = z.infer<typeof updateTransactionSchema>;
+
 export const upsertHoldingSchema = z.object({
   symbol: z.string().trim().min(1, "Symbol is required").max(20),
   quantity: quantitySchema,

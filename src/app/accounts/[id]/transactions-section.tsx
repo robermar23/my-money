@@ -1,8 +1,7 @@
 import type { CategoryOption } from "@/components/category-picker.tsx";
 import type { Transaction } from "@/db/schema/index.ts";
-import { Money } from "@/lib/money/money.ts";
 import Link from "next/link";
-import { CategoryCell } from "./category-cell.tsx";
+import { TransactionRow } from "./transaction-row.tsx";
 
 interface Props {
   readonly accountId: string;
@@ -57,39 +56,20 @@ export function TransactionsSection({
                 <th className="py-1.5">Payee</th>
                 <th className="py-1.5">Category</th>
                 <th className="py-1.5 text-right">Amount</th>
+                <th className="py-1.5 text-right" />
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
-              {rows.map((t) => {
-                const displayAmount = flipSign
-                  ? Money.fromString(t.amount, accountCurrency).negate()
-                  : Money.fromString(t.amount, accountCurrency);
-                return (
-                  <tr key={t.id}>
-                    <td className="py-1.5 font-mono">{t.postedAt}</td>
-                    <td className="py-1.5">
-                      <div>{t.name}</div>
-                      {t.memo && <div className="text-xs text-zinc-500">{t.memo}</div>}
-                    </td>
-                    <td className="py-1.5">
-                      <CategoryCell
-                        accountId={accountId}
-                        transactionId={t.id}
-                        currentId={t.categoryId}
-                        currentName={t.category}
-                        categories={categories}
-                      />
-                    </td>
-                    <td
-                      className={`py-1.5 text-right font-mono ${
-                        displayAmount.isNegative() ? "text-red-700 dark:text-red-300" : ""
-                      }`}
-                    >
-                      {displayAmount.format()}
-                    </td>
-                  </tr>
-                );
-              })}
+              {rows.map((t) => (
+                <TransactionRow
+                  key={t.id}
+                  accountId={accountId}
+                  accountCurrency={accountCurrency}
+                  flipSign={flipSign}
+                  txn={t}
+                  categories={categories}
+                />
+              ))}
             </tbody>
           </table>
         </div>
