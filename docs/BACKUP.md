@@ -97,11 +97,22 @@ rclone sync /var/lib/docker/volumes/my-money_backups/_data b2:my-money-backups
 
 ## Run one on demand
 
-Inside the running stack (where `pg_dump`/`age` exist in the worker image):
+The worker image carries `pg_dump`/`age`. Use `run --rm` (not `exec`): a fresh
+one-off container re-evaluates `--env-file` at launch, so a `BACKUP_AGE_RECIPIENT`
+you just added is picked up immediately. `exec` reuses the **running** worker's
+environment — frozen when that container was created — so a var added afterward is
+invisible and the job logs `disabled: BACKUP_AGE_RECIPIENT not set; skipping` until
+the worker is recreated.
+
+Both invocations need the `register.mjs` loader: it stubs Next's `server-only`
+marker (not a real installed package), without which `run-once.ts` aborts with
+`ERR_MODULE_NOT_FOUND: Cannot find package 'server-only'` before the backup runs.
+The flags mirror the worker's compose `command`.
 
 ```bash
-docker compose -f docker/compose.yaml --profile prod exec worker \
-  node --import tsx src/worker/run-once.ts backup-database-daily
+docker compose -f docker/compose.yaml --profile prod run --rm --no-deps worker \
+  node --experimental-strip-types --import tsx --import ./scripts/loaders/register.mjs \
+  src/worker/run-once.ts backup-database-daily
 docker compose -f docker/compose.yaml --profile prod exec worker ls -lh /backups
 # → money-YYYYMMDDTHHMMSSZ.dump.age
 ```

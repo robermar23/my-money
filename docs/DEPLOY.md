@@ -544,11 +544,14 @@ The worker runs two longevity jobs nightly (both **opt-in** via env):
 
    ```sh
    docker compose -f docker/compose.yaml --profile prod up -d worker
-   # optional immediate run instead of waiting for 04:00:
-   docker compose -f docker/compose.yaml exec worker \
-     node --import tsx src/worker/run-once.ts backup-database-daily
-   docker compose -f docker/compose.yaml exec worker ls -lh /backups
-   # → money-YYYY-MM-DD-HHMMSS.dump.age
+   # optional immediate run instead of waiting for 04:00 (recreate above means
+   # `exec` now has the new env; the register.mjs loader stubs `server-only`,
+   # without which run-once.ts fails with ERR_MODULE_NOT_FOUND):
+   docker compose -f docker/compose.yaml --profile prod exec worker \
+     node --experimental-strip-types --import tsx --import ./scripts/loaders/register.mjs \
+     src/worker/run-once.ts backup-database-daily
+   docker compose -f docker/compose.yaml --profile prod exec worker ls -lh /backups
+   # → money-YYYYMMDDTHHMMSSZ.dump.age
    ```
 
 ### 6.2 — Enable the beancount export (ADR-016)
@@ -603,8 +606,11 @@ passes the backup/export vars through; mirror those entries for the SMTP/alert
 vars when you enable email). Verify with a forced run:
 
 ```sh
-docker compose -f docker/compose.yaml exec worker \
-  node --import tsx src/worker/run-once.ts detect-anomalies-daily
+# `run --rm` re-reads --env-file at launch (so newly-added vars are seen) and the
+# register.mjs loader stubs Next's `server-only` marker (else ERR_MODULE_NOT_FOUND):
+docker compose -f docker/compose.yaml --profile prod run --rm --no-deps worker \
+  node --experimental-strip-types --import tsx --import ./scripts/loaders/register.mjs \
+  src/worker/run-once.ts detect-anomalies-daily
 ```
 
 ## 8. What runs when (nightly timeline)
