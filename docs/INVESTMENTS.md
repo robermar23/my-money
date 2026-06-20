@@ -5,12 +5,21 @@ allocation, and dividend/interest income. Two ingestion tracks feed the same
 `/investments` dashboard — **Plaid Investments** (automated, for brokerages
 that support it) and **manual entry** (for everything Plaid can't reach).
 
-> **Gain/loss here is a display figure, not tax advice.** It is simply
-> `current value − cost basis`. my-money does **not** do tax-lot selection
-> (FIFO/LIFO/specific-ID), wash-sale tracking, realized-vs-unrealized
-> capital-gains reporting, or 1099 generation — those are explicitly out of
-> scope (CLAUDE.md §Domain Scope). Lots exist to make the cost-basis number
-> *more accurate*, nothing more. For taxes, use your brokerage's documents.
+> **Every figure here is a display number, not tax or investment advice.**
+> Gain/loss is simply `current value − cost basis`; performance metrics (TWR,
+> XIRR, contributions-vs-growth, benchmark) are read-only display figures; the
+> value projection is an **illustrative estimate**, never a recommendation.
+> my-money does **not** do tax-lot selection (FIFO/LIFO/specific-ID), wash-sale
+> tracking, realized-vs-unrealized capital-gains reporting, or 1099 generation —
+> those are explicitly out of scope (CLAUDE.md §Domain Scope). Lots exist to make
+> the cost-basis number *more accurate*, nothing more. For taxes, use your
+> brokerage's documents.
+>
+> **Privacy:** the asset-intelligence fetch (sector/industry/dividend metadata)
+> sends **only ticker symbols** outbound to the same public market-data endpoint
+> the nightly price fetch already uses. No quantities, balances, account names,
+> or holdings ever leave the host; every chart and metric is first-party SQL over
+> local Postgres. See [THREAT_MODEL_MARKETDATA.md](THREAT_MODEL_MARKETDATA.md).
 
 ---
 
@@ -22,7 +31,10 @@ value is `quantity × latest price`, not a typed-in balance. Cash, credit-card,
 loan, and property accounts are not shown here.
 
 Reach the dashboard from the **"Investments →"** link on the home page or the
-accounts page.
+accounts page. The investments surface has three sub-tabs (top-right of each
+page): **Overview** (this dashboard), **Performance** (returns over time), and
+**Forecast** (forward income + value projection). Clicking a position's symbol
+opens its **per-security detail** page.
 
 ---
 
@@ -130,6 +142,114 @@ lot and the basis falls back to the aggregate column.
 - **Dividend & interest income** — stacked bars by month / quarter / year
   (toggle in the URL). Sourced from Plaid investment transactions of subtype
   `dividend`/`interest`; manual accounts have none unless you import them.
+
+---
+
+## Per-position history (`holding_snapshots`)
+
+To slice investment value *over time* — by asset class, account, or a single
+security — my-money records a **daily value per position** in `holding_snapshots`
+(PK `(holding_id, date)`), one level finer than the account-level
+`account_snapshots`. Each row stores the day's quantity, value
+(`quantity × close`), resolved cost basis, and currency.
+
+- **Written by the existing nightly job.** `compute-snapshots-daily` already
+  values every holding to compute the account snapshot, so it emits the
+  per-holding rows in the same pass — no extra price fetches. The write is
+  idempotent (`ON CONFLICT (holding_id, date) DO UPDATE`), so re-runs are safe.
+- **Unpriced securities are skipped, not written at $0** — an honest gap beats a
+  fake zero that would distort the value line.
+
+> **Estimated pre-deploy history.** Plaid reports *current* holdings, not your
+> past positions. The one-time backfill (`run-once backfill-holding-snapshots`)
+> therefore approximates history as **today's quantity × each past day's close** —
+> useful for a value trend, but not an exact reconstruction. From the day the
+> nightly job starts running, the recorded quantity is the *actual* held quantity,
+> so accuracy improves going forward. The performance and per-security pages carry
+> this caveat inline.
+
+---
+
+## Asset intelligence (security enrichment)
+
+Securities are enriched with metadata so allocation can be sliced by **sector /
+industry / region / asset type** and forward dividend income can be projected.
+The enrichment columns on `securities` are all nullable and additive: `sector`,
+`industry`, `asset_type`, `region`, `expense_ratio`, `dividend_rate` (the
+**forward annual $/share** — yield is derived at display as `rate ÷ price`, never
+stored stale), `dividend_ex_date`, and a `fundamentals_refreshed_at` watermark.
+
+- **Source.** A weekly BullMQ job, `refresh-fundamentals-weekly`, fetches each
+  held ticker's profile/summary from the same public Yahoo endpoints used for
+  prices and upserts the columns. Fundamentals change slowly, so weekly (not
+  daily) is plenty; it refreshes only securities whose watermark is null or older
+  than 7 days. Trigger it on demand with `run-once refresh-fundamentals-weekly`.
+- **Privacy.** The fetch sends **only the ticker symbol** outbound — the same data
+  category and trust boundary as the price fetch. No holdings, quantities, or
+  balances are transmitted. Synthetic `SEC:` symbols and crypto/metals are
+  skipped (no public fundamentals); their `asset_type` is set from the existing
+  `asset_class`. See [THREAT_MODEL_MARKETDATA.md](THREAT_MODEL_MARKETDATA.md).
+- **Coverage is patchy.** Proprietary/401k funds, foreign tickers, and anything
+  `SEC:`-synthetic stay null and render as an **"Unclassified"** allocation
+  bucket — never a crash, never a guess.
+
+On the **Overview** page the allocation donut has a slice-dimension toggle (asset
+class / sector / region / account), and a **top-holdings concentration** table
+flags single-name risk (each row's percent is its share of the *whole*
+portfolio, so the top N need not sum to 100%).
+
+---
+
+## Reading the Performance tab
+
+`/investments/performance` answers "how did my investments actually do?" — all
+read-only display metrics, computed with `decimal.js` (never float), from
+`holding_snapshots` + the investment-transaction stream + one benchmark symbol.
+Pick a date range and (optionally) a single account with the controls at top.
+
+- **Gain / loss** — `value − cost basis` at the latest dated point with a known
+  basis. The "what is it worth vs. what I paid" number.
+- **Time-weighted return (TWR)** — chains daily sub-period returns and
+  *neutralizes the timing and size of your contributions*. This is the
+  "how did the **investments** perform" rate, comparable to a fund's published
+  return — and the apples-to-apples basis for the benchmark.
+- **Money-weighted return (XIRR)** — the *personal* rate of return, which **does**
+  account for when and how much you contributed. If you bought heavily right
+  before a run-up, XIRR rewards that timing; TWR does not. They differ when
+  contributions are lumpy — that difference is the point.
+- **vs S&P 500** — your TWR minus a buy-and-hold `^GSPC` TWR over the same range,
+  both indexed to 100 at the range start. The benchmark price rides the existing
+  nightly fetcher (just another symbol in `prices`).
+- **Contributions vs. market growth** — splits the change in value into money you
+  *added* (`netExternalFlows` = buys/deposits − sells/withdrawals) versus
+  `marketGrowth = (end − start) − netFlows`. Answers "did it grow, or did I just
+  add money?"
+
+> If a range has fewer than two days of real snapshot data, the page shows
+> **"insufficient history"** rather than a misleading return. Early ranges that
+> rest on the approximate backfill carry the estimated-history caveat.
+
+---
+
+## Reading the Forecast tab
+
+`/investments/forecast` is the **forward** view. A single unconditional banner
+states up front: *"Projections are illustrative estimates, not financial advice."*
+
+- **Forward 12-month income** — `Σ held_shares × forward dividend_rate`, with a
+  per-holding and per-account breakdown and a **yield-on-cost** figure (forward
+  income ÷ cost basis). Grounded in held quantity × the published forward rate —
+  an estimate of distributions, not a market prediction. Holdings with no
+  distribution contribute nothing.
+- **Income growth** — *actual* dividend/interest received per year, with
+  year-over-year growth and a trailing-12-month run rate. History, not a forecast.
+- **Value projection** — a deterministic compound projection of the current total
+  at a user-chosen assumption (5 / 7 / 10%), drawn as a **dashed** line because it
+  is illustrative end-to-end. It does **not** predict the market.
+- **Goal marker** — enter a target and an optional monthly contribution; the page
+  marks the projected date the portfolio reaches it (or says it isn't reached
+  within 100 years). A single-target marker only — no Monte Carlo, no withdrawal
+  modeling (those are explicitly deferred per ADR-022).
 
 ---
 

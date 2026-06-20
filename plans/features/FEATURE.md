@@ -52,3 +52,33 @@ to provide details on spending and budgets related to categories" and to see
 
 Implemented under **ADR-018** (IDEAS.md §11 Decision Log) via [PLAN8.md](PLAN8.md).
 
+### 2026-06-20 — Investment history, performance, asset intelligence, forward view (in scope)
+
+Source: [IDEAS2.md](IDEAS2.md) Round 3. The owner asked to expand investments the
+way spend was expanded: "Historical as well as future. Can we bring in any info on
+the invested assets? How can we slice the data?"
+
+- **In scope (newly added):**
+  - **Per-holding history** — a daily value per position (`holding_snapshots`) so
+    investment value can be sliced over time by asset class / account / security.
+  - **Asset intelligence** — sector / industry / asset-type / region / forward
+    dividend metadata pulled from the same public market-data source already used
+    for prices, to slice allocation and project forward income.
+  - **Performance display** — value & gain/loss over time, contributions-vs-market-
+    growth, time-weighted (TWR) and money-weighted (XIRR) return, and an `^GSPC`
+    benchmark comparison. **All read-only display metrics.**
+  - **Forward view** — projected forward dividend income + yield-on-cost, an
+    income-growth trend, and a **clearly-labeled illustrative value projection**
+    with a single-target goal/retirement marker.
+- **Reaffirmed OUT of scope (not relaxed):** tax-lot selection (FIFO/LIFO/specific-
+  ID), wash-sale tracking, realized-vs-unrealized capital-gains *reporting*, 1099
+  generation, and any financial *advice* feature. TWR/XIRR/projection are display
+  numbers; the value projection is a labeled estimate, never a recommendation.
+  Crossing this line needs a new FEATURE.md decision first.
+- **Privacy stance:** the asset-intelligence fetch sends **only ticker symbols**
+  outbound to the public market-data endpoint — the exact data category and trust
+  boundary the existing price fetch already crosses. No quantities, balances,
+  account names, or holdings leave the host; all analytics are first-party SQL.
+
+Implemented under **ADR-019 → ADR-022** (IDEAS.md §11 Decision Log) via [PLAN9.md](PLAN9.md).
+

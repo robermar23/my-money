@@ -20,8 +20,8 @@ import {
 } from "@/lib/investments/queries.ts";
 import { Money } from "@/lib/money/money.ts";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { AnalysisControls } from "../../analysis/analysis-controls.tsx";
+import { InvestmentTabs } from "../investment-tabs.tsx";
 import { AttributionChart } from "./attribution-chart.tsx";
 import { ReturnVsBenchmarkChart } from "./return-vs-benchmark-chart.tsx";
 import { ValueOverTimeChart } from "./value-over-time-chart.tsx";
@@ -126,15 +126,7 @@ export default async function PerformancePage(props: PageProps): Promise<React.J
     <main className="mx-auto max-w-5xl p-6">
       <div className="flex items-center justify-between">
         <h1 className="font-semibold text-2xl tracking-tight">Investment performance</h1>
-        <nav className="flex items-center gap-4 text-sm">
-          <Link href="/investments" className="text-zinc-500 hover:underline">
-            Overview
-          </Link>
-          <span className="font-medium">Performance</span>
-          <Link href="/investments/forecast" className="text-zinc-500 hover:underline">
-            Forecast
-          </Link>
-        </nav>
+        <InvestmentTabs active="performance" />
       </div>
       <p className="mt-1 text-sm text-zinc-500">{range.label}</p>
 

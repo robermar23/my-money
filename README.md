@@ -26,6 +26,8 @@ See [plans/features/FEATURE.md](plans/features/FEATURE.md) for the why, [plans/f
 
 **Phase 8 (categorization, spending analytics & budgets) — complete.** Free-text categories replaced by a structured two-level taxonomy (`category_groups` + `categories`, each tagged `income` / `expense` / `transfer` so internal moves and card payments stay out of spend totals). Fast inline categorization (managed picker with create-and-rule), a bulk **Review uncategorized** queue, a spending-analysis surface at `/analysis` (income/expense/net/savings tiles, stacked spend-by-month + net line, category-breakdown donut, per-category drill-down), monthly per-category **budgets** with actual-vs-target progress bars, and a deterministic **trailing-average forecast** plus month-to-date run-rate projections. All first-party SQL — no third-party analytics, no LLM categorization. See [plans/features/PLAN8.md](plans/features/PLAN8.md) (ADR-018).
 
+**Phase 9 (investment depth II — history, performance, asset intelligence, forward view) — complete.** Per-holding daily snapshots (`holding_snapshots`) power value-over-time slicing; securities are enriched weekly with sector / industry / region / asset-type / forward-dividend metadata (only ticker symbols egress). New sub-tabs: **Performance** (`/investments/performance` — TWR, XIRR, gain/loss, contributions-vs-market-growth, `^GSPC` benchmark) and **Forecast** (`/investments/forecast` — forward 12-month income, yield-on-cost, income-growth trend, and a clearly-labeled illustrative value projection with a goal marker), plus per-security drill-down pages with price history and allocation slicing by sector/region/account. Every figure is a read-only display metric — no tax lots, cap-gains, or 1099. See [docs/INVESTMENTS.md](docs/INVESTMENTS.md), [docs/THREAT_MODEL_MARKETDATA.md](docs/THREAT_MODEL_MARKETDATA.md), and [plans/features/PLAN9.md](plans/features/PLAN9.md) (ADR-019 → ADR-022).
+
 ---
 
 ## Prerequisites
@@ -111,9 +113,19 @@ an asset-allocation donut, and dividend/interest income over time.
   page (quarterly), and optionally record **cost-basis lots** for accurate
   gain/loss. Prices update overnight; you only type quantities.
 
-Gain/loss is a display figure — `value − cost basis`. my-money does **not** do
-tax-lot accounting, wash sales, or 1099/cap-gains reporting. See
-[docs/INVESTMENTS.md](docs/INVESTMENTS.md) for the full guide.
+Three sub-tabs sit at the top of the surface: **Overview** (this dashboard, with
+allocation slicing by sector/region/account and a top-holdings concentration
+table), **Performance** (value & return over time — TWR, XIRR, gain/loss,
+contributions-vs-market-growth, and an S&P 500 benchmark), and **Forecast**
+(forward 12-month dividend income, yield-on-cost, income-growth trend, and a
+clearly-labeled illustrative value projection with a goal marker). Click any
+position's symbol for a per-security detail page with price history.
+
+Every figure is a display metric — `value − cost basis` for gain/loss; TWR/XIRR
+and the value projection are read-only/illustrative. my-money does **not** do
+tax-lot accounting, wash sales, or 1099/cap-gains reporting, and projections are
+not financial advice. See [docs/INVESTMENTS.md](docs/INVESTMENTS.md) for the full
+guide.
 
 ## Fallback — QFX/CSV import (Phase 3)
 

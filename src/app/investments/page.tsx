@@ -23,6 +23,7 @@ import { Money } from "@/lib/money/money.ts";
 import Link from "next/link";
 import { AllocationChart } from "./allocation-chart.tsx";
 import { IncomeChart } from "./income-chart.tsx";
+import { InvestmentTabs } from "./investment-tabs.tsx";
 import { RefreshPricesButton } from "./refresh-prices-button.tsx";
 
 interface InvestmentsPageProps {
@@ -205,14 +206,9 @@ export default async function InvestmentsPage(
           <p className="mt-1 text-sm text-zinc-500">
             Positions, cost basis, and gain/loss across your brokerage, IRA, and crypto accounts.
           </p>
-          <div className="mt-2 flex items-center gap-3">
+          <div className="mt-2 flex items-center gap-4">
             <RefreshPricesButton />
-            <Link href="/investments/performance" className="text-sm text-zinc-500 hover:underline">
-              Performance →
-            </Link>
-            <Link href="/investments/forecast" className="text-sm text-zinc-500 hover:underline">
-              Forecast →
-            </Link>
+            <InvestmentTabs active="overview" />
           </div>
         </div>
         <div className="text-right">

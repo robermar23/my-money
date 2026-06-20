@@ -16,6 +16,7 @@ import {
 import { Money } from "@/lib/money/money.ts";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { InvestmentTabs } from "../investment-tabs.tsx";
 import { IncomeGrowthChart } from "./income-growth-chart.tsx";
 import { ValueProjectionChart } from "./value-projection-chart.tsx";
 
@@ -141,15 +142,7 @@ export default async function ForecastPage(props: PageProps): Promise<React.JSX.
     <main className="mx-auto max-w-5xl p-6">
       <div className="flex items-center justify-between">
         <h1 className="font-semibold text-2xl tracking-tight">Investment forecast</h1>
-        <nav className="flex items-center gap-4 text-sm">
-          <Link href="/investments" className="text-zinc-500 hover:underline">
-            Overview
-          </Link>
-          <Link href="/investments/performance" className="text-zinc-500 hover:underline">
-            Performance
-          </Link>
-          <span className="font-medium">Forecast</span>
-        </nav>
+        <InvestmentTabs active="forecast" />
       </div>
 
       {/* Mandatory estimate-not-advice banner (ADR-022). Unconditional. */}
