@@ -24,3 +24,31 @@ Investments are different so we want to research what a investor of various type
 Historical as well as future.  Can we bring in any info on the invested assets?  How we can slice the data?
 
 Do we need to add any new tables or relationships to allow these new features to work?
+
+## Round 4
+
+A user should be able to create an asset that has value that they can change the value of over time and tracked over time.
+
+Assets I am thinking our high value like:
+
+- vehicles
+- boats
+- jewlery
+- you get the idea
+
+Should count towards net worth.  
+
+A user should be able to upload a file associated with the asset for proof of authenticity.  you think that is too much?
+
+## Round 5
+
+What if a user wants to add a stock to track the history of and "pretend" they purchased it at a certain date/time and track its progress and even get alerted when the stock/metal/whatever reaches a specific value, up or down.  This shou ld not count towards net worth of course.
+
+## Round 6
+
+Searching.  The user should be able to search for things on every page.
+
+Whether it be the accounts page.  The items page per account.  You get the idea.
+
+Transactions/items add up quickly over time and the user needs to find specific ones easily
+
