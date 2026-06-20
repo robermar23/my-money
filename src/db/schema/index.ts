@@ -9,6 +9,7 @@ export * from "./accounts.ts";
 export * from "./securities.ts";
 export * from "./holdings.ts";
 export * from "./holding-lots.ts";
+export * from "./holding-snapshots.ts";
 export * from "./investment-transactions.ts";
 export * from "./snapshots.ts";
 export * from "./liabilities.ts";

@@ -6,11 +6,12 @@ import {
   accountSnapshots,
   accounts,
   holdingLots,
+  holdingSnapshots,
   holdings,
   investmentTransactions,
   securities,
 } from "@/db/schema/index.ts";
-import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
+import { type SQL, and, asc, desc, eq, gte, inArray, lte, or, sql } from "drizzle-orm";
 
 /**
  * Read helpers for the /investments dashboard (Phase 5, P5-21 → P5-23).
@@ -159,4 +160,133 @@ export async function listInvestmentIncome(): Promise<IncomeTxnRow[]> {
       ),
     )
     .orderBy(asc(investmentTransactions.tradeDate));
+}
+
+// ── Historical value (holding_snapshots) — PLAN9 P9-04 ──────────────────────
+//
+// These feed the value-over-time / performance series (Batch 3) and the
+// per-security drill-down (Batch 4). All monetary results stay strings, summed
+// in SQL with `numeric` (never `Number`); the chart islands do the single
+// `Number()` at the display edge. Single-currency aggregation today — true
+// cross-currency FX is a logged Open Item (PLAN9 §Open Items).
+
+export interface SnapshotRange {
+  /** Inclusive lower bound (YYYY-MM-DD); omit for "from the beginning". */
+  readonly from?: string;
+  /** Inclusive upper bound (YYYY-MM-DD); omit for "up to the latest". */
+  readonly to?: string;
+  /** Restrict to these accounts; omit for all investment accounts. */
+  readonly accountIds?: readonly string[];
+  /** Restrict to these holdings; omit for all. */
+  readonly holdingIds?: readonly string[];
+}
+
+export interface HoldingSnapshotRow {
+  readonly holdingId: string;
+  readonly date: string;
+  readonly quantity: string;
+  readonly value: string;
+  readonly costBasis: string | null;
+  readonly currency: string;
+}
+
+/** Build the shared WHERE for the holding-snapshot series queries. */
+function snapshotFilters(range: SnapshotRange, restrictToInvestment: boolean): SQL[] {
+  const conds: SQL[] = [];
+  if (restrictToInvestment) conds.push(inArray(accounts.type, [...INVESTMENT_TYPES]));
+  if (range.from) conds.push(gte(holdingSnapshots.date, range.from));
+  if (range.to) conds.push(lte(holdingSnapshots.date, range.to));
+  if (range.accountIds && range.accountIds.length > 0) {
+    conds.push(inArray(holdings.accountId, [...range.accountIds]));
+  }
+  if (range.holdingIds && range.holdingIds.length > 0) {
+    conds.push(inArray(holdingSnapshots.holdingId, [...range.holdingIds]));
+  }
+  return conds;
+}
+
+/** Raw per-holding snapshot rows, filtered + chronologically ordered. */
+export async function listHoldingSnapshots(
+  range: SnapshotRange = {},
+): Promise<HoldingSnapshotRow[]> {
+  return db
+    .select({
+      holdingId: holdingSnapshots.holdingId,
+      date: holdingSnapshots.date,
+      quantity: holdingSnapshots.quantity,
+      value: holdingSnapshots.value,
+      costBasis: holdingSnapshots.costBasis,
+      currency: holdingSnapshots.currency,
+    })
+    .from(holdingSnapshots)
+    .innerJoin(holdings, eq(holdingSnapshots.holdingId, holdings.id))
+    .innerJoin(accounts, eq(holdings.accountId, accounts.id))
+    .where(and(...snapshotFilters(range, false)))
+    .orderBy(asc(holdingSnapshots.date), asc(holdingSnapshots.holdingId));
+}
+
+export interface ValuePoint {
+  readonly date: string;
+  readonly value: string;
+}
+
+/** Total investment value per date — the portfolio value-over-time line. */
+export async function portfolioValueSeries(range: SnapshotRange = {}): Promise<ValuePoint[]> {
+  return db
+    .select({
+      date: holdingSnapshots.date,
+      value: sql<string>`sum(${holdingSnapshots.value})`.as("value"),
+    })
+    .from(holdingSnapshots)
+    .innerJoin(holdings, eq(holdingSnapshots.holdingId, holdings.id))
+    .innerJoin(accounts, eq(holdings.accountId, accounts.id))
+    .where(and(...snapshotFilters(range, true)))
+    .groupBy(holdingSnapshots.date)
+    .orderBy(asc(holdingSnapshots.date));
+}
+
+export interface DimensionValuePoint extends ValuePoint {
+  /** The slice key (asset class, account id, …). */
+  readonly key: string;
+  /** Human label for the key (account name); equals `key` for asset class. */
+  readonly label: string;
+}
+
+/** Investment value per date, broken down by holding asset class. */
+export async function valueSeriesByAssetClass(
+  range: SnapshotRange = {},
+): Promise<DimensionValuePoint[]> {
+  const rows = await db
+    .select({
+      date: holdingSnapshots.date,
+      key: holdings.assetClass,
+      value: sql<string>`sum(${holdingSnapshots.value})`.as("value"),
+    })
+    .from(holdingSnapshots)
+    .innerJoin(holdings, eq(holdingSnapshots.holdingId, holdings.id))
+    .innerJoin(accounts, eq(holdings.accountId, accounts.id))
+    .where(and(...snapshotFilters(range, true)))
+    .groupBy(holdingSnapshots.date, holdings.assetClass)
+    .orderBy(asc(holdingSnapshots.date));
+  return rows.map((r) => ({ date: r.date, key: r.key, label: r.key, value: r.value }));
+}
+
+/** Investment value per date, broken down by account. */
+export async function valueSeriesByAccount(
+  range: SnapshotRange = {},
+): Promise<DimensionValuePoint[]> {
+  const rows = await db
+    .select({
+      date: holdingSnapshots.date,
+      key: holdings.accountId,
+      label: accounts.name,
+      value: sql<string>`sum(${holdingSnapshots.value})`.as("value"),
+    })
+    .from(holdingSnapshots)
+    .innerJoin(holdings, eq(holdingSnapshots.holdingId, holdings.id))
+    .innerJoin(accounts, eq(holdings.accountId, accounts.id))
+    .where(and(...snapshotFilters(range, true)))
+    .groupBy(holdingSnapshots.date, holdings.accountId, accounts.name)
+    .orderBy(asc(holdingSnapshots.date));
+  return rows.map((r) => ({ date: r.date, key: r.key, label: r.label, value: r.value }));
 }
