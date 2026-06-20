@@ -46,3 +46,7 @@ test-results/
 # postgres dump artifacts
 *.dump
 *.sql.gz
+
+# age backup identity — the PRIVATE key must NEVER live in the repo (ADR-014)
+*.key
+money-backup.key

@@ -16,6 +16,7 @@ export * from "./prices.ts";
 export * from "./fx-rates.ts";
 export * from "./import-batches.ts";
 export * from "./categories.ts";
+export * from "./budgets.ts";
 export * from "./transactions.ts";
 export * from "./category-rules.ts";
 export * from "./plaid-items.ts";
