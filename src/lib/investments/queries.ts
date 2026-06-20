@@ -36,6 +36,8 @@ export interface InvestmentPosition {
   readonly industry: string | null;
   readonly region: string | null;
   readonly assetType: string | null;
+  /** Forward annual dividend rate ($/share); null when none/unenriched. */
+  readonly dividendRate: string | null;
 }
 
 /** Every holding across investment/crypto_ira accounts, with account + security meta. */
@@ -51,6 +53,7 @@ export async function listInvestmentPositions(): Promise<InvestmentPosition[]> {
       industry: securities.industry,
       region: securities.region,
       assetType: securities.assetType,
+      dividendRate: securities.dividendRate,
     })
     .from(holdings)
     .innerJoin(accounts, eq(holdings.accountId, accounts.id))
@@ -69,6 +72,7 @@ export async function listInvestmentPositions(): Promise<InvestmentPosition[]> {
     industry: r.industry,
     region: r.region,
     assetType: r.assetType,
+    dividendRate: r.dividendRate,
   }));
 }
 

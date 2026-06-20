@@ -131,6 +131,9 @@ export default async function PerformancePage(props: PageProps): Promise<React.J
             Overview
           </Link>
           <span className="font-medium">Performance</span>
+          <Link href="/investments/forecast" className="text-zinc-500 hover:underline">
+            Forecast
+          </Link>
         </nav>
       </div>
       <p className="mt-1 text-sm text-zinc-500">{range.label}</p>

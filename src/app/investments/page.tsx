@@ -210,6 +210,9 @@ export default async function InvestmentsPage(
             <Link href="/investments/performance" className="text-sm text-zinc-500 hover:underline">
               Performance →
             </Link>
+            <Link href="/investments/forecast" className="text-sm text-zinc-500 hover:underline">
+              Forecast →
+            </Link>
           </div>
         </div>
         <div className="text-right">
