@@ -6,13 +6,16 @@ import {
   listLots,
   listSnapshots,
 } from "@/lib/accounts/queries.ts";
+import { resolveRange } from "@/lib/analytics/range.ts";
+import { spendByCategory } from "@/lib/analytics/spending.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
+import { listCategoriesWithGroups } from "@/lib/categories/queries.ts";
 import { valueHolding } from "@/lib/holdings/value.ts";
 import { gainLoss } from "@/lib/investments/gain-loss.ts";
 import { lotCoverage, resolveCostBasis } from "@/lib/investments/lots.ts";
 import { Money } from "@/lib/money/money.ts";
 import { balanceAtMonth } from "@/lib/mortgage/amortization.ts";
-import { distinctCategories, listTransactions } from "@/lib/transactions/queries.ts";
+import { listTransactions } from "@/lib/transactions/queries.ts";
 import { toAccountId } from "@/lib/types/ids.ts";
 import Decimal from "decimal.js";
 import Link from "next/link";
@@ -67,25 +70,42 @@ export default async function AccountDetailPage(
     account.type === "credit_card" ||
     account.type === "investment";
 
-  const [
-    latestSnap,
-    snapshots,
-    accountHoldings,
-    accountLots,
-    liability,
-    txnResult,
-    categorySuggestions,
-  ] = await Promise.all([
-    getLatestSnapshot(accountId),
-    listSnapshots(accountId),
-    listHoldings(accountId),
-    listLots(accountId),
-    getLiability(accountId),
-    showTransactions
-      ? listTransactions({ accountId, page })
-      : Promise.resolve({ rows: [], totalCount: 0, page: 1, pageSize: 50, totalPages: 1 }),
-    showTransactions ? distinctCategories() : Promise.resolve([] as string[]),
-  ]);
+  const [latestSnap, snapshots, accountHoldings, accountLots, liability, txnResult, categoryData] =
+    await Promise.all([
+      getLatestSnapshot(accountId),
+      listSnapshots(accountId),
+      listHoldings(accountId),
+      listLots(accountId),
+      getLiability(accountId),
+      showTransactions
+        ? listTransactions({ accountId, page })
+        : Promise.resolve({ rows: [], totalCount: 0, page: 1, pageSize: 50, totalPages: 1 }),
+      showTransactions
+        ? listCategoriesWithGroups()
+        : Promise.resolve({ groups: [], categories: [] }),
+    ]);
+
+  const categoryOptions = categoryData.categories.map((c) => ({
+    id: c.id,
+    name: c.name,
+    groupName: c.groupName,
+    kind: c.kind,
+  }));
+
+  // P8-15 — per-account top spending (last 12 months), reusing the analytics lib
+  // with accountIds scoped to this account. Links through to the full analysis.
+  const spendRange = resolveRange({ range: "12m" });
+  const topSpend = showTransactions
+    ? (
+        await spendByCategory({
+          from: spendRange.from,
+          to: spendRange.to,
+          accountIds: [account.id],
+        })
+      )
+        .filter((r) => r.kind === "expense")
+        .slice(0, 5)
+    : [];
 
   // Phase 2: price each holding using cached `prices` (closeUsed: null means
   // no price has been fetched yet — UI displays "—" for value).
@@ -389,11 +409,45 @@ export default async function AccountDetailPage(
           accountCurrency={account.currency}
           flipSign={account.type === "credit_card"}
           rows={txnResult.rows}
-          suggestions={categorySuggestions}
+          categories={categoryOptions}
           page={txnResult.page}
           totalPages={txnResult.totalPages}
           totalCount={txnResult.totalCount}
         />
+      )}
+
+      {/* P8-15 — per-account spending snapshot */}
+      {showTransactions && topSpend.length > 0 && (
+        <section className="mt-8">
+          <div className="flex items-center justify-between">
+            <h2 className="font-medium">Top spending (12 mo)</h2>
+            <Link
+              href={`/analysis?account=${account.id}`}
+              className="text-sm text-zinc-500 hover:underline"
+            >
+              Full analysis →
+            </Link>
+          </div>
+          <table className="mt-3 w-full text-sm">
+            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
+              {topSpend.map((r) => (
+                <tr key={r.id}>
+                  <td className="py-2">
+                    <Link
+                      href={`/analysis/category/${r.id}?account=${account.id}`}
+                      className="hover:underline"
+                    >
+                      {r.name}
+                    </Link>
+                  </td>
+                  <td className="py-2 text-right font-mono tabular-nums">
+                    {Money.fromString(r.total, account.currency).format()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
       )}
 
       {/* Snapshot history */}

@@ -12,7 +12,9 @@
  *   - backup-database-daily
  *   - export-beancount-daily
  *   - detect-anomalies-daily
+ *   - backfill-categories
  */
+import { backfillCategoriesProcessor } from "./jobs/backfill-categories.ts";
 import { backupDatabaseDailyProcessor } from "./jobs/backup-database-daily.ts";
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
 import { detectAnomaliesDailyProcessor } from "./jobs/detect-anomalies-daily.ts";
@@ -33,6 +35,7 @@ const PROCESSORS: Record<string, (job: never) => Promise<unknown>> = {
   "backup-database-daily": backupDatabaseDailyProcessor as never,
   "export-beancount-daily": exportBeancountDailyProcessor as never,
   "detect-anomalies-daily": detectAnomaliesDailyProcessor as never,
+  "backfill-categories": backfillCategoriesProcessor as never,
 };
 
 if (!jobName || !PROCESSORS[jobName]) {

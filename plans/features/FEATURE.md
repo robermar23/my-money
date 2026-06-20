@@ -25,3 +25,30 @@ There are tools for this online but they call cost money and/or off easy integra
 
 I want my own tool tracking my own data.
 
+---
+
+## Scope updates
+
+This section records explicit, owner-approved changes to the domain scope that
+CLAUDE.md §Domain Scope marks as requiring an explicit decision before they may
+be built. CLAUDE.md points here as the authoritative place for those decisions.
+
+### 2026-06-19 — Spending analytics + simple budgets (in scope)
+
+Source: [IDEAS2.md](IDEAS2.md). The owner explicitly asked to "expand my-money
+to provide details on spending and budgets related to categories" and to see
+"historical and future trends … as a whole, per category, per account."
+
+- **In scope (newly added):**
+  - **Spending analytics** — historical income/expense trends as a whole, per
+    category, per group, and per account, over time (first-party SQL only).
+  - **Simple monthly per-category budget targets** — a recurring monthly target
+    per category with actual-vs-target tracking, plus a deterministic
+    trailing-average forecast of future spend.
+- **Still explicitly OUT of scope:** envelope / rollover / "assign every dollar"
+  (YNAB-style) budgeting; tax forms or capital-gains reporting; anything that
+  ships financial data to a third-party (no LLM categorization, no analytics
+  SaaS — per CLAUDE.md §Privacy).
+
+Implemented under **ADR-018** (IDEAS.md §11 Decision Log) via [PLAN8.md](PLAN8.md).
+

@@ -97,6 +97,8 @@ help:
 	@echo   db-push         Push schema directly (dev iteration)
 	@echo   db-studio       Drizzle Studio (visual DB browser)
 	@echo   db-reset        Truncate domain tables (keep schema)
+	@echo   db-reset-password  Delete users row -- next /login sets a new password
+	@echo   db-reset-plaid  Delete Plaid Items -- re-link via Plaid Link (keeps accounts)
 	@echo ----------------------------------------------------------
 	@echo WORKERS (run one job once -- no scheduling)
 	@echo   job-snapshots   Run compute-snapshots-daily once
@@ -308,6 +310,24 @@ db-studio:
 db-reset:
 	@echo Truncating: $(DOMAIN_TABLES)
 	$(COMPOSE) exec -T postgres psql -U money -d money -c "TRUNCATE $(DOMAIN_TABLES) CASCADE;"
+
+# Forgot the dev password? Delete the single users row. The next /login
+# submission re-bootstraps a new password (login/actions.ts). All other domain
+# data (accounts, transactions, categories) is preserved.
+.PHONY: db-reset-password
+db-reset-password:
+	@echo Deleting users row -- next /login sets a new password.
+	$(COMPOSE) exec -T postgres psql -U money -d money -c "DELETE FROM users;"
+
+# Stale Plaid Items (INVALID_ACCESS_TOKEN on the map-accounts step) happen when
+# an Item carries a fake/seeded token or was encrypted under a since-rotated
+# MONEY_ENCRYPTION_KEY. Deleting them lets you re-link cleanly. Safe for data:
+# accounts.plaid_item_id is ON DELETE SET NULL (accounts + transactions survive,
+# just unlinked); plaid_sync_runs cascade away. Re-link via Plaid Link after.
+.PHONY: db-reset-plaid
+db-reset-plaid:
+	@echo Deleting all plaid_items -- re-link via Plaid Link afterward.
+	$(COMPOSE) exec -T postgres psql -U money -d money -c "DELETE FROM plaid_items;"
 
 # ---------------------------------------------------------------------------
 # Workers -- run one job once

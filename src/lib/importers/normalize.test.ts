@@ -2,12 +2,29 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parseCsv } from "./csv/parse.ts";
-import { csvToNormalized, qfxToNormalized } from "./normalize.ts";
+import { csvToNormalized, normalizePayee, qfxToNormalized } from "./normalize.ts";
 import { parseQfx } from "./qfx/parse.ts";
 
 function fixture(rel: string): Buffer {
   return readFileSync(fileURLToPath(new URL(rel, import.meta.url)));
 }
+
+describe("normalizePayee", () => {
+  it("groups store-number variants of the same merchant", () => {
+    expect(normalizePayee("STARBUCKS #123")).toBe("STARBUCKS");
+    expect(normalizePayee("Starbucks 456")).toBe("STARBUCKS");
+    expect(normalizePayee("STARBUCKS #123")).toBe(normalizePayee("Starbucks 456"));
+  });
+
+  it("uppercases, strips punctuation, and collapses whitespace", () => {
+    expect(normalizePayee("  trader   joe's  ")).toBe("TRADER JOE S");
+  });
+
+  it("falls back to the trimmed original when normalization empties the string", () => {
+    expect(normalizePayee("12345")).toBe("12345");
+    expect(normalizePayee("  789  ")).toBe("789");
+  });
+});
 
 describe("qfxToNormalized", () => {
   const qfx = parseQfx(fixture("./qfx/__fixtures__/mt-checking.qfx"));

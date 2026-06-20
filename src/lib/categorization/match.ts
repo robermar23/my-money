@@ -1,6 +1,21 @@
 import type { CategoryRule } from "@/db/schema/index.ts";
 
 /**
+ * The resolved category for a matched transaction (ADR-018).
+ *
+ * `categoryId` is the structured FK (the source of truth for analytics);
+ * `name` is the human-readable cache written to the legacy `category` text
+ * column. `categoryId` is nullable to tolerate a legacy rule that hasn't been
+ * linked to a category yet (the backfill links them) — in that case the name
+ * still flows through so behavior degrades gracefully rather than dropping the
+ * categorization entirely.
+ */
+export interface MatchedCategory {
+  readonly categoryId: string | null;
+  readonly name: string;
+}
+
+/**
  * In-process regex cache keyed by `${pattern}|||${flags}` so repeated rule
  * application doesn't recompile.
  *
@@ -29,6 +44,18 @@ export function clearRegexCache(): void {
 }
 
 /**
+ * Escape a string so it can be embedded in a regex as a literal. Used to build
+ * an auto-categorization rule from a payee without a metacharacter in the
+ * merchant name (e.g. "AT&T", "STORE (MAIN)") corrupting the pattern.
+ *
+ * @param input - The literal text to escape.
+ * @returns The input with all regex metacharacters backslash-escaped.
+ */
+export function escapeRegexLiteral(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
  * Validate a regex at write time. Returns null when valid, error string when not.
  */
 export function validateRegex(pattern: string, flags: string): string | null {
@@ -47,18 +74,22 @@ export function validateRegex(pattern: string, flags: string): string | null {
  *
  * Callers should pre-sort `rules` by (priority asc, createdAt asc) so the
  * inner loop is a simple sequential scan.
+ *
+ * Returns a `MatchedCategory` ({ categoryId, name }) rather than a bare string
+ * (ADR-018): callers persist `categoryId` as the source of truth and `name` as
+ * the legacy text cache.
  */
 export function matchCategory(
   name: string,
   memo: string | null,
   rules: readonly CategoryRule[],
-): string | null {
+): MatchedCategory | null {
   for (const rule of rules) {
     if (!rule.enabled) continue;
     const re = compile(rule.pattern, rule.flags);
     if (!re) continue;
     const subject = rule.field === "memo" ? (memo ?? "") : name;
-    if (re.test(subject)) return rule.category;
+    if (re.test(subject)) return { categoryId: rule.categoryId, name: rule.category };
   }
   return null;
 }

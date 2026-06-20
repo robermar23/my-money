@@ -3,12 +3,15 @@ import { db } from "@/db/client.ts";
 import {
   accountSnapshots,
   accounts,
+  categories,
+  categoryRules,
   holdingLots,
   holdings,
   liabilities,
   plaidItems,
   transactions,
 } from "@/db/schema/index.ts";
+import { matchCategory, sortRules } from "@/lib/categorization/match.ts";
 import { computeNetWorth } from "@/lib/net-worth/compute.ts";
 import { eq, sql } from "drizzle-orm";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -34,6 +37,7 @@ const {
   closeAccountAction,
   reopenAccountAction,
   deleteAccountAction,
+  setTransactionCategoryAction,
 } = await import("./actions.ts");
 
 async function seedHolding(): Promise<{ accountId: string; holdingId: string }> {
@@ -255,14 +259,12 @@ describe("deleteAccountAction (P7-03)", () => {
       })
       .returning({ id: holdings.id });
     if (!holding) throw new Error("seed holding");
-    await db
-      .insert(holdingLots)
-      .values({
-        holdingId: holding.id,
-        quantity: "10",
-        costBasisTotal: "1000.00",
-        source: "manual",
-      });
+    await db.insert(holdingLots).values({
+      holdingId: holding.id,
+      quantity: "10",
+      costBasisTotal: "1000.00",
+      source: "manual",
+    });
     await db.insert(transactions).values({
       accountId,
       postedAt: "2026-05-01",
@@ -318,5 +320,83 @@ describe("deleteAccountAction (P7-03)", () => {
     const res = await deleteAccountAction(account.id);
     expect(res.error).toBeTruthy();
     expect(await db.select().from(accounts).where(eq(accounts.id, account.id))).toHaveLength(1);
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * Phase 8 — Batch 2: inline category assignment (P8-08).
+ * --------------------------------------------------------------------------- */
+
+async function seedTxnForCategorize(): Promise<{
+  accountId: string;
+  categoryId: string;
+  txnId: string;
+}> {
+  await db.execute(
+    sql`TRUNCATE accounts, transactions, categories, category_groups, category_rules CASCADE`,
+  );
+  const [account] = await db
+    .insert(accounts)
+    .values({ name: "Checking", institution: "M&T", type: "depository", currency: "USD" })
+    .returning({ id: accounts.id });
+  if (!account) throw new Error("seed account");
+  const [cat] = await db
+    .insert(categories)
+    .values({ name: "Coffee", kind: "expense" })
+    .returning({ id: categories.id });
+  if (!cat) throw new Error("seed category");
+  const [txn] = await db
+    .insert(transactions)
+    .values({
+      accountId: account.id,
+      postedAt: "2026-05-01",
+      amount: "-5.00",
+      name: "STARBUCKS #123",
+      fitid: "f1",
+      source: "manual",
+    })
+    .returning({ id: transactions.id });
+  if (!txn) throw new Error("seed txn");
+  return { accountId: account.id, categoryId: cat.id, txnId: txn.id };
+}
+
+describe("setTransactionCategoryAction (P8-08)", () => {
+  it("sets categoryId + the text cache and stamps the override", async () => {
+    const { accountId, categoryId, txnId } = await seedTxnForCategorize();
+    const res = await setTransactionCategoryAction(accountId, txnId, categoryId);
+    expect(res.ok).toBe(true);
+
+    const [row] = await db.select().from(transactions).where(eq(transactions.id, txnId));
+    expect(row?.categoryId).toBe(categoryId);
+    expect(row?.category).toBe("Coffee");
+    expect(row?.categoryOverriddenAt).toBeInstanceOf(Date);
+    expect(await db.select().from(categoryRules)).toHaveLength(0);
+  });
+
+  it("optionally creates a rule from the payee that re-matches the merchant", async () => {
+    const { accountId, categoryId, txnId } = await seedTxnForCategorize();
+    await setTransactionCategoryAction(accountId, txnId, categoryId, { makeRule: true });
+
+    const rules = await db.select().from(categoryRules);
+    expect(rules).toHaveLength(1);
+    expect(matchCategory("STARBUCKS #777", null, sortRules(rules))?.categoryId).toBe(categoryId);
+  });
+
+  it("clears the category when passed null", async () => {
+    const { accountId, categoryId, txnId } = await seedTxnForCategorize();
+    await setTransactionCategoryAction(accountId, txnId, categoryId);
+    const res = await setTransactionCategoryAction(accountId, txnId, null);
+    expect(res.ok).toBe(true);
+    const [row] = await db.select().from(transactions).where(eq(transactions.id, txnId));
+    expect(row?.categoryId).toBeNull();
+    expect(row?.category).toBeNull();
+  });
+
+  it("rejects an unknown category id without writing", async () => {
+    const { accountId, txnId } = await seedTxnForCategorize();
+    const res = await setTransactionCategoryAction(accountId, txnId, crypto.randomUUID());
+    expect(res.error).toBe("Category not found");
+    const [row] = await db.select().from(transactions).where(eq(transactions.id, txnId));
+    expect(row?.categoryId).toBeNull();
   });
 });

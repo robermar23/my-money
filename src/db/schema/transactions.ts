@@ -13,6 +13,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { accounts } from "./accounts.ts";
+import { categories } from "./categories.ts";
 import { importBatches } from "./import-batches.ts";
 
 /**
@@ -46,8 +47,21 @@ export const transactions = pgTable(
     amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
     name: text("name").notNull(),
     memo: text("memo"),
-    /** Nullable; assigned by rule engine or manual override. */
+    /**
+     * Legacy free-text category (ADR-007). Kept as a denormalized cache of the
+     * resolved category name + a rollback safety net (ADR-018). The structured
+     * `categoryId` below is the source of truth for analytics; this column is
+     * NOT dropped this phase (a drop needs a paired backup step per CLAUDE.md).
+     */
     category: text("category"),
+    /**
+     * Structured category FK (ADR-018). onDelete: set null so deleting a
+     * category never deletes the transaction; archive (not delete) is preferred
+     * for categories with history.
+     */
+    categoryId: uuid("category_id").references((): AnyPgColumn => categories.id, {
+      onDelete: "set null",
+    }),
     /** Set when the user manually overrides the category; lets re-categorize skip these. */
     categoryOverriddenAt: timestamp("category_overridden_at", {
       withTimezone: true,
@@ -82,6 +96,12 @@ export const transactions = pgTable(
     categoryIdx: index("transactions_category_idx")
       .on(table.category)
       .where(sql`${table.category} IS NOT NULL`),
+    // Covers the dominant analytics group-by (spend per category over a date
+    // range). category_id leads so the planner can range-scan per category.
+    categoryIdPostedAtIdx: index("transactions_category_id_posted_at_idx").on(
+      table.categoryId,
+      table.postedAt,
+    ),
     sourceCheck: check(
       "transactions_source_check",
       sql`${table.source} IN ('qfx', 'csv', 'manual', 'plaid')`,
@@ -97,6 +117,10 @@ export const transactionsRelations = relations(transactions, ({ one }) => ({
   importBatch: one(importBatches, {
     fields: [transactions.importBatchId],
     references: [importBatches.id],
+  }),
+  category: one(categories, {
+    fields: [transactions.categoryId],
+    references: [categories.id],
   }),
 }));
 

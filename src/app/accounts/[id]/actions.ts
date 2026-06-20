@@ -4,6 +4,7 @@ import { db } from "@/db/client.ts";
 import {
   accountSnapshots,
   accounts,
+  categories,
   holdingLots,
   holdings,
   liabilities,
@@ -11,6 +12,7 @@ import {
 } from "@/db/schema/index.ts";
 import { getAccount } from "@/lib/accounts/queries.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
+import { createRuleFromPayee } from "@/lib/categorization/rule-from-payee.ts";
 import { Money } from "@/lib/money/money.ts";
 import { balanceAtMonth } from "@/lib/mortgage/amortization.ts";
 import {
@@ -516,29 +518,64 @@ export async function loanBalanceNow(accountIdRaw: string): Promise<Money | null
   );
 }
 
+const UUID_RE = /^[0-9a-f-]{36}$/i;
+
 /**
- * Inline category override for a single transaction. Used by the transactions
- * table on the account detail page.
+ * Inline category override for a single transaction (ADR-018/P8-08). Sets the
+ * structured `categoryId` FK (source of truth) plus the legacy `category` text
+ * cache, and stamps `categoryOverriddenAt` so a later rule re-run won't clobber
+ * this explicit human choice.
+ *
+ * Passing `categoryId = null` clears the category. With `opts.makeRule`, a
+ * category rule is derived from the transaction's payee (normalized + escaped)
+ * so future matching transactions auto-categorize — the "do this for all of
+ * them" lever from IDEAS2.md.
+ *
+ * @param accountIdRaw - The owning account UUID (scopes the update).
+ * @param transactionIdRaw - The transaction UUID.
+ * @param categoryId - Target category id, or null to clear.
+ * @param opts.makeRule - When true, also create a rule from the payee.
+ * @returns ActionResult with `ok`, or `error` on bad input.
  */
 export async function setTransactionCategoryAction(
   accountIdRaw: string,
   transactionIdRaw: string,
-  rawCategory: string,
+  categoryId: string | null,
+  opts?: { makeRule?: boolean },
 ): Promise<ActionResult> {
   await requireUser();
   const accountId = toAccountId(accountIdRaw);
-  if (!/^[0-9a-f-]{36}$/i.test(transactionIdRaw)) {
+  if (!UUID_RE.test(transactionIdRaw)) {
     return { error: "Invalid transaction id" };
   }
-  const trimmed = rawCategory.trim();
-  await db
+
+  let categoryName: string | null = null;
+  if (categoryId !== null) {
+    if (!UUID_RE.test(categoryId)) return { error: "Invalid category id" };
+    const [cat] = await db
+      .select({ name: categories.name })
+      .from(categories)
+      .where(eq(categories.id, categoryId))
+      .limit(1);
+    if (!cat) return { error: "Category not found" };
+    categoryName = cat.name;
+  }
+
+  const [updated] = await db
     .update(transactions)
     .set({
-      category: trimmed.length === 0 ? null : trimmed,
+      category: categoryName,
+      categoryId,
       categoryOverriddenAt: new Date(),
     })
-    .where(and(eq(transactions.id, transactionIdRaw), eq(transactions.accountId, accountId)));
+    .where(and(eq(transactions.id, transactionIdRaw), eq(transactions.accountId, accountId)))
+    .returning({ name: transactions.name });
+
+  if (updated && opts?.makeRule && categoryId !== null && categoryName !== null) {
+    await createRuleFromPayee(updated.name, categoryId, categoryName);
+  }
 
   revalidatePath(`/accounts/${accountIdRaw}`);
+  revalidatePath("/analysis/review");
   return { ok: true };
 }
