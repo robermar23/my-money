@@ -35,12 +35,31 @@ export function BudgetRow({ line, currency }: Props): React.JSX.Element {
   const width = Math.min(line.pct, 100);
   const barColor = over ? "bg-red-500" : "bg-emerald-500";
 
+  // Run-rate projection (in-progress month only). A tick on the bar marks where
+  // spend is trending; the % is a display-edge ratio against the target.
+  const hasProjection = line.projected !== null;
+  const projectedNum = hasProjection ? Number(line.projected) : 0;
+  const projectedPct =
+    line.hasBudget && Number(line.target) > 0
+      ? Math.min((projectedNum / Number(line.target)) * 100, 100)
+      : null;
+  const projectedOver = line.hasBudget && projectedNum > Number(line.target);
+
   return (
     <div className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1 py-2">
       <div className="min-w-0">
         <div className="truncate text-sm">{line.name}</div>
-        <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
+        <div className="relative mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
           <div className={`h-full ${barColor}`} style={{ width: `${width}%` }} />
+          {projectedPct !== null && (
+            <div
+              className={`absolute top-[-1px] bottom-[-1px] w-0.5 ${
+                projectedOver ? "bg-red-700" : "bg-zinc-500"
+              }`}
+              style={{ left: `calc(${projectedPct}% - 1px)` }}
+              aria-hidden
+            />
+          )}
         </div>
         <div className="mt-1 text-xs text-zinc-500">
           {fmt(line.actual, currency)}
@@ -56,6 +75,14 @@ export function BudgetRow({ line, currency }: Props): React.JSX.Element {
             </>
           ) : (
             <span className="ml-1 text-zinc-400">no budget</span>
+          )}
+          {hasProjection && (
+            <span
+              className="ml-2 text-zinc-400"
+              title="Projected end-of-month at the current run-rate"
+            >
+              · ~{fmt(line.projected ?? "0", currency)} projected
+            </span>
           )}
         </div>
       </div>

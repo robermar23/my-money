@@ -1,4 +1,5 @@
 import { listAccounts } from "@/lib/accounts/queries.ts";
+import { type MonthlyForecast, forecastMonthlySpend } from "@/lib/analytics/forecast.ts";
 import { resolveRange } from "@/lib/analytics/range.ts";
 import {
   type MonthlyTotals,
@@ -59,12 +60,44 @@ function donutSlices(expense: readonly SpendRow[]): { id: string; name: string; 
 /** A chart row: month + net + one numeric key per charted category. */
 type MonthRow = { month: string; net: number } & Record<string, number | string>;
 
+/** Next `YYYY-MM` after `month` (UTC, no TZ drift). */
+function nextMonth(month: string): string {
+  const year = Number(month.slice(0, 4));
+  const mon = Number(month.slice(5, 7)); // 1-12 → next is index `mon` (0-based)
+  return new Date(Date.UTC(year, mon, 1)).toISOString().slice(0, 7);
+}
+
+/**
+ * Build a chart row from a `byCategory` map using the chosen top-N split, so the
+ * projected month stacks the same series as the actual months.
+ */
+function chartRow(
+  month: string,
+  net: string,
+  byCategory: Record<string, string>,
+  top: readonly SpendRow[],
+  restIds: readonly string[],
+): MonthRow {
+  const row: MonthRow = { month, net: Number(net) };
+  for (const c of top) row[c.id] = Number(byCategory[c.id] ?? "0");
+  if (restIds.length > 0) {
+    const other = Money.sum(
+      restIds.map((id) => Money.fromString(byCategory[id] ?? "0", CURRENCY)),
+      CURRENCY,
+    );
+    row.__other__ = Number(other.toString());
+  }
+  return row;
+}
+
 function monthSeries(
   months: readonly MonthlyTotals[],
   expense: readonly SpendRow[],
+  forecast?: MonthlyForecast,
 ): {
   data: MonthRow[];
   categories: { id: string; name: string }[];
+  projectedCount: number;
 } {
   const top = expense.slice(0, TOP_N);
   const restIds = expense.slice(TOP_N).map((r) => r.id);
@@ -73,20 +106,18 @@ function monthSeries(
   const categories = top.map((r) => ({ id: r.id, name: r.name }));
   if (hasOther) categories.push({ id: "__other__", name: "Other" });
 
-  const data: MonthRow[] = months.map((m) => {
-    const row: MonthRow = { month: m.month, net: Number(m.net) };
-    for (const c of top) row[c.id] = Number(m.byCategory[c.id] ?? "0");
-    if (hasOther) {
-      const other = Money.sum(
-        restIds.map((id) => Money.fromString(m.byCategory[id] ?? "0", CURRENCY)),
-        CURRENCY,
-      );
-      row.__other__ = Number(other.toString());
-    }
-    return row;
-  });
+  const data: MonthRow[] = months.map((m) => chartRow(m.month, m.net, m.byCategory, top, restIds));
 
-  return { data, categories };
+  // Append the trailing-average forecast as one projected month, if we have a
+  // basis and at least one actual month to extend from.
+  let projectedCount = 0;
+  const last = months.at(-1);
+  if (forecast && forecast.basisMonths > 0 && last) {
+    data.push(chartRow(nextMonth(last.month), forecast.net, forecast.byCategory, top, restIds));
+    projectedCount = 1;
+  }
+
+  return { data, categories, projectedCount };
 }
 
 export default async function AnalysisPage(props: PageProps): Promise<React.JSX.Element> {
@@ -106,7 +137,8 @@ export default async function AnalysisPage(props: PageProps): Promise<React.JSX.
 
   const expenseRows = rows.filter((r) => r.kind === "expense");
   const slices = donutSlices(expenseRows);
-  const series = monthSeries(months, expenseRows);
+  const forecast = forecastMonthlySpend(months);
+  const series = monthSeries(months, expenseRows, forecast);
 
   // Savings rate = net / income. Display-only ratio; guarded against /0.
   const incomeNum = Number(summary.income);
@@ -175,12 +207,20 @@ export default async function AnalysisPage(props: PageProps): Promise<React.JSX.
 
       {/* Spend over time */}
       <section className="mt-8">
-        <h2 className="font-medium">Spending by month</h2>
+        <div className="flex items-baseline justify-between">
+          <h2 className="font-medium">Spending by month</h2>
+          {series.projectedCount > 0 && (
+            <span className="text-xs text-zinc-400">
+              Dashed/dimmed = projected (trailing 3-month average)
+            </span>
+          )}
+        </div>
         <div className="mt-3">
           <SpendByMonthChart
             data={series.data}
             categories={series.categories}
             currency={CURRENCY}
+            projectedCount={series.projectedCount}
           />
         </div>
       </section>

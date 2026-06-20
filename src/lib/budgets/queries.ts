@@ -7,6 +7,7 @@ import {
   categoryBudgets,
   categoryGroups,
 } from "@/db/schema/index.ts";
+import { runRateToMonthEnd } from "@/lib/analytics/forecast.ts";
 import { spendByCategory } from "@/lib/analytics/spending.ts";
 import { Money } from "@/lib/money/money.ts";
 import { and, asc, eq, isNull } from "drizzle-orm";
@@ -91,6 +92,11 @@ export interface BudgetLine {
   readonly remaining: string;
   /** actual / target × 100, rounded to an integer; 0 when target is 0. Display ratio. */
   readonly pct: number;
+  /**
+   * Projected end-of-month spend at the current run-rate (P8-22), as a money
+   * string — only for the *in-progress* month; `null` for past/future months.
+   */
+  readonly projected: string | null;
 }
 
 /** A group's rollup = sum of its child category targets/actuals. */
@@ -112,6 +118,8 @@ export interface BudgetVsActual {
     readonly actual: string;
     readonly remaining: string;
     readonly pct: number;
+    /** Sum of per-line projections; `null` unless the month is in-progress. */
+    readonly projected: string | null;
   };
 }
 
@@ -133,9 +141,14 @@ function percent(actual: Money, target: Money): number {
  * by group order then category order to match the pickers.
  *
  * @param month - `YYYY-MM` calendar month.
+ * @param now - Reference "today" (injected for tests). Drives the in-progress
+ *   month's run-rate projection. Defaults to `new Date()`.
  * @returns Per-category lines, group rollups, and grand totals.
  */
-export async function budgetVsActual(month: string): Promise<BudgetVsActual> {
+export async function budgetVsActual(
+  month: string,
+  now: Date = new Date(),
+): Promise<BudgetVsActual> {
   const range = monthRange(month);
 
   const [cats, budgets, actuals] = await Promise.all([
@@ -180,6 +193,7 @@ export async function budgetVsActual(month: string): Promise<BudgetVsActual> {
       actual: actual.toString(),
       remaining: target.sub(actual).toString(),
       pct: percent(actual, target),
+      projected: runRateToMonthEnd(actual.toString(), month, now),
     };
   });
 
@@ -215,6 +229,16 @@ export async function budgetVsActual(month: string): Promise<BudgetVsActual> {
     CURRENCY,
   );
 
+  // Projection only exists for the in-progress month — all lines agree, so the
+  // total is non-null iff any line is. Sum the per-line run-rate projections.
+  const anyProjected = lines.some((l) => l.projected !== null);
+  const totalProjected = anyProjected
+    ? Money.sum(
+        lines.map((l) => Money.fromString(l.projected ?? "0", CURRENCY)),
+        CURRENCY,
+      ).toString()
+    : null;
+
   return {
     month,
     lines,
@@ -224,6 +248,7 @@ export async function budgetVsActual(month: string): Promise<BudgetVsActual> {
       actual: totalActual.toString(),
       remaining: totalTarget.sub(totalActual).toString(),
       pct: percent(totalActual, totalTarget),
+      projected: totalProjected,
     },
   };
 }

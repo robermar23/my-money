@@ -81,6 +81,11 @@ export default async function BudgetsPage(props: PageProps): Promise<React.JSX.E
               ? `${fmt0(String(-Number(data.totals.remaining)))} over`
               : `${fmt0(data.totals.remaining)} left`}
           </span>
+          {data.totals.projected !== null && (
+            <div className="text-xs text-zinc-400">
+              ~{fmt0(data.totals.projected)} projected at current run-rate
+            </div>
+          )}
         </div>
       </div>
 
