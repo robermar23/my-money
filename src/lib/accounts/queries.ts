@@ -4,11 +4,13 @@ import { db } from "@/db/client.ts";
 import {
   type Account,
   type AccountSnapshot,
+  type AssetDocument,
   type Holding,
   type HoldingLot,
   type Liability,
   accountSnapshots,
   accounts,
+  assetDocuments,
   holdingLots,
   holdings,
   liabilities,
@@ -74,4 +76,31 @@ export async function listLots(id: AccountId): Promise<HoldingLot[]> {
 export async function getLiability(id: AccountId): Promise<Liability | undefined> {
   const [row] = await db.select().from(liabilities).where(eq(liabilities.accountId, id)).limit(1);
   return row;
+}
+
+/** Proof-document metadata, newest-first. Excludes the heavy `bytes` column. */
+export type AssetDocumentMeta = Omit<AssetDocument, "bytes">;
+
+/**
+ * List an asset's proof-of-authenticity documents (Phase 10, P10-07), newest
+ * first. Deliberately omits the `bytes` bytea column — the list view only needs
+ * metadata; the bytes load lazily through the download route (P10-10).
+ *
+ * @param id - The owning account UUID.
+ * @returns Document metadata rows (no file content), newest upload first.
+ */
+export async function getAssetDocuments(id: AccountId): Promise<AssetDocumentMeta[]> {
+  return db
+    .select({
+      id: assetDocuments.id,
+      accountId: assetDocuments.accountId,
+      filename: assetDocuments.filename,
+      mimeType: assetDocuments.mimeType,
+      sizeBytes: assetDocuments.sizeBytes,
+      description: assetDocuments.description,
+      uploadedAt: assetDocuments.uploadedAt,
+    })
+    .from(assetDocuments)
+    .where(eq(assetDocuments.accountId, id))
+    .orderBy(desc(assetDocuments.uploadedAt));
 }

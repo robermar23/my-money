@@ -38,6 +38,8 @@ const {
   reopenAccountAction,
   deleteAccountAction,
   setTransactionCategoryAction,
+  recordAssetValueAction,
+  updateAssetMetadataAction,
 } = await import("./actions.ts");
 
 async function seedHolding(): Promise<{ accountId: string; holdingId: string }> {
@@ -398,5 +400,119 @@ describe("setTransactionCategoryAction (P8-08)", () => {
     expect(res.error).toBe("Category not found");
     const [row] = await db.select().from(transactions).where(eq(transactions.id, txnId));
     expect(row?.categoryId).toBeNull();
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * Phase 10 — Batch 2: personal-asset value + metadata (P10-05 / P10-06).
+ * --------------------------------------------------------------------------- */
+
+async function seedAsset(): Promise<string> {
+  await resetAll();
+  const [account] = await db
+    .insert(accounts)
+    .values({
+      name: "2021 Tacoma",
+      institution: "Personal asset",
+      type: "personal_asset",
+      currency: "USD",
+      assetCategory: "vehicle",
+      acquisitionCost: "38000.00",
+    })
+    .returning({ id: accounts.id });
+  if (!account) throw new Error("seed asset");
+  return account.id;
+}
+
+describe("recordAssetValueAction (P10-05)", () => {
+  it("inserts a snapshot, then overwrites it on the same date (idempotent)", async () => {
+    const accountId = await seedAsset();
+
+    const first = await recordAssetValueAction(
+      accountId,
+      {},
+      accountForm({ date: "2026-06-20", value: "35000.00" }),
+    );
+    expect(first.ok).toBe(true);
+
+    const second = await recordAssetValueAction(
+      accountId,
+      {},
+      accountForm({ date: "2026-06-20", value: "34000.00" }),
+    );
+    expect(second.ok).toBe(true);
+
+    const snaps = await db
+      .select()
+      .from(accountSnapshots)
+      .where(eq(accountSnapshots.accountId, accountId));
+    expect(snaps).toHaveLength(1);
+    expect(snaps[0]?.balance).toBe("34000.00");
+  });
+
+  it("rejects a non-asset account type", async () => {
+    const accountId = await seedAccount(); // depository
+    const res = await recordAssetValueAction(
+      accountId,
+      {},
+      accountForm({ date: "2026-06-20", value: "100.00" }),
+    );
+    expect(res.error).toBeTruthy();
+    expect(await db.select().from(accountSnapshots)).toHaveLength(0);
+  });
+});
+
+describe("updateAssetMetadataAction (P10-06)", () => {
+  it("updates name, category, description, acquired date, and cost", async () => {
+    const accountId = await seedAsset();
+    const res = await updateAssetMetadataAction(
+      accountId,
+      {},
+      accountForm({
+        name: "2021 Tacoma TRD",
+        assetCategory: "vehicle",
+        description: "Repainted 2026",
+        acquiredAt: "2021-03-10",
+        acquisitionCost: "37500.00",
+      }),
+    );
+    expect(res.ok).toBe(true);
+
+    const [a] = await db.select().from(accounts).where(eq(accounts.id, accountId));
+    expect(a?.name).toBe("2021 Tacoma TRD");
+    expect(a?.description).toBe("Repainted 2026");
+    expect(a?.acquiredAt).toBe("2021-03-10");
+    expect(a?.acquisitionCost).toBe("37500.00");
+  });
+
+  it("clears optional fields when submitted empty", async () => {
+    const accountId = await seedAsset();
+    const res = await updateAssetMetadataAction(
+      accountId,
+      {},
+      accountForm({
+        name: "Tacoma",
+        assetCategory: "other",
+        description: "",
+        acquiredAt: "",
+        acquisitionCost: "",
+      }),
+    );
+    expect(res.ok).toBe(true);
+    const [a] = await db.select().from(accounts).where(eq(accounts.id, accountId));
+    expect(a?.assetCategory).toBe("other");
+    expect(a?.description).toBeNull();
+    expect(a?.acquiredAt).toBeNull();
+    expect(a?.acquisitionCost).toBeNull();
+  });
+
+  it("rejects a non-asset account type", async () => {
+    const accountId = await seedAccount(); // depository
+    const res = await updateAssetMetadataAction(
+      accountId,
+      {},
+      accountForm({ name: "x", assetCategory: "vehicle" }),
+    );
+    expect(res.error).toBeTruthy();
   });
 });

@@ -20,6 +20,7 @@ import {
   recordBalanceSchema,
   recordPropertyValueSchema,
   updateAccountSchema,
+  updateAssetMetadataSchema,
   upsertHoldingSchema,
   upsertLotSchema,
 } from "@/lib/schemas/account.ts";
@@ -486,6 +487,96 @@ export async function recordPropertyValueAction(
       target: [accountSnapshots.accountId, accountSnapshots.date],
       set: { balance: parsed.data.value },
     });
+  revalidatePath(`/accounts/${accountIdRaw}`);
+  revalidatePath("/accounts");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/**
+ * Record a personal-asset valuation (Phase 10, P10-05, ADR-023). Same shape and
+ * idempotency as `recordPropertyValueAction` — UPSERT on `(account_id, date)`,
+ * so re-recording the same date overwrites rather than duplicating. Gated to
+ * `type === 'personal_asset'`.
+ *
+ * @param accountIdRaw - The asset's account UUID from the route.
+ * @param _prev - Previous action state (unused; required by useActionState).
+ * @param formData - Fields: date, value.
+ * @returns ActionResult with `ok` on success, or `error`.
+ */
+export async function recordAssetValueAction(
+  accountIdRaw: string,
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const { accountId, account } = await loadAccount(accountIdRaw);
+  if (account.type !== "personal_asset") {
+    return { error: "This action only applies to personal-asset accounts" };
+  }
+  const parsed = recordPropertyValueSchema.safeParse({
+    date: formData.get("date"),
+    value: formData.get("value"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  await db
+    .insert(accountSnapshots)
+    .values({ accountId, date: parsed.data.date, balance: parsed.data.value })
+    .onConflictDoUpdate({
+      target: [accountSnapshots.accountId, accountSnapshots.date],
+      set: { balance: parsed.data.value },
+    });
+  revalidatePath(`/accounts/${accountIdRaw}`);
+  revalidatePath("/accounts");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/**
+ * Edit a personal asset's metadata (Phase 10, P10-06). The name and all four
+ * asset columns (category, description, acquired date, acquisition cost) are
+ * always editable — none of them affect valuation/aggregation, so unlike
+ * `updateAccountAction` there is no `accountHasData` guard. Gated to
+ * `type === 'personal_asset'`.
+ *
+ * @param accountIdRaw - The asset's account UUID from the route.
+ * @param _prev - Previous action state (unused; required by useActionState).
+ * @param formData - Fields: name, assetCategory, description, acquiredAt,
+ *   acquisitionCost.
+ * @returns ActionResult with `ok` on success, or `error`.
+ */
+export async function updateAssetMetadataAction(
+  accountIdRaw: string,
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const { accountId, account } = await loadAccount(accountIdRaw);
+  if (account.type !== "personal_asset") {
+    return { error: "This action only applies to personal-asset accounts" };
+  }
+  const parsed = updateAssetMetadataSchema.safeParse({
+    name: formData.get("name"),
+    assetCategory: formData.get("assetCategory"),
+    description: formData.get("description") || "",
+    acquiredAt: formData.get("acquiredAt") || "",
+    acquisitionCost: formData.get("acquisitionCost") || "",
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  await db
+    .update(accounts)
+    .set({
+      name: parsed.data.name,
+      assetCategory: parsed.data.assetCategory,
+      description: parsed.data.description ? parsed.data.description : null,
+      acquiredAt: parsed.data.acquiredAt ? parsed.data.acquiredAt : null,
+      acquisitionCost: parsed.data.acquisitionCost ? parsed.data.acquisitionCost : null,
+      updatedAt: new Date(),
+    })
+    .where(eq(accounts.id, accountId));
+
   revalidatePath(`/accounts/${accountIdRaw}`);
   revalidatePath("/accounts");
   revalidatePath("/");
