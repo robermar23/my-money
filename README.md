@@ -28,6 +28,8 @@ See [plans/features/FEATURE.md](plans/features/FEATURE.md) for the why, [plans/f
 
 **Phase 9 (investment depth II — history, performance, asset intelligence, forward view) — complete.** Per-holding daily snapshots (`holding_snapshots`) power value-over-time slicing; securities are enriched weekly with sector / industry / region / asset-type / forward-dividend metadata (only ticker symbols egress). New sub-tabs: **Performance** (`/investments/performance` — TWR, XIRR, gain/loss, contributions-vs-market-growth, `^GSPC` benchmark) and **Forecast** (`/investments/forecast` — forward 12-month income, yield-on-cost, income-growth trend, and a clearly-labeled illustrative value projection with a goal marker), plus per-security drill-down pages with price history and allocation slicing by sector/region/account. Every figure is a read-only display metric — no tax lots, cap-gains, or 1099. See [docs/INVESTMENTS.md](docs/INVESTMENTS.md), [docs/THREAT_MODEL_MARKETDATA.md](docs/THREAT_MODEL_MARKETDATA.md), and [plans/features/PLAN9.md](plans/features/PLAN9.md) (ADR-019 → ADR-022).
 
+**Phase 10 (personal high-value assets) — complete.** Track user-valued possessions — vehicles, boats, jewelry, art/collectibles — as a new `personal_asset` account type that counts toward net worth and charts its value over time, reusing the snapshot machinery. Value is **manually entered** (no automated valuation, no depreciation); acquisition cost drives a simple labeled *display* gain/loss (not a tax figure). Optionally attach **proof-of-authenticity documents** (image or PDF, ≤10 MB) — hardened upload (magic-byte sniff + whitelist, SVG excluded), stored as `bytea` in Postgres so they ride the encrypted backup, and served only via an authenticated, attachment-only download route. Nothing about an asset ever leaves the host. See [docs/ASSETS.md](docs/ASSETS.md) and [plans/features/PLAN10.md](plans/features/PLAN10.md) (ADR-023 → ADR-024).
+
 ---
 
 ## Prerequisites
@@ -126,6 +128,25 @@ and the value projection are read-only/illustrative. my-money does **not** do
 tax-lot accounting, wash sales, or 1099/cap-gains reporting, and projections are
 not financial advice. See [docs/INVESTMENTS.md](docs/INVESTMENTS.md) for the full
 guide.
+
+## Personal assets — vehicles, jewelry, collectibles (Phase 10)
+
+Track the valuable things you own that aren't financial accounts. On
+`/accounts/new`, pick **"Personal asset"**, choose a category (vehicle, boat,
+jewelry, art/collectible, other), and optionally record an acquisition date and
+cost. Then record a value whenever it changes — each dated entry counts toward
+your net worth and charts over time, exactly like the home `property` type.
+
+Value is **always yours to enter** — there's no automated valuation and no
+depreciation. If you recorded an acquisition cost, the page shows a simple labeled
+gain/loss (latest value − cost), a *display* figure, never a tax/cap-gains
+calculation.
+
+Optionally attach **proof of authenticity** — a title, receipt, appraisal, or
+photo (JPEG/PNG/WebP/HEIC/PDF, up to 10 MB). Files are type-checked by content
+(not extension), stored privately in Postgres so they're captured by the nightly
+encrypted backup, and downloaded only as attachments. Nothing about an asset ever
+leaves the host. See [docs/ASSETS.md](docs/ASSETS.md).
 
 ## Fallback — QFX/CSV import (Phase 3)
 
@@ -311,8 +332,8 @@ No open known issues.
 In order of precedence when a question arises:
 
 1. [CLAUDE.md](CLAUDE.md) — guardrails (privacy, money precision, Plaid safety, repo conventions)
-2. [plans/features/IDEAS.md](plans/features/IDEAS.md) — locked ADRs 001–018 + the §11 Decision Log (build-from-scratch, web+Postgres, TS/Next/Drizzle, auth, charts, QFX parser, categorization, Plaid scope/encryption/exposure, investments, backups, alerts, beancount, account management, structured categories/analytics/budgets)
-3. [plans/features/PLAN0_1.md](plans/features/PLAN0_1.md) … [PLAN8.md](plans/features/PLAN8.md) — per-phase task breakdowns (Phase 0/1 through Phase 8)
+2. [plans/features/IDEAS.md](plans/features/IDEAS.md) — locked ADRs 001–024 + the §11 Decision Log (build-from-scratch, web+Postgres, TS/Next/Drizzle, auth, charts, QFX parser, categorization, Plaid scope/encryption/exposure, investments, backups, alerts, beancount, account management, structured categories/analytics/budgets, investment depth II, personal assets + proof documents)
+3. [plans/features/PLAN0_1.md](plans/features/PLAN0_1.md) … [PLAN10.md](plans/features/PLAN10.md) — per-phase task breakdowns (Phase 0/1 through Phase 10)
 4. [plans/features/SKILLS.md](plans/features/SKILLS.md) — curated skills catalog mapped to phases
 5. [plans/features/FEATURE.md](plans/features/FEATURE.md) — original "what & why"
 

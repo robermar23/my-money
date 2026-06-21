@@ -123,9 +123,11 @@ docker compose -f docker/compose.yaml --profile prod exec worker ls -lh /backups
 
 See [RESTORE.md](RESTORE.md) for the full table — in short: every domain table +
 the Drizzle migrations table are in; the two keys above and the ephemeral Redis
-queue state are not. The largest contributor to dump size is
-`import_batches.raw_file` (the stored upload bytes); RESTORE.md documents how to
-clear confirmed rows if size ever becomes a concern.
+queue state are not. The largest contributors to dump size are the two `bytea`
+columns — `import_batches.raw_file` (stored upload bytes) and
+`asset_documents.bytes` (personal-asset proof documents, ≤10 MB each, Phase 10) —
+both captured by the dump with **no extra restore step**; RESTORE.md documents how
+to clear confirmed import rows if size ever becomes a concern.
 
 ## Recovery
 
