@@ -56,6 +56,10 @@ A `pg_dump` of the `money` database covers:
 
 - Every row in `users`, `accounts`, `holdings`, `liabilities`, `account_snapshots`,
   `prices`, `fx_rates`, `transactions`, `import_batches`, `category_rules`.
+- **`asset_documents`** (Phase 10) — personal-asset proof-of-authenticity files,
+  bytes and all (`bytea`). They restore with the database; **no extra step, no
+  separate mount to recover** (that single-backup property is exactly why the
+  documents are stored in Postgres rather than on a filesystem — ADR-024).
 - The Drizzle migrations table so `drizzle-kit migrate` is a no-op against a
   restored DB.
 

@@ -96,6 +96,49 @@ describe("computeNetWorth", () => {
     expect(nwAtMay.total.toString()).toBe("2000.00");
   });
 
+  it("includes a valued personal_asset and excludes an unvalued one (P10-07)", async () => {
+    const [cash] = await db
+      .insert(accounts)
+      .values({ name: "Checking", institution: "M&T", type: "depository", currency: "USD" })
+      .returning({ id: accounts.id });
+    const [valued] = await db
+      .insert(accounts)
+      .values({
+        name: "2021 Tacoma",
+        institution: "Personal asset",
+        type: "personal_asset",
+        currency: "USD",
+        assetCategory: "vehicle",
+      })
+      .returning({ id: accounts.id });
+    const [unvalued] = await db
+      .insert(accounts)
+      .values({
+        name: "Rolex",
+        institution: "Personal asset",
+        type: "personal_asset",
+        currency: "USD",
+        assetCategory: "jewelry",
+      })
+      .returning({ id: accounts.id });
+    if (!cash || !valued || !unvalued) throw new Error("seed failed");
+
+    await db.insert(accountSnapshots).values([
+      { accountId: cash.id, date: "2026-05-01", balance: "1000.00" },
+      { accountId: valued.id, date: "2026-05-01", balance: "35000.00" },
+    ]);
+
+    const nw = await computeNetWorth();
+    expect(nw.total.toString()).toBe("36000.00");
+
+    const assetLine = nw.items.find((i) => i.accountId === valued.id);
+    expect(assetLine?.accountType).toBe("personal_asset");
+    expect(assetLine?.balance.toString()).toBe("35000.00");
+
+    // The pure-manual asset with no snapshot stays hidden until first valued.
+    expect(nw.items.find((i) => i.accountId === unvalued.id)).toBeUndefined();
+  });
+
   it("netWorthSeries emits one point per distinct snapshot date", async () => {
     const [acc] = await db
       .insert(accounts)

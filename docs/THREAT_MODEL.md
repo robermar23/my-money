@@ -219,7 +219,53 @@ secure-by-default.
 
 ---
 
-## 9. Code-review findings (P6-02) — triage
+## 9. Surface G — Personal-asset proof documents (Phase 10)
+
+A personal asset (`personal_asset` account) can have optional proof-of-authenticity
+files uploaded. This is the app's **first user-facing document store** (the
+`import_batches.raw_file` bytea is an internal re-parse cache, never served back),
+and proof documents (vehicle titles, jewelry appraisals, receipts, photos of
+valuables) are the **most sensitive new data class** in the app. Three components:
+
+- **Upload** — `uploadAssetDocumentAction` ([src/app/accounts/[id]/actions.ts](../src/app/accounts/%5Bid%5D/actions.ts)):
+  `requireUser` → account-scope + `type==='personal_asset'` check → `checkAssetDocSize`
+  → `detectDocumentType` (magic-byte sniff) → `sanitizeFilename` → insert.
+- **Storage** — `asset_documents.bytes` (`bytea`, [src/db/schema/asset-documents.ts](../src/db/schema/asset-documents.ts)),
+  FK `onDelete: cascade`. No filesystem, no object store, no CDN.
+- **Download** — `GET /accounts/[id]/documents/[docId]` ([route.ts](../src/app/accounts/%5Bid%5D/documents/%5BdocId%5D/route.ts)),
+  the **only** path that serves document bytes (grep-confirmed — §below).
+
+The type whitelist (`detectDocumentType`, [asset-doc-security.ts](../src/lib/importers/asset-doc-security.ts))
+is JPEG/PNG/WebP/HEIC/PDF by magic bytes; **SVG is excluded by design**.
+
+| STRIDE | Threat | Mitigation | Status |
+|---|---|---|---|
+| **S**poofing | Upload/download as someone else | `requireUser`-gated on both the action and the route; single-user. The download route also validates both ids as UUIDs and scopes the lookup to `(docId, accountId)`. | ✅ |
+| **T**ampering — **stored XSS via uploaded file** | Upload an HTML/SVG masquerading as an image, then get it served same-origin and rendered | **Layered:** (1) the upload whitelist is enforced by **magic-byte sniff** and **excludes SVG/HTML** ([asset-doc-security.test.ts](../src/lib/importers/asset-doc-security.test.ts) asserts both rejected); (2) the download route is **attachment-only** (`Content-Disposition: attachment`) + **`X-Content-Type-Options: nosniff`**, so the browser downloads and never renders — even if a payload slipped the whitelist. Never served inline. | ✅ ADR-024 |
+| **T**ampering — **content-type spoof** | Lie in the client `Content-Type` / file extension to smuggle a disallowed type | The stored `mime_type` comes **only** from the magic-byte detector, never the client header or extension; the upload test stores a `text/html`-labelled PDF and asserts the row's mime is `application/pdf`. | ✅ |
+| **T**ampering — **path traversal in filename** | `../../etc/passwd` as a filename escapes a directory | The filename is **never** used as a filesystem path — bytes go into `bytea`. `sanitizeFilename` strips path separators/NUL + length-caps for display; the route also strips `"` from the `Content-Disposition` value so it can't break the quoted header. | ✅ |
+| **I**nformation disclosure — **cross-account document access** | Request another account's `docId` to read a document you don't own | The route loads the doc with `and(eq(id, docId), eq(accountId, id))` — a `docId` not under the URL's account 404s ([route.test.ts](../src/app/accounts/%5Bid%5D/documents/%5BdocId%5D/route.test.ts) asserts the cross-account 404). N/A for the single user, defense-in-depth for the day multi-user is ever considered. | ✅ |
+| **I**nformation disclosure — egress | A document leaks to a third party / CDN | **No asset code makes any outbound fetch** (grep-confirmed — `src/app/accounts`, `asset-doc-security.ts` clean). `Cache-Control: private, no-store` keeps the bytes out of any shared proxy/CDN cache. Bytes live only in Postgres. | ✅ CLAUDE.md §Privacy |
+| **D**enial of service — **large upload** | A multi-GB file exhausts memory (bytea round-trips fully into a Buffer) | `checkAssetDocSize` rejects over the cap (default 10 MB, `ASSET_DOC_MAX_FILE_BYTES`) before the bytes are persisted; `requireUser`-gated so only the one user can submit. | ✅ |
+| **S**ensitive-data-at-rest | Documents readable by a thief who gets the disk/dump | Bytes sit in Postgres on the private docker network; the nightly `pg_dump` is `age`-encrypted (double-wrapped — §Surface E), so a stolen dump is ciphertext. No separate plaintext mount, no CDN copy. Residual: live DB on the box is not at-rest-encrypted (same posture as all financial data). | ⚠️ Accepted (whole-DB posture) |
+| **E**levation of privilege — IDOR | Upload to / delete a document on an account you can't access | `uploadAssetDocumentAction`/`deleteAssetDocumentAction` re-load the account, check `type==='personal_asset'`, and scope the delete to `(docId, accountId)` with UUID validation ([actions.test.ts](../src/app/accounts/%5Bid%5D/actions.test.ts): cross-account delete is a no-op, malformed id rejected). | ✅ |
+
+**Grep verification (P10-17):**
+
+- Only path serving `asset_documents.bytes`: `route.ts:56` (`new Uint8Array(doc.bytes)`) — the only non-test, non-comment reader. ✅
+- No outbound network call in asset/document code: `fetch(`/`axios`/`undici`/`got`/`http(s).request` — **no matches** in `src/app/accounts` or `src/lib/importers/asset-doc-security.ts`. ✅
+
+**Red-team scenario (malicious upload):** *Persona: attacker with the password
+tries to plant a self-XSS / exfil payload.* Upload `evil.svg` renamed `photo.png`
+with a spoofed `image/png` header → `detectDocumentType` reads the leading bytes,
+finds XML not a PNG signature, returns `null`, upload rejected, no row written.
+Even a genuine image that somehow embedded markup would be downloaded as an
+attachment with `nosniff`, never executed in the origin. No path renders document
+bytes inline.
+
+---
+
+## 10. Code-review findings (P6-02) — triage
 
 | # | Severity | Finding | Disposition |
 |---|---|---|---|
@@ -238,7 +284,7 @@ No **Critical** or **High** findings. The two Mediums are fixed in this pass.
 
 ---
 
-## 10. Verdict (007 Phase 6)
+## 11. Verdict (007 Phase 6)
 
 | Domain | Weight | Score | Notes |
 |---|---|---:|---|
@@ -259,7 +305,7 @@ below — none block the tunnel.
 
 ---
 
-## 11. Open Items (residual / future hardening)
+## 12. Open Items (residual / future hardening)
 
 1. **No structured audit log** — login events + critical mutations have no
    append-only trail (Surface A/B Repudiation). Single-user lowers the value;
@@ -280,7 +326,7 @@ below — none block the tunnel.
 
 ---
 
-## 12. How to use this document
+## 13. How to use this document
 
 When you change auth, a server action, the import path, the price fetchers, the
 web headers, or any Phase-6 backup/export/alert/health code:

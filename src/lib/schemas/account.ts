@@ -7,6 +7,20 @@ export const ACCOUNT_TYPES = [
   "crypto_ira",
   "loan",
   "property",
+  "personal_asset",
+] as const;
+
+/**
+ * Personal-asset categories (Phase 10, ADR-023). Mirrors the `accounts`
+ * `asset_category` CHECK constraint — keep the two in sync. text+CHECK, not a
+ * pgEnum, so this list may grow without an enum-add migration.
+ */
+export const ASSET_CATEGORIES = [
+  "vehicle",
+  "watercraft",
+  "jewelry",
+  "collectible",
+  "other",
 ] as const;
 
 export const ASSET_CLASSES = ["equity", "crypto", "physical_metal", "cash", "property"] as const;
@@ -85,6 +99,46 @@ export const recordPropertyValueSchema = z.object({
   date: isoDateSchema,
   value: moneyAmountSchema,
 });
+
+/**
+ * Create a personal asset (Phase 10, P10-04). An asset is a `personal_asset`
+ * account; `institution` is set server-side to `"Personal asset"` (ADR-023) so
+ * the form never surfaces it. `acquisitionCost` drives a simple display
+ * gain/loss against the latest recorded value.
+ *
+ * An optional `initialValue` (+ optional `initialValueDate`, defaulting to today
+ * in the action) lets the asset be born with a value so it appears in net worth
+ * immediately — without one, the asset stays hidden until its first valuation,
+ * the same rule every pure-manual account follows.
+ */
+export const createAssetSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(120),
+  assetCategory: z.enum(ASSET_CATEGORIES),
+  description: z.string().trim().max(2000).optional().or(z.literal("")),
+  acquiredAt: isoDateSchema.optional().or(z.literal("")),
+  acquisitionCost: moneyAmountSchema.optional().or(z.literal("")),
+  currency: z.string().trim().length(3, "Use a 3-letter currency code").default("USD"),
+  initialValue: moneyAmountSchema.optional().or(z.literal("")),
+  initialValueDate: isoDateSchema.optional().or(z.literal("")),
+});
+
+export type CreateAssetInput = z.infer<typeof createAssetSchema>;
+
+/**
+ * Edit a personal asset's metadata (Phase 10, P10-06). Unlike
+ * `updateAccountSchema`, an asset has no `institution`/`type`/`currency` to edit
+ * (institution is the server-set sentinel; type/currency stay locked once data
+ * exists). All four asset columns plus the name are always editable.
+ */
+export const updateAssetMetadataSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(120),
+  assetCategory: z.enum(ASSET_CATEGORIES),
+  description: z.string().trim().max(2000).optional().or(z.literal("")),
+  acquiredAt: isoDateSchema.optional().or(z.literal("")),
+  acquisitionCost: moneyAmountSchema.optional().or(z.literal("")),
+});
+
+export type UpdateAssetMetadataInput = z.infer<typeof updateAssetMetadataSchema>;
 
 /** A single cost-basis lot entered manually (Phase 5, P5-18). */
 export const upsertLotSchema = z.object({

@@ -19,6 +19,16 @@ const TYPE_LABEL: Record<string, string> = {
   crypto_ira: "Crypto / metals IRA",
   loan: "Loan",
   property: "Property",
+  personal_asset: "Asset",
+};
+
+/** Display labels for personal-asset categories (mirrors ASSET_CATEGORIES). */
+const ASSET_CATEGORY_LABEL: Record<string, string> = {
+  vehicle: "Vehicle",
+  watercraft: "Boat & watercraft",
+  jewelry: "Jewelry & watches",
+  collectible: "Art & collectibles",
+  other: "Other",
 };
 
 async function getLatestBalanceString(accountId: string): Promise<string | null> {
@@ -108,7 +118,11 @@ export default async function AccountsPage(props: AccountsPageProps): Promise<Re
                         </span>
                       )}
                     </td>
-                    <td className="py-3 text-zinc-600 dark:text-zinc-400">{account.institution}</td>
+                    <td className="py-3 text-zinc-600 dark:text-zinc-400">
+                      {account.type === "personal_asset" && account.assetCategory
+                        ? (ASSET_CATEGORY_LABEL[account.assetCategory] ?? account.assetCategory)
+                        : account.institution}
+                    </td>
                     <td className="py-3 text-zinc-600 dark:text-zinc-400">
                       {TYPE_LABEL[account.type] ?? account.type}
                     </td>

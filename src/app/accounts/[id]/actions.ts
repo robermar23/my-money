@@ -4,6 +4,7 @@ import { db } from "@/db/client.ts";
 import {
   accountSnapshots,
   accounts,
+  assetDocuments,
   categories,
   holdingLots,
   holdings,
@@ -13,6 +14,8 @@ import {
 import { getAccount } from "@/lib/accounts/queries.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { createRuleFromPayee } from "@/lib/categorization/rule-from-payee.ts";
+import { checkAssetDocSize, detectDocumentType } from "@/lib/importers/asset-doc-security.ts";
+import { sanitizeFilename } from "@/lib/importers/upload-security.ts";
 import { Money } from "@/lib/money/money.ts";
 import { balanceAtMonth } from "@/lib/mortgage/amortization.ts";
 import {
@@ -20,6 +23,7 @@ import {
   recordBalanceSchema,
   recordPropertyValueSchema,
   updateAccountSchema,
+  updateAssetMetadataSchema,
   upsertHoldingSchema,
   upsertLotSchema,
 } from "@/lib/schemas/account.ts";
@@ -489,6 +493,181 @@ export async function recordPropertyValueAction(
   revalidatePath(`/accounts/${accountIdRaw}`);
   revalidatePath("/accounts");
   revalidatePath("/");
+  return { ok: true };
+}
+
+/**
+ * Record a personal-asset valuation (Phase 10, P10-05, ADR-023). Same shape and
+ * idempotency as `recordPropertyValueAction` — UPSERT on `(account_id, date)`,
+ * so re-recording the same date overwrites rather than duplicating. Gated to
+ * `type === 'personal_asset'`.
+ *
+ * @param accountIdRaw - The asset's account UUID from the route.
+ * @param _prev - Previous action state (unused; required by useActionState).
+ * @param formData - Fields: date, value.
+ * @returns ActionResult with `ok` on success, or `error`.
+ */
+export async function recordAssetValueAction(
+  accountIdRaw: string,
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const { accountId, account } = await loadAccount(accountIdRaw);
+  if (account.type !== "personal_asset") {
+    return { error: "This action only applies to personal-asset accounts" };
+  }
+  const parsed = recordPropertyValueSchema.safeParse({
+    date: formData.get("date"),
+    value: formData.get("value"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  await db
+    .insert(accountSnapshots)
+    .values({ accountId, date: parsed.data.date, balance: parsed.data.value })
+    .onConflictDoUpdate({
+      target: [accountSnapshots.accountId, accountSnapshots.date],
+      set: { balance: parsed.data.value },
+    });
+  revalidatePath(`/accounts/${accountIdRaw}`);
+  revalidatePath("/accounts");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/**
+ * Edit a personal asset's metadata (Phase 10, P10-06). The name and all four
+ * asset columns (category, description, acquired date, acquisition cost) are
+ * always editable — none of them affect valuation/aggregation, so unlike
+ * `updateAccountAction` there is no `accountHasData` guard. Gated to
+ * `type === 'personal_asset'`.
+ *
+ * @param accountIdRaw - The asset's account UUID from the route.
+ * @param _prev - Previous action state (unused; required by useActionState).
+ * @param formData - Fields: name, assetCategory, description, acquiredAt,
+ *   acquisitionCost.
+ * @returns ActionResult with `ok` on success, or `error`.
+ */
+export async function updateAssetMetadataAction(
+  accountIdRaw: string,
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const { accountId, account } = await loadAccount(accountIdRaw);
+  if (account.type !== "personal_asset") {
+    return { error: "This action only applies to personal-asset accounts" };
+  }
+  const parsed = updateAssetMetadataSchema.safeParse({
+    name: formData.get("name"),
+    assetCategory: formData.get("assetCategory"),
+    description: formData.get("description") || "",
+    acquiredAt: formData.get("acquiredAt") || "",
+    acquisitionCost: formData.get("acquisitionCost") || "",
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+  await db
+    .update(accounts)
+    .set({
+      name: parsed.data.name,
+      assetCategory: parsed.data.assetCategory,
+      description: parsed.data.description ? parsed.data.description : null,
+      acquiredAt: parsed.data.acquiredAt ? parsed.data.acquiredAt : null,
+      acquisitionCost: parsed.data.acquisitionCost ? parsed.data.acquisitionCost : null,
+      updatedAt: new Date(),
+    })
+    .where(eq(accounts.id, accountId));
+
+  revalidatePath(`/accounts/${accountIdRaw}`);
+  revalidatePath("/accounts");
+  revalidatePath("/");
+  return { ok: true };
+}
+
+/** Cap on the optional proof-document label, to bound stored free text. */
+const ASSET_DOC_DESCRIPTION_MAX = 200;
+
+/**
+ * Upload a proof-of-authenticity document for a personal asset (Phase 10,
+ * P10-09, ADR-024). Gated to `type === 'personal_asset'` and scoped to the
+ * account. The file type is decided by a **magic-byte sniff** against the
+ * whitelist (`detectDocumentType`), never the client `Content-Type` — the
+ * detected MIME, not the header, is what we store. Bytes live in Postgres
+ * `bytea` so the nightly encrypted `pg_dump` captures them (single backup).
+ *
+ * @param accountIdRaw - The asset's account UUID from the route.
+ * @param _prev - Previous action state (unused; required by useActionState).
+ * @param formData - Fields: file (required), description (optional label).
+ * @returns ActionResult with `ok` on success, or `error`.
+ */
+export async function uploadAssetDocumentAction(
+  accountIdRaw: string,
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const { accountId, account } = await loadAccount(accountIdRaw);
+  if (account.type !== "personal_asset") {
+    return { error: "This action only applies to personal-asset accounts" };
+  }
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    return { error: "Please choose a file" };
+  }
+  const sizeErr = checkAssetDocSize(file.size);
+  if (sizeErr) return { error: sizeErr };
+
+  const buf = Buffer.from(await file.arrayBuffer());
+  const detected = detectDocumentType(buf);
+  if (!detected) {
+    return {
+      error: "File must be a JPEG, PNG, WebP, or HEIC image, or a PDF (magic-byte check failed)",
+    };
+  }
+  const filename = sanitizeFilename(file.name);
+
+  const descRaw = formData.get("description");
+  const description =
+    typeof descRaw === "string" && descRaw.trim().length > 0
+      ? descRaw.trim().slice(0, ASSET_DOC_DESCRIPTION_MAX)
+      : null;
+
+  await db.insert(assetDocuments).values({
+    accountId,
+    filename,
+    mimeType: detected.mime,
+    sizeBytes: buf.byteLength,
+    bytes: buf,
+    description,
+  });
+
+  revalidatePath(`/accounts/${accountIdRaw}`);
+  return { ok: true };
+}
+
+/**
+ * Delete a proof-of-authenticity document (Phase 10, P10-09). UUID-validated and
+ * account-scoped — the delete only matches a document whose `account_id` equals
+ * this asset, so a forged `docId` from another account is a no-op.
+ *
+ * @param accountIdRaw - The asset's account UUID from the route.
+ * @param docIdRaw - The document UUID to delete.
+ * @returns ActionResult with `ok` on success, or `error`.
+ */
+export async function deleteAssetDocumentAction(
+  accountIdRaw: string,
+  docIdRaw: string,
+): Promise<ActionResult> {
+  const { accountId } = await loadAccount(accountIdRaw);
+  if (!UUID_RE.test(docIdRaw)) {
+    return { error: "Invalid document id" };
+  }
+  await db
+    .delete(assetDocuments)
+    .where(and(eq(assetDocuments.id, docIdRaw), eq(assetDocuments.accountId, accountId)));
+  revalidatePath(`/accounts/${accountIdRaw}`);
   return { ok: true };
 }
 
