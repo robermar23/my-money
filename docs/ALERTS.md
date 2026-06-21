@@ -77,8 +77,12 @@ The body is exactly a **count + a sign-in link** — e.g. *"2 new alerts —
 https://…/alerts"*. Verify on demand:
 
 ```bash
-docker compose -f docker/compose.yaml --profile prod exec worker \
-  node --import tsx src/worker/run-once.ts detect-anomalies-daily
+# `run --rm` re-reads --env-file at launch (so newly-added SMTP/alert vars are
+# seen) and the register.mjs loader stubs Next's `server-only` marker (else
+# run-once.ts fails with ERR_MODULE_NOT_FOUND: Cannot find package 'server-only'):
+docker compose -f docker/compose.yaml --profile prod run --rm --no-deps worker \
+  node --experimental-strip-types --import tsx --import ./scripts/loaders/register.mjs \
+  src/worker/run-once.ts detect-anomalies-daily
 ```
 
 ## Privacy posture (non-negotiable)

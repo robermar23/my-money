@@ -22,7 +22,7 @@ COMPOSE := docker compose -f docker/compose.yaml --env-file .env.local
 # BUILDER     — dedicated buildx builder so we don't disturb the default one.
 IMAGE_REPO ?= robermar2/my-money
 GIT_REV    := $(shell git rev-parse --short HEAD)
-PLATFORMS  ?= linux/amd64,linux/arm64
+PLATFORMS  ?= linux/amd64
 BUILDER    ?= my-money-builder
 
 # Domain tables for `db-reset` — a DEV convenience that wipes rows, keeping the

@@ -22,6 +22,12 @@ See [plans/features/FEATURE.md](plans/features/FEATURE.md) for the why, [plans/f
 
 **Phase 6 (polish & longevity) — complete.** Runs unattended: nightly encrypted `pg_dump | age` backups, a plain-text Beancount mirror, deterministic anomaly alerts, a `/api/health` probe, ARM64/Pi builds, and a mobile-responsive UI. See the §Backups, §Alerts, and §Longevity sections below, plus [docs/DEPLOY.md](docs/DEPLOY.md) for the full unattended-operation runbook and [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) for the whole-app STRIDE analysis.
 
+**Phase 7 (data management / CRUD) — account management shipped (Batch 1).** Rename, retype, close (archive), and delete manual accounts from the account page (ADR-017); closing preserves all historical data. The remaining CRUD batches — transaction edit/delete, balance-snapshot delete, category-rule edit — are tracked in [plans/features/PLAN7.md](plans/features/PLAN7.md).
+
+**Phase 8 (categorization, spending analytics & budgets) — complete.** Free-text categories replaced by a structured two-level taxonomy (`category_groups` + `categories`, each tagged `income` / `expense` / `transfer` so internal moves and card payments stay out of spend totals). Fast inline categorization (managed picker with create-and-rule), a bulk **Review uncategorized** queue, a spending-analysis surface at `/analysis` (income/expense/net/savings tiles, stacked spend-by-month + net line, category-breakdown donut, per-category drill-down), monthly per-category **budgets** with actual-vs-target progress bars, and a deterministic **trailing-average forecast** plus month-to-date run-rate projections. All first-party SQL — no third-party analytics, no LLM categorization. See [plans/features/PLAN8.md](plans/features/PLAN8.md) (ADR-018).
+
+**Phase 9 (investment depth II — history, performance, asset intelligence, forward view) — complete.** Per-holding daily snapshots (`holding_snapshots`) power value-over-time slicing; securities are enriched weekly with sector / industry / region / asset-type / forward-dividend metadata (only ticker symbols egress). New sub-tabs: **Performance** (`/investments/performance` — TWR, XIRR, gain/loss, contributions-vs-market-growth, `^GSPC` benchmark) and **Forecast** (`/investments/forecast` — forward 12-month income, yield-on-cost, income-growth trend, and a clearly-labeled illustrative value projection with a goal marker), plus per-security drill-down pages with price history and allocation slicing by sector/region/account. Every figure is a read-only display metric — no tax lots, cap-gains, or 1099. See [docs/INVESTMENTS.md](docs/INVESTMENTS.md), [docs/THREAT_MODEL_MARKETDATA.md](docs/THREAT_MODEL_MARKETDATA.md), and [plans/features/PLAN9.md](plans/features/PLAN9.md) (ADR-019 → ADR-022).
+
 ---
 
 ## Prerequisites
@@ -107,9 +113,19 @@ an asset-allocation donut, and dividend/interest income over time.
   page (quarterly), and optionally record **cost-basis lots** for accurate
   gain/loss. Prices update overnight; you only type quantities.
 
-Gain/loss is a display figure — `value − cost basis`. my-money does **not** do
-tax-lot accounting, wash sales, or 1099/cap-gains reporting. See
-[docs/INVESTMENTS.md](docs/INVESTMENTS.md) for the full guide.
+Three sub-tabs sit at the top of the surface: **Overview** (this dashboard, with
+allocation slicing by sector/region/account and a top-holdings concentration
+table), **Performance** (value & return over time — TWR, XIRR, gain/loss,
+contributions-vs-market-growth, and an S&P 500 benchmark), and **Forecast**
+(forward 12-month dividend income, yield-on-cost, income-growth trend, and a
+clearly-labeled illustrative value projection with a goal marker). Click any
+position's symbol for a per-security detail page with price history.
+
+Every figure is a display metric — `value − cost basis` for gain/loss; TWR/XIRR
+and the value projection are read-only/illustrative. my-money does **not** do
+tax-lot accounting, wash sales, or 1099/cap-gains reporting, and projections are
+not financial advice. See [docs/INVESTMENTS.md](docs/INVESTMENTS.md) for the full
+guide.
 
 ## Fallback — QFX/CSV import (Phase 3)
 
@@ -123,6 +139,29 @@ when starting from a fresh install:
 5. Skim the preview (counts + reconciliation banner), click **Confirm**.
 
 Re-importing the same file is always safe (deduped by FITID). See [docs/IMPORT.md](docs/IMPORT.md) for CSV column mapping and reconciliation troubleshooting. Manage category rules at **/settings/categories**.
+
+## Spending analysis & budgets (Phase 8)
+
+Transactions are organized by a structured taxonomy — leaf **categories** grouped
+into **groups**, each tagged `income`, `expense`, or `transfer` so internal moves
+and credit-card payments never count as spending. Categorize fast from a
+transaction's picker (inline "+ new category" with an optional auto-rule), or
+clear the backlog in bulk at **/analysis/review**.
+
+**/analysis** is the spending surface: income / expense / net / savings-rate
+tiles, a stacked spend-by-month chart with a net line, a category-breakdown
+donut, and per-category drill-downs — all filterable by date range and account
+(state lives in the URL). The chart extends one **projected** month (dashed,
+dimmed) from a trailing 3-month average.
+
+**/analysis/budgets** sets a monthly target per category with actual-vs-target
+progress bars (over = red), a month switcher, group rollups, and a
+**projected end-of-month** marker from the current month's run-rate.
+
+Every figure is first-party SQL over your local Postgres — no third-party
+analytics, no LLM categorization (CLAUDE.md §Privacy). Manage categories, groups,
+and regex rules at **/settings/categories**; after editing rules en masse, run the
+one-shot category backfill (see §Backfill category assignment logic below).
 
 ---
 
@@ -220,7 +259,7 @@ docker compose -f docker/compose.yaml logs -f app worker
 
 ```text
 my-money/
-├── plans/features/          # FEATURE.md, IDEAS.md, SKILLS.md, PLAN0_1.md — source of truth
+├── plans/features/          # FEATURE.md, IDEAS.md, SKILLS.md, PLAN*.md — source of truth
 ├── src/
 │   ├── app/                 # Next.js App Router (pages, layouts, route handlers, server actions)
 │   │   ├── setup/           # First-run user bootstrap wizard
@@ -272,7 +311,54 @@ No open known issues.
 In order of precedence when a question arises:
 
 1. [CLAUDE.md](CLAUDE.md) — guardrails (privacy, money precision, Plaid safety, repo conventions)
-2. [plans/features/IDEAS.md](plans/features/IDEAS.md) — locked ADRs 001–016 + the §11 Decision Log (build-from-scratch, web+Postgres, TS/Next/Drizzle, auth, charts, QFX parser, categorization, Plaid scope/encryption/exposure, investments, backups, alerts, beancount)
-3. [plans/features/PLAN0_1.md](plans/features/PLAN0_1.md) … [PLAN6.md](plans/features/PLAN6.md) — per-phase task breakdowns (Phase 0/1 through Phase 6)
+2. [plans/features/IDEAS.md](plans/features/IDEAS.md) — locked ADRs 001–018 + the §11 Decision Log (build-from-scratch, web+Postgres, TS/Next/Drizzle, auth, charts, QFX parser, categorization, Plaid scope/encryption/exposure, investments, backups, alerts, beancount, account management, structured categories/analytics/budgets)
+3. [plans/features/PLAN0_1.md](plans/features/PLAN0_1.md) … [PLAN8.md](plans/features/PLAN8.md) — per-phase task breakdowns (Phase 0/1 through Phase 8)
 4. [plans/features/SKILLS.md](plans/features/SKILLS.md) — curated skills catalog mapped to phases
 5. [plans/features/FEATURE.md](plans/features/FEATURE.md) — original "what & why"
+
+## PRD Commands
+
+### Restart App
+
+```sh
+docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml   --env-file /mnt/user/appdata/my-money/repo/.env --profile prod up -d --force-recreate app worker
+```
+
+### Pull Latest
+
+```sh
+docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml   --env-file /mnt/user/appdata/my-money/repo/.env --profile prod pull
+```
+
+### Make backup
+
+Uses `run --rm` (not `exec`) so the one-off container re-reads `.env` at launch —
+`exec` reuses the **running** worker's environment, which was frozen at container
+creation, so a `BACKUP_AGE_RECIPIENT` you added *after* the worker started won't be
+seen and the job logs `disabled … skipping`. The `register.mjs` loader stubs Next's
+`server-only` marker; without it `run-once.ts` fails with `ERR_MODULE_NOT_FOUND:
+Cannot find package 'server-only'`. Requires `BACKUP_AGE_RECIPIENT` set in `.env`.
+
+```sh
+docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml \
+  --env-file /mnt/user/appdata/my-money/repo/.env --profile prod run --rm --no-deps worker \
+  node --experimental-strip-types --import tsx --import ./scripts/loaders/register.mjs \
+  src/worker/run-once.ts backup-database-daily
+
+docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml --env-file /mnt/user/appdata/my-money/repo/.env --profile prod exec worker ls -lh /backups
+# → money-YYYYMMDDTHHMMSSZ.dump.age
+```
+
+### Apply Migration for update
+
+```sh
+docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml --env-file /mnt/user/appdata/my-money/repo/.env --profile prod run --rm app node_modules/.bin/drizzle-kit migrate
+```
+
+## Backfill category assignment logic
+
+```sh
+docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml --env-file /mnt/user/appdata/my-money/repo/.env --profile prod run --rm worker node --experimental-strip-types --import tsx --import ./scripts/loaders/register.mjs \
+  src/worker/run-once.ts backfill-categories
+```
+

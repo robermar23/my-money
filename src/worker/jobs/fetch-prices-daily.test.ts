@@ -38,13 +38,15 @@ describe("fetchPricesDailyProcessor", () => {
   beforeEach(reset);
   afterAll(reset);
 
-  it("returns 0/0 when no holdings exist", async () => {
+  it("fetches only the benchmark when no holdings exist", async () => {
+    // The S&P 500 benchmark (^GSPC) is always fetched for the performance page
+    // (P9-12), even with no holdings.
     const result = await fetchPricesDailyProcessor(fakeJob, {
-      equity: makeFetcher("yahoo", {}),
+      equity: makeFetcher("yahoo", { "^GSPC": "5000.00000000" }),
       crypto: makeFetcher("coingecko", {}),
       physicalMetal: makeFetcher("alpha_vantage", {}),
     });
-    expect(result).toEqual({ succeeded: 0, failed: 0, errors: [] });
+    expect(result).toEqual({ succeeded: 1, failed: 0, errors: [] });
   });
 
   it("fetches each distinct held symbol via the correct fetcher and upserts", async () => {
@@ -78,11 +80,11 @@ describe("fetchPricesDailyProcessor", () => {
     ]);
 
     const result = await fetchPricesDailyProcessor(fakeJob, {
-      equity: makeFetcher("yahoo", { AAPL: "234.56000000" }),
+      equity: makeFetcher("yahoo", { AAPL: "234.56000000", "^GSPC": "5000.00000000" }),
       crypto: makeFetcher("coingecko", { BTC: "65000.00000000" }),
       physicalMetal: makeFetcher("alpha_vantage", { XAU: "2350.45000000" }),
     });
-    expect(result.succeeded).toBe(3);
+    expect(result.succeeded).toBe(4); // AAPL + BTC + XAU + the ^GSPC benchmark
     expect(result.failed).toBe(0);
 
     const rows = await db.select().from(prices);
@@ -90,6 +92,7 @@ describe("fetchPricesDailyProcessor", () => {
     expect(bySymbol.AAPL?.source).toBe("yahoo");
     expect(bySymbol.BTC?.source).toBe("coingecko");
     expect(bySymbol.XAU?.source).toBe("alpha_vantage");
+    expect(bySymbol["^GSPC"]?.source).toBe("yahoo");
   });
 
   it("isolates per-symbol failures — one bad source doesn't kill the others", async () => {
@@ -116,11 +119,11 @@ describe("fetchPricesDailyProcessor", () => {
     ]);
 
     const result = await fetchPricesDailyProcessor(fakeJob, {
-      equity: makeFetcher("yahoo", { AAPL: "100" }),
+      equity: makeFetcher("yahoo", { AAPL: "100", "^GSPC": "5000" }),
       crypto: makeFetcher("coingecko", {}), // BTC will fail (no mock entry)
       physicalMetal: makeFetcher("alpha_vantage", {}),
     });
-    expect(result.succeeded).toBe(1);
+    expect(result.succeeded).toBe(2); // AAPL + ^GSPC
     expect(result.failed).toBe(1);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]?.symbol).toBe("BTC");
@@ -141,11 +144,12 @@ describe("fetchPricesDailyProcessor", () => {
     });
 
     const result = await fetchPricesDailyProcessor(fakeJob, {
-      equity: makeFetcher("yahoo", {}),
+      equity: makeFetcher("yahoo", { "^GSPC": "5000.00000000" }),
       crypto: makeFetcher("coingecko", {}),
       physicalMetal: makeFetcher("alpha_vantage", {}),
     });
-    expect(result.succeeded).toBe(0);
+    // Only the always-on benchmark fetches; the property holding is skipped.
+    expect(result.succeeded).toBe(1);
     expect(result.failed).toBe(0);
   });
 

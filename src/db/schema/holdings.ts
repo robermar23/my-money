@@ -13,6 +13,7 @@ import {
 import { accounts } from "./accounts.ts";
 import { assetClassEnum, quantityUnitEnum } from "./enums.ts";
 import { holdingLots } from "./holding-lots.ts";
+import { holdingSnapshots } from "./holding-snapshots.ts";
 import { securities } from "./securities.ts";
 
 /**
@@ -86,6 +87,7 @@ export const holdingsRelations = relations(holdings, ({ one, many }) => ({
     references: [securities.id],
   }),
   lots: many(holdingLots),
+  snapshots: many(holdingSnapshots),
 }));
 
 export type Holding = typeof holdings.$inferSelect;

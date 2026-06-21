@@ -10,6 +10,7 @@ import {
   heartbeatQueue,
   processImportQueue,
   recategorizeAllQueue,
+  refreshFundamentalsWeeklyQueue,
   syncInvestmentsItemQueue,
   syncPlaidItemQueue,
 } from "@/lib/queue/queues.ts";
@@ -23,6 +24,7 @@ import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
 import { heartbeatProcessor } from "./jobs/heartbeat.ts";
 import { processImportProcessor } from "./jobs/process-import.ts";
 import { recategorizeAllProcessor } from "./jobs/recategorize-all.ts";
+import { refreshFundamentalsWeeklyProcessor } from "./jobs/refresh-fundamentals-weekly.ts";
 import { syncInvestmentsItemProcessor } from "./jobs/sync-investments-item.ts";
 import { syncPlaidItemProcessor } from "./jobs/sync-plaid-item.ts";
 
@@ -157,6 +159,19 @@ detectAnomaliesDailyWorker.on("failed", (job, err) => {
   console.error(`[worker] detect-anomalies-daily job ${job?.id} failed:`, err);
 });
 
+// Phase 9 (P9-07): weekly security-enrichment refresh. concurrency=1 — a single
+// rate-limited pass over stale securities; failures retry via BullMQ backoff.
+const refreshFundamentalsWeeklyWorker = new Worker(
+  QUEUE_NAMES.REFRESH_FUNDAMENTALS_WEEKLY,
+  async (job) => {
+    await refreshFundamentalsWeeklyProcessor(job);
+  },
+  { connection: redisConnection, concurrency: 1 },
+);
+refreshFundamentalsWeeklyWorker.on("failed", (job, err) => {
+  console.error(`[worker] refresh-fundamentals-weekly job ${job?.id} failed:`, err);
+});
+
 // Ensure a single heartbeat repeatable job exists. Removing first guards against
 // pattern duplication across restarts.
 await heartbeatQueue.removeJobScheduler("heartbeat-tick").catch(() => {
@@ -234,6 +249,20 @@ await detectAnomaliesDailyQueue.upsertJobScheduler(
   { name: "detect-anomalies-daily", data: {} },
 );
 
+// P9-07 — Weekly security enrichment refresh, Sundays at 06:00 local. Cadence is
+// weekly because sector/industry/forward-dividend change slowly; running after
+// the nightly jobs keeps it off the busy overnight window.
+await refreshFundamentalsWeeklyQueue
+  .removeJobScheduler("refresh-fundamentals-weekly-cron")
+  .catch(() => {
+    /* first run */
+  });
+await refreshFundamentalsWeeklyQueue.upsertJobScheduler(
+  "refresh-fundamentals-weekly-cron",
+  { pattern: "0 6 * * 0" },
+  { name: "refresh-fundamentals-weekly", data: {} },
+);
+
 /**
  * Graceful shutdown per bullmq-specialist guidance. Process SIGTERM and SIGINT,
  * stop accepting new jobs, drain in-flight, then close the Redis connection.
@@ -250,6 +279,7 @@ async function shutdown(_signal: string): Promise<void> {
   await backupDatabaseDailyWorker.close();
   await exportBeancountDailyWorker.close();
   await detectAnomaliesDailyWorker.close();
+  await refreshFundamentalsWeeklyWorker.close();
   await heartbeatQueue.close();
   await computeSnapshotsDailyQueue.close();
   await fetchPricesDailyQueue.close();
@@ -261,6 +291,7 @@ async function shutdown(_signal: string): Promise<void> {
   await backupDatabaseDailyQueue.close();
   await exportBeancountDailyQueue.close();
   await detectAnomaliesDailyQueue.close();
+  await refreshFundamentalsWeeklyQueue.close();
   await redisConnection.quit();
   process.exit(0);
 }

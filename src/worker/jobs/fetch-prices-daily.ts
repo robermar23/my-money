@@ -1,3 +1,4 @@
+import { BENCHMARK_SYMBOL } from "@/lib/investments/performance.ts";
 import { sleep } from "@/lib/prices/retry.ts";
 import {
   type PriceRouter,
@@ -5,7 +6,7 @@ import {
   fetcherFor,
   isFetchableAssetClass,
 } from "@/lib/prices/router.ts";
-import { distinctHeldSymbols, upsertPrice } from "@/lib/prices/store.ts";
+import { type HeldSymbol, distinctHeldSymbols, upsertPrice } from "@/lib/prices/store.ts";
 import type { Job } from "bullmq";
 
 /**
@@ -39,12 +40,18 @@ export async function fetchPricesDailyProcessor(
   delayMs = 250,
 ): Promise<FetchPricesResult> {
   const held = await distinctHeldSymbols();
+  // Always include the S&P 500 benchmark (^GSPC) so the performance page can
+  // overlay a buy-and-hold index line (ADR-021). It's an equity-class symbol on
+  // the same Yahoo pipeline — just another row in `prices`, no new table.
+  const work: HeldSymbol[] = held.some((h) => h.symbol === BENCHMARK_SYMBOL)
+    ? held
+    : [...held, { symbol: BENCHMARK_SYMBOL, assetClass: "equity" }];
   let succeeded = 0;
   let failed = 0;
   let processedAny = false;
   const errors: Array<{ symbol: string; error: string }> = [];
 
-  for (const { symbol, assetClass } of held) {
+  for (const { symbol, assetClass } of work) {
     if (!isFetchableAssetClass(assetClass)) continue; // cash, property: no fetch
     // Space out fetched symbols (not the first) to stay under rate limits.
     if (processedAny && delayMs > 0) await sleep(delayMs);

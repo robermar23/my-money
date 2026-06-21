@@ -26,7 +26,28 @@ const COLORS: Record<string, string> = {
   cash: "#10b981",
   property: "#8b5cf6",
 };
-const FALLBACK = "#71717a";
+
+// Rotating palette for dimensions without fixed colors (sector / region /
+// asset type). Unclassified always renders neutral gray.
+const PALETTE = [
+  "#3b82f6",
+  "#f59e0b",
+  "#10b981",
+  "#8b5cf6",
+  "#ec4899",
+  "#14b8a6",
+  "#ef4444",
+  "#a3a3a3",
+  "#6366f1",
+  "#84cc16",
+];
+const UNCLASSIFIED_COLOR = "#71717a";
+
+/** Resolve a stable color for a slice: fixed asset-class color, else palette by order. */
+function colorFor(label: string, index: number): string {
+  if (label === "Unclassified") return UNCLASSIFIED_COLOR;
+  return COLORS[label] ?? PALETTE[index % PALETTE.length] ?? UNCLASSIFIED_COLOR;
+}
 
 const LABELS: Record<string, string> = {
   equity: "Equity",
@@ -59,8 +80,8 @@ export function AllocationChart({ slices }: Props): React.JSX.Element {
               paddingAngle={2}
               stroke="none"
             >
-              {slices.map((s) => (
-                <Cell key={s.label} fill={COLORS[s.label] ?? FALLBACK} />
+              {slices.map((s, i) => (
+                <Cell key={s.label} fill={colorFor(s.label, i)} />
               ))}
             </Pie>
             <Tooltip
@@ -80,12 +101,12 @@ export function AllocationChart({ slices }: Props): React.JSX.Element {
         </ResponsiveContainer>
       </div>
       <ul className="flex-1 space-y-1 text-sm">
-        {slices.map((s) => (
+        {slices.map((s, i) => (
           <li key={s.label} className="flex items-center justify-between gap-3">
             <span className="flex items-center gap-2">
               <span
                 className="inline-block h-2.5 w-2.5 rounded-sm"
-                style={{ backgroundColor: COLORS[s.label] ?? FALLBACK }}
+                style={{ backgroundColor: colorFor(s.label, i) }}
               />
               {LABELS[s.label] ?? s.label}
             </span>

@@ -13,7 +13,10 @@
  *   - export-beancount-daily
  *   - detect-anomalies-daily
  *   - backfill-categories
+ *   - backfill-holding-snapshots
+ *   - refresh-fundamentals-weekly
  */
+import { backfillHoldingSnapshots } from "../lib/investments/backfill-history.ts";
 import { backfillCategoriesProcessor } from "./jobs/backfill-categories.ts";
 import { backupDatabaseDailyProcessor } from "./jobs/backup-database-daily.ts";
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
@@ -23,6 +26,7 @@ import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
 import { heartbeatProcessor } from "./jobs/heartbeat.ts";
 import { processImportProcessor } from "./jobs/process-import.ts";
 import { recategorizeAllProcessor } from "./jobs/recategorize-all.ts";
+import { refreshFundamentalsWeeklyProcessor } from "./jobs/refresh-fundamentals-weekly.ts";
 
 const jobName = process.argv[2];
 
@@ -36,6 +40,12 @@ const PROCESSORS: Record<string, (job: never) => Promise<unknown>> = {
   "export-beancount-daily": exportBeancountDailyProcessor as never,
   "detect-anomalies-daily": detectAnomaliesDailyProcessor as never,
   "backfill-categories": backfillCategoriesProcessor as never,
+  // Not a BullMQ job — a one-shot lib fn; ignore the fake job arg.
+  "backfill-holding-snapshots": (async () => {
+    const result = await backfillHoldingSnapshots();
+    console.info("[run-once] backfill-holding-snapshots:", result);
+  }) as never,
+  "refresh-fundamentals-weekly": refreshFundamentalsWeeklyProcessor as never,
 };
 
 if (!jobName || !PROCESSORS[jobName]) {

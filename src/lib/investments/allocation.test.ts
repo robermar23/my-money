@@ -1,6 +1,14 @@
 import { Money } from "@/lib/money/money.ts";
 import { describe, expect, it } from "vitest";
-import { type ValuedHolding, allocationByAccount, allocationByAssetClass } from "./allocation.ts";
+import {
+  type ValuedHolding,
+  allocationByAccount,
+  allocationByAssetClass,
+  allocationByAssetType,
+  allocationByRegion,
+  allocationBySector,
+  concentration,
+} from "./allocation.ts";
 
 const usd = (s: string) => Money.fromString(s, "USD");
 const vh = (assetClass: string, accountId: string, value: string): ValuedHolding => ({
@@ -76,5 +84,78 @@ describe("allocationByAccount", () => {
   it("falls back to the account id when no name is provided", () => {
     const slices = allocationByAccount([vh("equity", "acct-1", "100.00")], "USD");
     expect(slices[0]?.label).toBe("acct-1");
+  });
+});
+
+describe("allocationBySector / byRegion / byAssetType", () => {
+  const meta = (
+    value: string,
+    extra: Partial<Pick<ValuedHolding, "sector" | "region" | "assetType">>,
+  ): ValuedHolding => ({ assetClass: "equity", accountId: "a", value: usd(value), ...extra });
+
+  it("groups by sector, percents sum to 100.00", () => {
+    const slices = allocationBySector(
+      [
+        meta("600.00", { sector: "Technology" }),
+        meta("300.00", { sector: "Healthcare" }),
+        meta("100.00", { sector: "Technology" }),
+      ],
+      "USD",
+    );
+    expect(slices.map((s) => s.label)).toEqual(["Technology", "Healthcare"]);
+    expect(slices.map((s) => s.value.toString())).toEqual(["700.00", "300.00"]);
+    expect(slices.reduce((acc, s) => acc + Number(s.percent), 0)).toBeCloseTo(100, 5);
+  });
+
+  it("buckets null / blank sector into Unclassified", () => {
+    const slices = allocationBySector(
+      [
+        meta("400.00", { sector: "Technology" }),
+        meta("300.00", { sector: null }),
+        meta("300.00", { sector: "   " }),
+      ],
+      "USD",
+    );
+    const unclassified = slices.find((s) => s.label === "Unclassified");
+    expect(unclassified?.value.toString()).toBe("600.00");
+  });
+
+  it("groups by region and by asset type", () => {
+    const holdings = [
+      meta("700.00", { region: "United States", assetType: "equity" }),
+      meta("300.00", { region: "Japan", assetType: "etf" }),
+    ];
+    expect(allocationByRegion(holdings, "USD").map((s) => s.label)).toEqual([
+      "United States",
+      "Japan",
+    ]);
+    expect(allocationByAssetType(holdings, "USD").map((s) => s.label)).toEqual(["equity", "etf"]);
+  });
+});
+
+describe("concentration", () => {
+  const pos = (label: string, value: string) => ({ label, value: usd(value) });
+
+  it("returns the top-N positions largest first with portfolio-share percents", () => {
+    const c = concentration(
+      [pos("AAPL", "500.00"), pos("MSFT", "300.00"), pos("VTI", "200.00")],
+      "USD",
+      2,
+    );
+    expect(c.top.map((r) => r.label)).toEqual(["AAPL", "MSFT"]);
+    expect(c.top.map((r) => r.percent)).toEqual(["50.00", "30.00"]);
+    // top-2 of a 3-name book → does NOT sum to 100
+    expect(c.topPercent).toBe("80.00");
+  });
+
+  it("returns all positions when topN exceeds the count", () => {
+    const c = concentration([pos("AAPL", "600.00"), pos("MSFT", "400.00")], "USD");
+    expect(c.top).toHaveLength(2);
+    expect(c.topPercent).toBe("100.00");
+  });
+
+  it("drops zero-value positions and returns empty on a zero total", () => {
+    expect(concentration([pos("AAPL", "0.00")], "USD")).toEqual({ top: [], topPercent: "0.00" });
+    expect(concentration([], "USD")).toEqual({ top: [], topPercent: "0.00" });
   });
 });
