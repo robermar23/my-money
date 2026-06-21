@@ -1,5 +1,6 @@
 import {
   getAccount,
+  getAssetDocuments,
   getLatestSnapshot,
   getLiability,
   listHoldings,
@@ -21,7 +22,11 @@ import Decimal from "decimal.js";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AccountAdmin } from "./account-admin.tsx";
+import { AssetDocumentForm } from "./asset-document-form.tsx";
+import { AssetValueChart } from "./asset-value-chart.tsx";
+import { AssetValueForm } from "./asset-value-form.tsx";
 import { BalanceForm } from "./balance-form.tsx";
+import { DeleteAssetDocumentButton } from "./delete-asset-document-button.tsx";
 import { DeleteHoldingButton } from "./delete-holding-button.tsx";
 import { HoldingForm } from "./holding-form.tsx";
 import { type LotView, LotsEditor } from "./lot-form.tsx";
@@ -42,7 +47,25 @@ const TYPE_LABEL: Record<string, string> = {
   crypto_ira: "Crypto / metals IRA",
   loan: "Loan",
   property: "Property",
+  personal_asset: "Asset",
 };
+
+/** Display labels for personal-asset categories (mirrors ASSET_CATEGORIES). */
+const ASSET_CATEGORY_LABEL: Record<string, string> = {
+  vehicle: "Vehicle",
+  watercraft: "Boat & watercraft",
+  jewelry: "Jewelry & watches",
+  collectible: "Art & collectibles",
+  other: "Other",
+};
+
+/** Human-readable file size for the documents list (KB/MB). */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(0)} KB`;
+  return `${(kb / 1024).toFixed(1)} MB`;
+}
 
 function monthsBetween(startIso: string): number {
   const start = new Date(`${startIso}T00:00:00Z`);
@@ -170,6 +193,25 @@ export default async function AccountDetailPage(
   const showHoldingsForm = account.type === "investment" || account.type === "crypto_ira";
   const showMortgageForm = account.type === "loan";
   const showPropertyForm = account.type === "property";
+  const isAsset = account.type === "personal_asset";
+
+  // Personal-asset detail data (P10-12/P10-13): proof documents (metadata only)
+  // and a simple display gain/loss = latest value − acquisition cost.
+  const assetDocs = isAsset ? await getAssetDocuments(accountId) : [];
+  const assetGainLoss =
+    isAsset && account.acquisitionCost && latestSnap
+      ? gainLoss({
+          value: Money.fromString(latestSnap.balance, account.currency),
+          costBasis: Money.fromString(account.acquisitionCost, account.currency),
+        })
+      : null;
+  // The header shows the category in the slot financial accounts use for the
+  // institution (the `"Personal asset"` sentinel is never displayed, ADR-023).
+  const headerLabel = isAsset
+    ? account.assetCategory
+      ? (ASSET_CATEGORY_LABEL[account.assetCategory] ?? account.assetCategory)
+      : "Asset"
+    : account.institution;
 
   // Live mortgage balance via amortization (no DB read of snapshots needed for display).
   const computedLoanBalance = liability
@@ -197,8 +239,11 @@ export default async function AccountDetailPage(
             )}
           </h1>
           <p className="mt-1 text-sm text-zinc-500">
-            {account.institution} · {TYPE_LABEL[account.type] ?? account.type} · {account.currency}
+            {headerLabel} · {TYPE_LABEL[account.type] ?? account.type} · {account.currency}
           </p>
+          {isAsset && account.description && (
+            <p className="mt-1 max-w-prose text-sm text-zinc-500">{account.description}</p>
+          )}
         </div>
         <div className="text-right">
           <div className="text-xs text-zinc-500 uppercase">Latest</div>
@@ -400,6 +445,127 @@ export default async function AccountDetailPage(
             <PropertyForm accountId={account.id} />
           </div>
         </section>
+      )}
+
+      {/* Personal-asset detail (P10-12): acquisition + gain/loss, value entry. */}
+      {isAsset && (
+        <>
+          <section className="mt-8 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+            <h2 className="font-medium">Acquisition</h2>
+            <dl className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div>
+                <dt className="text-xs text-zinc-500 uppercase">Acquired</dt>
+                <dd className="mt-1 font-mono text-sm">{account.acquiredAt ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-zinc-500 uppercase">Acquisition cost</dt>
+                <dd className="mt-1 font-mono text-sm">
+                  {account.acquisitionCost
+                    ? Money.fromString(account.acquisitionCost, account.currency).format()
+                    : "—"}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs text-zinc-500 uppercase">Gain / loss</dt>
+                <dd
+                  className={`mt-1 font-mono text-sm ${
+                    assetGainLoss?.absolute
+                      ? assetGainLoss.absolute.isNegative()
+                        ? "text-red-600 dark:text-red-400"
+                        : "text-emerald-600 dark:text-emerald-400"
+                      : ""
+                  }`}
+                >
+                  {assetGainLoss?.absolute
+                    ? `${assetGainLoss.absolute.format()}${
+                        assetGainLoss.percent ? ` (${assetGainLoss.percent}%)` : ""
+                      }`
+                    : "—"}
+                </dd>
+              </div>
+            </dl>
+            <p className="mt-3 text-xs text-zinc-400">
+              Gain/loss is a simple display figure (latest value − acquisition cost), not a tax or
+              capital-gains calculation.
+            </p>
+          </section>
+
+          <section className="mt-8 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+            <h2 className="font-medium">Record value</h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              Update the asset's current value whenever it changes. Each entry is dated and
+              contributes to your net worth over time.
+            </p>
+            <div className="mt-4">
+              <AssetValueForm accountId={account.id} />
+            </div>
+            {snapshots.length >= 2 && (
+              <div className="mt-6">
+                <AssetValueChart
+                  currency={account.currency}
+                  points={[...snapshots].reverse().map((s) => ({ date: s.date, value: s.balance }))}
+                />
+              </div>
+            )}
+          </section>
+
+          {/* Proof-of-authenticity documents (P10-13). */}
+          <section className="mt-8 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+            <h2 className="font-medium">Proof of authenticity</h2>
+            <p className="mt-1 text-sm text-zinc-500">
+              Optional — attach a title, receipt, or appraisal (image or PDF, up to 10 MB). Files
+              are stored privately and downloaded only as attachments.
+            </p>
+            <div className="mt-4">
+              <AssetDocumentForm accountId={account.id} />
+            </div>
+            {assetDocs.length > 0 && (
+              <div className="mt-6 overflow-x-auto">
+                <table className="w-full min-w-[28rem] text-sm">
+                  <thead className="text-left text-xs text-zinc-500 uppercase">
+                    <tr>
+                      <th className="py-2">File</th>
+                      <th className="py-2">Description</th>
+                      <th className="py-2 text-right">Size</th>
+                      <th className="py-2">Uploaded</th>
+                      <th className="py-2" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
+                    {assetDocs.map((doc) => (
+                      <tr key={doc.id}>
+                        <td className="py-2">
+                          <a
+                            href={`/accounts/${account.id}/documents/${doc.id}`}
+                            className="font-medium hover:underline"
+                          >
+                            {doc.filename}
+                          </a>
+                        </td>
+                        <td className="py-2 text-zinc-600 dark:text-zinc-400">
+                          {doc.description ?? "—"}
+                        </td>
+                        <td className="py-2 text-right font-mono text-zinc-600 dark:text-zinc-400">
+                          {formatBytes(doc.sizeBytes)}
+                        </td>
+                        <td className="py-2 text-zinc-600 dark:text-zinc-400">
+                          {doc.uploadedAt.toLocaleDateString("en-US", { dateStyle: "medium" })}
+                        </td>
+                        <td className="py-2 text-right">
+                          <DeleteAssetDocumentButton
+                            accountId={account.id}
+                            docId={doc.id}
+                            filename={doc.filename}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </>
       )}
 
       {/* Transactions table for cash + credit + investment accounts */}
