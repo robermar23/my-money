@@ -3,6 +3,7 @@ import { db } from "@/db/client.ts";
 import {
   accountSnapshots,
   accounts,
+  assetDocuments,
   categories,
   categoryRules,
   holdingLots,
@@ -40,6 +41,8 @@ const {
   setTransactionCategoryAction,
   recordAssetValueAction,
   updateAssetMetadataAction,
+  uploadAssetDocumentAction,
+  deleteAssetDocumentAction,
 } = await import("./actions.ts");
 
 async function seedHolding(): Promise<{ accountId: string; holdingId: string }> {
@@ -513,6 +516,107 @@ describe("updateAssetMetadataAction (P10-06)", () => {
       {},
       accountForm({ name: "x", assetCategory: "vehicle" }),
     );
+    expect(res.error).toBeTruthy();
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * Phase 10 — Batch 3: proof-of-authenticity documents (P10-09).
+ * --------------------------------------------------------------------------- */
+
+/** Minimal valid magic-byte payloads, padded so detectDocumentType accepts them. */
+const PDF_BYTES = Uint8Array.from([
+  0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a, 0x25, 0x00, 0x00,
+]);
+const PNG_BYTES = Uint8Array.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+]);
+
+function fileForm(file: File, description?: string): FormData {
+  const fd = new FormData();
+  fd.set("file", file);
+  if (description !== undefined) fd.set("description", description);
+  return fd;
+}
+
+describe("uploadAssetDocumentAction (P10-09)", () => {
+  it("stores a PDF with the DETECTED mime, not the client header", async () => {
+    const accountId = await seedAsset();
+    // Lie about the type in the client header — the server must ignore it.
+    const file = new File([PDF_BYTES], "title.pdf", { type: "text/html" });
+
+    const res = await uploadAssetDocumentAction(accountId, {}, fileForm(file, "Vehicle title"));
+    expect(res.ok).toBe(true);
+
+    const docs = await db
+      .select()
+      .from(assetDocuments)
+      .where(eq(assetDocuments.accountId, accountId));
+    expect(docs).toHaveLength(1);
+    expect(docs[0]?.mimeType).toBe("application/pdf"); // detected, not "text/html"
+    expect(docs[0]?.filename).toBe("title.pdf");
+    expect(docs[0]?.description).toBe("Vehicle title");
+    expect(docs[0]?.sizeBytes).toBe(PDF_BYTES.byteLength);
+    expect(docs[0]?.bytes.equals(Buffer.from(PDF_BYTES))).toBe(true);
+  });
+
+  it("rejects a disallowed type without writing a row", async () => {
+    const accountId = await seedAsset();
+    const svg = new File(
+      [Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>')],
+      "evil.svg",
+      { type: "image/png" }, // spoofed header
+    );
+    const res = await uploadAssetDocumentAction(accountId, {}, fileForm(svg));
+    expect(res.error).toBeTruthy();
+    expect(await db.select().from(assetDocuments)).toHaveLength(0);
+  });
+
+  it("rejects upload to a non-asset account", async () => {
+    const accountId = await seedAccount(); // depository
+    const file = new File([PNG_BYTES], "x.png", { type: "image/png" });
+    const res = await uploadAssetDocumentAction(accountId, {}, fileForm(file));
+    expect(res.error).toBeTruthy();
+    expect(await db.select().from(assetDocuments)).toHaveLength(0);
+  });
+});
+
+describe("deleteAssetDocumentAction (P10-09)", () => {
+  it("deletes only a document scoped to the given account", async () => {
+    const accountId = await seedAsset();
+    const file = new File([PNG_BYTES], "photo.png", { type: "image/png" });
+    await uploadAssetDocumentAction(accountId, {}, fileForm(file));
+    const [doc] = await db
+      .select()
+      .from(assetDocuments)
+      .where(eq(assetDocuments.accountId, accountId));
+    if (!doc) throw new Error("expected a document");
+
+    const res = await deleteAssetDocumentAction(accountId, doc.id);
+    expect(res.ok).toBe(true);
+    expect(await db.select().from(assetDocuments)).toHaveLength(0);
+  });
+
+  it("is a no-op for a docId belonging to another account", async () => {
+    const accountId = await seedAsset();
+    const file = new File([PNG_BYTES], "photo.png", { type: "image/png" });
+    await uploadAssetDocumentAction(accountId, {}, fileForm(file));
+    const [doc] = await db
+      .select()
+      .from(assetDocuments)
+      .where(eq(assetDocuments.accountId, accountId));
+    if (!doc) throw new Error("expected a document");
+
+    // A different (valid-format) account id that does not own the doc.
+    const res = await deleteAssetDocumentAction(crypto.randomUUID(), doc.id).catch(() => undefined);
+    // Either rejected (account not found) or a scoped no-op — never deletes it.
+    void res;
+    expect(await db.select().from(assetDocuments)).toHaveLength(1);
+  });
+
+  it("rejects a malformed document id", async () => {
+    const accountId = await seedAsset();
+    const res = await deleteAssetDocumentAction(accountId, "not-a-uuid");
     expect(res.error).toBeTruthy();
   });
 });
