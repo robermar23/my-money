@@ -2,7 +2,6 @@ import { relations, sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   check,
-  customType,
   date,
   index,
   integer,
@@ -13,24 +12,8 @@ import {
   timestamp,
   uuid,
 } from "drizzle-orm/pg-core";
+import { bytea } from "./_bytea.ts";
 import { accounts } from "./accounts.ts";
-
-/**
- * Custom bytea mapping. Drizzle's standard column types don't include bytea
- * directly; we map to a Buffer on read so the worker can stream the original
- * file bytes back through the parser when re-running a `pending` batch.
- */
-const bytea = customType<{ data: Buffer; default: false }>({
-  dataType() {
-    return "bytea";
-  },
-  fromDriver(value): Buffer {
-    if (Buffer.isBuffer(value)) return value;
-    if (value instanceof Uint8Array) return Buffer.from(value);
-    if (typeof value === "string") return Buffer.from(value, "binary");
-    throw new TypeError("Unexpected bytea driver value");
-  },
-});
 
 /**
  * import_batches: one row per uploaded QFX / OFX / CSV file.

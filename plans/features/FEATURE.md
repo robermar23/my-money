@@ -82,3 +82,34 @@ the invested assets? How can we slice the data?"
 
 Implemented under **ADR-019 → ADR-022** (IDEAS.md §11 Decision Log) via [PLAN9.md](PLAN9.md).
 
+### 2026-06-20 — Personal high-value assets + proof documents (in scope)
+
+Source: [IDEAS2.md](IDEAS2.md) Round 4. The owner asked to "create an asset that
+has value that they can change over time and track over time" — vehicles, boats,
+jewelry, art/collectibles — that "count towards net worth," with the option to
+"upload a file associated with the asset for proof of authenticity."
+
+- **In scope (newly added):**
+  - **Personal high-value assets** — a new `personal_asset` account type
+    (categories: vehicle / watercraft / jewelry / collectible / other) whose value
+    the user **manually records and adjusts over time**, tracked via the existing
+    `account_snapshots` machinery and **counting toward net worth**.
+  - **Acquisition metadata + simple gain/loss** — optional acquired date and
+    acquisition cost, with current-value-vs-cost shown as a **display** gain/loss
+    (same shape as the holdings gain/loss already shipped).
+  - **Proof-of-authenticity documents** — optional file attachments per asset
+    (images or PDF, capped at 10 MB), stored as Postgres `bytea` and served only
+    through an authenticated, attachment-only download route.
+- **Reaffirmed OUT of scope (not relaxed):** automated/AVM asset valuation (no
+  KBB/Edmunds/auction/appraisal API), depreciation schedules, insurance/warranty
+  management, document OCR/parsing or e-signing, and asset↔financing-loan linking.
+  Value is manually entered; the acquisition gain/loss is a labeled display figure,
+  not a tax or cap-gains figure. Crossing this line needs a new FEATURE.md decision
+  first.
+- **Privacy stance:** personal assets and their proof documents are **100% local**
+  — manual value entry, **no outbound fetch of any kind**, file bytes stored in our
+  own Postgres and captured by the existing nightly `age`-encrypted `pg_dump`.
+  Nothing about an asset ever leaves the host; documents are never served to a CDN.
+
+Implemented under **ADR-023 → ADR-024** (IDEAS.md §11 Decision Log) via [PLAN10.md](PLAN10.md).
+

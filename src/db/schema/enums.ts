@@ -9,6 +9,9 @@ import { pgEnum } from "drizzle-orm/pg-core";
  *   - investment/crypto_ira: holdings-based (qty × price)
  *   - loan: amortization-driven (no manual balance entry)
  *   - property: most-recent valuation snapshot
+ *   - personal_asset: user-valued high-value item (vehicle/boat/jewelry/etc.) —
+ *     same most-recent valuation-snapshot model as property, plus asset metadata
+ *     columns + proof documents (Phase 10, ADR-023). Counts toward net worth.
  */
 export const accountTypeEnum = pgEnum("account_type", [
   "depository", // checking, savings
@@ -17,6 +20,7 @@ export const accountTypeEnum = pgEnum("account_type", [
   "crypto_ira", // iTrust holds gold + crypto
   "loan", // mortgage
   "property", // home value
+  "personal_asset", // vehicles, boats, jewelry, collectibles (manual value over time)
 ]);
 
 /**
