@@ -46,6 +46,8 @@ export const QUEUE_NAMES = {
   DETECT_ANOMALIES_DAILY: "detect-anomalies-daily",
   /** Phase 9 (P9-07): weekly security enrichment (sector/industry/dividend) refresh. */
   REFRESH_FUNDAMENTALS_WEEKLY: "refresh-fundamentals-weekly",
+  /** Phase 11 (P11-08): on-add history backfill for a newly-followed watchlist symbol. */
+  BACKFILL_WATCHLIST_SYMBOL: "backfill-watchlist-symbol",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -100,3 +102,5 @@ export const exportBeancountDailyQueue = lazyQueue(QUEUE_NAMES.EXPORT_BEANCOUNT_
 export const detectAnomaliesDailyQueue = lazyQueue(QUEUE_NAMES.DETECT_ANOMALIES_DAILY);
 
 export const refreshFundamentalsWeeklyQueue = lazyQueue(QUEUE_NAMES.REFRESH_FUNDAMENTALS_WEEKLY);
+
+export const backfillWatchlistSymbolQueue = lazyQueue(QUEUE_NAMES.BACKFILL_WATCHLIST_SYMBOL);

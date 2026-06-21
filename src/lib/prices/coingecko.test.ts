@@ -60,3 +60,52 @@ describe("CoinGeckoFetcher", () => {
     await expect(fetcher.quote("BTC")).rejects.toThrow(/no entry/);
   });
 });
+
+describe("CoinGeckoFetcher.series", () => {
+  /** A `/market_chart/range` body from [epochMs, price] tuples. */
+  function chartBody(tuples: [number, number][]) {
+    return { prices: tuples, market_caps: [], total_volumes: [] };
+  }
+
+  const ms = (iso: string) => Date.parse(`${iso}T00:00:00Z`);
+
+  it("collapses intraday points to one close per UTC day (last wins), sorted", async () => {
+    const fetcher = new CoinGeckoFetcher({
+      fetchImpl: mockFetchOk(
+        chartBody([
+          [ms("2026-01-02") + 3_600_000, 41000.5], // Jan 2, early — overwritten
+          [ms("2026-01-02") + 7_200_000, 42000.25], // Jan 2, later — kept
+          [ms("2026-01-01") + 3_600_000, 40000], // Jan 1
+        ]),
+      ),
+    });
+    const series = await fetcher.series("BTC", "2026-01-01");
+    expect(series).toEqual([
+      { date: "2026-01-01", close: "40000.00000000" },
+      { date: "2026-01-02", close: "42000.25000000" },
+    ]);
+  });
+
+  it("resolves the coin id and from-window into the range URL", async () => {
+    let observed = "";
+    const fetcher = new CoinGeckoFetcher({
+      fetchImpl: (async (input: RequestInfo | URL) => {
+        observed = String(input);
+        return new Response(JSON.stringify(chartBody([])), { status: 200 });
+      }) as unknown as typeof fetch,
+    });
+    await fetcher.series("BTC", "2025-06-01");
+    expect(observed).toContain("/coins/bitcoin/market_chart/range");
+    expect(observed).toContain(`from=${Math.floor(ms("2025-06-01") / 1000)}`);
+  });
+
+  it("throws on a non-2xx (e.g. unknown coin → 404) for the backfill to catch", async () => {
+    const fetcher = new CoinGeckoFetcher({ fetchImpl: mockFetchStatus(404) });
+    await expect(fetcher.series("NOPE", "2026-01-01")).rejects.toThrow(/CoinGecko HTTP 404/);
+  });
+
+  it("throws on a schema mismatch", async () => {
+    const fetcher = new CoinGeckoFetcher({ fetchImpl: mockFetchOk({ prices: "nope" }) });
+    await expect(fetcher.series("BTC", "2026-01-01")).rejects.toThrow(/schema/);
+  });
+});

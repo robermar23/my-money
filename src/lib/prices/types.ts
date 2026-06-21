@@ -31,6 +31,18 @@ export interface PriceFetcher {
 }
 
 /**
+ * One closing price for one UTC day — the shape every historical-series fetcher
+ * returns (Phase 11, P11-06/07). The watchlist backfill (P11-08) maps these
+ * straight into `prices(symbol, date, close, source)`.
+ */
+export interface DailyClose {
+  /** ISO date (YYYY-MM-DD), the UTC day the close applies to. */
+  readonly date: string;
+  /** Decimal string, 8-digit precision (NUMERIC(18,8)). */
+  readonly close: string;
+}
+
+/**
  * Today's date in UTC as a YYYY-MM-DD string. Centralized so test code can
  * stub `Date` and every fetcher agrees on what "today" means.
  */

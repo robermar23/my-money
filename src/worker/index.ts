@@ -1,6 +1,7 @@
 import { redisConnection } from "@/lib/queue/connection.ts";
 import {
   QUEUE_NAMES,
+  backfillWatchlistSymbolQueue,
   backupDatabaseDailyQueue,
   computeSnapshotsDailyQueue,
   detectAnomaliesDailyQueue,
@@ -15,6 +16,7 @@ import {
   syncPlaidItemQueue,
 } from "@/lib/queue/queues.ts";
 import { Worker } from "bullmq";
+import { backfillWatchlistSymbolProcessor } from "./jobs/backfill-watchlist-symbol.ts";
 import { backupDatabaseDailyProcessor } from "./jobs/backup-database-daily.ts";
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
 import { detectAnomaliesDailyProcessor } from "./jobs/detect-anomalies-daily.ts";
@@ -172,6 +174,20 @@ refreshFundamentalsWeeklyWorker.on("failed", (job, err) => {
   console.error(`[worker] refresh-fundamentals-weekly job ${job?.id} failed:`, err);
 });
 
+// Phase 11 (P11-08): on-demand watchlist history backfill. No cron — enqueued by
+// the create-watchlist-item server action. concurrency=1 keeps it off the
+// nightly fetch's rate-limit budget (it hits the same Yahoo/CoinGecko hosts).
+const backfillWatchlistSymbolWorker = new Worker(
+  QUEUE_NAMES.BACKFILL_WATCHLIST_SYMBOL,
+  async (job) => {
+    await backfillWatchlistSymbolProcessor(job);
+  },
+  { connection: redisConnection, concurrency: 1 },
+);
+backfillWatchlistSymbolWorker.on("failed", (job, err) => {
+  console.error(`[worker] backfill-watchlist-symbol job ${job?.id} failed:`, err);
+});
+
 // Ensure a single heartbeat repeatable job exists. Removing first guards against
 // pattern duplication across restarts.
 await heartbeatQueue.removeJobScheduler("heartbeat-tick").catch(() => {
@@ -280,6 +296,7 @@ async function shutdown(_signal: string): Promise<void> {
   await exportBeancountDailyWorker.close();
   await detectAnomaliesDailyWorker.close();
   await refreshFundamentalsWeeklyWorker.close();
+  await backfillWatchlistSymbolWorker.close();
   await heartbeatQueue.close();
   await computeSnapshotsDailyQueue.close();
   await fetchPricesDailyQueue.close();
@@ -292,6 +309,7 @@ async function shutdown(_signal: string): Promise<void> {
   await exportBeancountDailyQueue.close();
   await detectAnomaliesDailyQueue.close();
   await refreshFundamentalsWeeklyQueue.close();
+  await backfillWatchlistSymbolQueue.close();
   await redisConnection.quit();
   process.exit(0);
 }

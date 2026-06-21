@@ -6,7 +6,12 @@ import {
   fetcherFor,
   isFetchableAssetClass,
 } from "@/lib/prices/router.ts";
-import { type HeldSymbol, distinctHeldSymbols, upsertPrice } from "@/lib/prices/store.ts";
+import {
+  type HeldSymbol,
+  distinctHeldSymbols,
+  distinctWatchlistSymbols,
+  upsertPrice,
+} from "@/lib/prices/store.ts";
 import type { Job } from "bullmq";
 
 /**
@@ -34,18 +39,37 @@ export interface FetchPricesResult {
   readonly errors: ReadonlyArray<{ symbol: string; error: string }>;
 }
 
+/**
+ * Merge held + watched symbols + the benchmark into a single, de-duplicated work
+ * list (P11-05). A symbol that is both held and watched is fetched once; the
+ * benchmark (^GSPC) is always present so the performance page can overlay its
+ * buy-and-hold line (ADR-021). Dedup key is the bare symbol — the same ticker
+ * never carries two asset classes across these sources.
+ *
+ * Pure (no I/O) so the union/dedup invariant is unit-testable offline.
+ */
+export function buildFetchWorkList(
+  held: readonly HeldSymbol[],
+  watched: readonly HeldSymbol[],
+): HeldSymbol[] {
+  const seen = new Set<string>();
+  const work: HeldSymbol[] = [];
+  for (const s of [...held, ...watched, { symbol: BENCHMARK_SYMBOL, assetClass: "equity" }]) {
+    if (seen.has(s.symbol)) continue;
+    seen.add(s.symbol);
+    work.push(s);
+  }
+  return work;
+}
+
 export async function fetchPricesDailyProcessor(
   _job: Job,
   router: PriceRouter = defaultRouter(),
   delayMs = 250,
 ): Promise<FetchPricesResult> {
-  const held = await distinctHeldSymbols();
-  // Always include the S&P 500 benchmark (^GSPC) so the performance page can
-  // overlay a buy-and-hold index line (ADR-021). It's an equity-class symbol on
-  // the same Yahoo pipeline — just another row in `prices`, no new table.
-  const work: HeldSymbol[] = held.some((h) => h.symbol === BENCHMARK_SYMBOL)
-    ? held
-    : [...held, { symbol: BENCHMARK_SYMBOL, assetClass: "equity" }];
+  const [held, watched] = await Promise.all([distinctHeldSymbols(), distinctWatchlistSymbols()]);
+  // Held + watched + the always-on ^GSPC benchmark, de-duped (P11-05).
+  const work = buildFetchWorkList(held, watched);
   let succeeded = 0;
   let failed = 0;
   let processedAny = false;

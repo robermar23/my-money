@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { withRateLimitRetry } from "./retry.ts";
+import type { DailyClose } from "./types.ts";
 
 /**
  * Shared Yahoo price extraction backed by the public `/v8/finance/chart`
@@ -115,4 +116,97 @@ export async function fetchYahooClose(yahooSymbol: string): Promise<number> {
   }
 
   throw new Error(`Yahoo chart response for ${yahooSymbol} contained no usable price.`);
+}
+
+/**
+ * Validate the slice of the chart response the historical series depends on:
+ * the parallel `timestamp[]` (epoch seconds, UTC) and `indicators.quote[0].close[]`
+ * arrays. Same defensive narrowing as the single-close schema.
+ */
+const chartSeriesResponseSchema = z.object({
+  chart: z.object({
+    error: z.unknown().nullable().optional(),
+    result: z
+      .array(
+        z.object({
+          timestamp: z.array(z.number()).optional(),
+          indicators: z
+            .object({
+              quote: z
+                .array(z.object({ close: z.array(z.number().nullable()).optional() }))
+                .optional(),
+            })
+            .optional(),
+        }),
+      )
+      .nullable()
+      .optional(),
+  }),
+});
+
+/** Epoch seconds at UTC midnight for an ISO `YYYY-MM-DD` date. */
+function unixDayStart(iso: string): number {
+  return Math.floor(Date.parse(`${iso}T00:00:00Z`) / 1000);
+}
+
+/**
+ * Fetch a daily close SERIES for a Yahoo ticker via the same unauthenticated
+ * chart endpoint, spanning `fromIso → today` (P11-06).
+ *
+ * Unlike {@link fetchYahooClose} (which returns one latest price), this walks the
+ * parallel `timestamp[]`/`close[]` arrays and returns one `{date, close}` per
+ * trading day, sorted ascending, with null closes skipped. Used by the watchlist
+ * backfill to seed history for a newly-followed symbol.
+ *
+ * @param yahooSymbol - The exact Yahoo ticker (e.g. `AAPL`, `GC=F`).
+ * @param fromIso - Inclusive start date (`YYYY-MM-DD`, UTC).
+ * @returns Ascending `{date, close}[]`; empty if the window holds no trading days.
+ * @throws If the upstream call fails (429s retried) or the response is unparseable.
+ */
+export async function fetchYahooDailySeries(
+  yahooSymbol: string,
+  fromIso: string,
+): Promise<DailyClose[]> {
+  const period1 = unixDayStart(fromIso);
+  // +1 day of headroom so today's bar is always inside the window.
+  const period2 = Math.floor(Date.now() / 1000) + 86_400;
+  const url =
+    `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}` +
+    `?interval=1d&period1=${period1}&period2=${period2}`;
+
+  const json = await withRateLimitRetry(async () => {
+    const res = await fetch(url, {
+      headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+    });
+    if (!res.ok) {
+      throw new YahooHttpError(res.status, `Yahoo chart HTTP ${res.status} for ${yahooSymbol}`);
+    }
+    return (await res.json()) as unknown;
+  });
+
+  const parsed = chartSeriesResponseSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new Error(
+      `Yahoo chart series for ${yahooSymbol} did not match schema: ${parsed.error.issues[0]?.message}`,
+    );
+  }
+  if (parsed.data.chart.error != null) {
+    throw new Error(
+      `Yahoo chart error for ${yahooSymbol}: ${JSON.stringify(parsed.data.chart.error)}`,
+    );
+  }
+
+  const result = parsed.data.chart.result?.[0];
+  const timestamps = result?.timestamp ?? [];
+  const closes = result?.indicators?.quote?.[0]?.close ?? [];
+
+  const series: DailyClose[] = [];
+  for (let i = 0; i < timestamps.length; i++) {
+    const close = closes[i];
+    const ts = timestamps[i];
+    if (close == null || close <= 0 || ts == null) continue;
+    series.push({ date: new Date(ts * 1000).toISOString().slice(0, 10), close: close.toFixed(8) });
+  }
+  series.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+  return series;
 }
