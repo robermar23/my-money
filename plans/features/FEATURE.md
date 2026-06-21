@@ -113,3 +113,37 @@ jewelry, art/collectibles — that "count towards net worth," with the option to
 
 Implemented under **ADR-023 → ADR-024** (IDEAS.md §11 Decision Log) via [PLAN10.md](PLAN10.md).
 
+### 2026-06-21 — Watchlist, paper positions, and price-target alerts (in scope)
+
+Source: [IDEAS2.md](IDEAS2.md) Round 5. The owner asked to "add a stock to track the
+history of and 'pretend' they purchased it at a certain date/time and track its
+progress and even get alerted when the stock/metal/whatever reaches a specific
+value, up or down. This should not count towards net worth of course."
+
+- **In scope (newly added):**
+  - **Watchlist** — follow a symbol (stock / ETF / metal / crypto) the user does
+    **not** own, in a standalone `watchlist_items` table that is **structurally
+    excluded from net worth** (it is neither an account nor a holding).
+  - **Pretend / paper position** — an optional `(purchase date, quantity, unit
+    cost)` so the item shows a **simple display gain/loss** and a price-history
+    chart from the purchase date forward — the same shape as the holdings
+    gain/loss already shipped.
+  - **Price-target alerts** — "tell me when SYMBOL crosses $X, up or down" as
+    one-shot targets, evaluated **once daily** after the nightly price fetch and
+    surfaced through the existing `/alerts` page + content-free email.
+- **Reaffirmed OUT of scope (not relaxed):** order placement or any brokerage/trade
+  API; real-time/streaming or intraday quotes (alerts are daily-batch; intraday is
+  a deferred, env-gated future option); options/derivatives; technical-analysis
+  indicators; backtesting/strategy simulation; multi-symbol "paper portfolios" with
+  their own performance attribution; tax-lot or realized-gain accounting on the
+  pretend position; and any third-party alert channel beyond the existing
+  self-hosted SMTP doorbell (no SMS/push/webhook-out). Crossing this line needs a
+  new FEATURE.md decision first.
+- **Privacy stance:** introduces **no new egress class** — a watchlist symbol is
+  fetched from the **same** public Yahoo / CoinGecko endpoints already used for held
+  symbols, and **only the ticker string** leaves the host. The pretend qty/cost and
+  the target thresholds are **100% local**, ride the nightly `age`-encrypted
+  `pg_dump`, and never appear in the (content-free) notification email.
+
+Implemented under **ADR-025 → ADR-026** (IDEAS.md §11 Decision Log) via [PLAN11.md](PLAN11.md).
+

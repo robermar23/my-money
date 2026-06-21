@@ -14,7 +14,10 @@ import {
  * alerts: the system of record for detected anomalies (Phase 6, ADR-015).
  *
  * Written nightly by `detect-anomalies-daily` (P6-13) from deterministic rules
- * over data already in Postgres, plus directly by the backup job on failure.
+ * over data already in Postgres, plus directly by the backup job on failure, and
+ * by the `evaluate-price-targets` job for one-shot watchlist price targets
+ * (Phase 11, ADR-026 — type `price_target`, which like `backup_failure` is NOT a
+ * resolve-swept rule type).
  * Surfaced at `/alerts` (the primary, zero-third-party channel) and, if SMTP is
  * configured, nudged via a **notification-only** email that carries NO financial
  * data (P6-14) — the structured figures live in `detail` and are shown only in
@@ -63,7 +66,7 @@ export const alerts = pgTable(
       .where(sql`${table.resolvedAt} IS NULL`),
     typeCheck: check(
       "alerts_type_check",
-      sql`${table.type} IN ('large_transaction', 'balance_drop', 'item_login_required', 'stale_snapshot', 'stale_price', 'sync_failure', 'backup_failure')`,
+      sql`${table.type} IN ('large_transaction', 'balance_drop', 'item_login_required', 'stale_snapshot', 'stale_price', 'sync_failure', 'backup_failure', 'price_target')`,
     ),
     severityCheck: check(
       "alerts_severity_check",
