@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   type AlertThresholds,
+  type PriceTargetInput,
   balanceDropAlerts,
   itemLoginRequiredAlerts,
   largeTransactionAlerts,
+  priceTargetAlerts,
   stalePriceAlerts,
   staleSnapshotAlerts,
   syncFailureAlerts,
@@ -142,6 +144,92 @@ describe("syncFailureAlerts", () => {
     ]);
     expect(out).toHaveLength(1);
     expect(out[0]?.detail.error).toBe("ITEM_LOGIN_REQUIRED");
+  });
+});
+
+describe("priceTargetAlerts", () => {
+  const target = (over: Partial<PriceTargetInput>): PriceTargetInput => ({
+    targetId: "tgt1",
+    watchlistItemId: "wl1",
+    symbol: "AAPL",
+    direction: "above",
+    threshold: "200.00000000",
+    latestClose: "150.00000000",
+    latestDate: "2026-06-07",
+    currency: "USD",
+    ...over,
+  });
+
+  it("fires an 'above' target when the close meets or exceeds the threshold", () => {
+    const out = priceTargetAlerts([target({ direction: "above", latestClose: "205.00000000" })]);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.type).toBe("price_target");
+    expect(out[0]?.severity).toBe("info");
+    expect(out[0]?.detail.price).toBe("205.00000000");
+    expect(out[0]?.detail.threshold).toBe("200.00000000");
+  });
+
+  it("fires a 'below' target when the close falls to or under the threshold", () => {
+    const out = priceTargetAlerts([
+      target({ direction: "below", threshold: "120.00000000", latestClose: "115.00000000" }),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0]?.detail.direction).toBe("below");
+  });
+
+  it("does not fire when the close has not yet crossed", () => {
+    expect(
+      priceTargetAlerts([target({ direction: "above", latestClose: "199.99999999" })]),
+    ).toHaveLength(0);
+    expect(
+      priceTargetAlerts([
+        target({ direction: "below", threshold: "120.00000000", latestClose: "120.00000001" }),
+      ]),
+    ).toHaveLength(0);
+  });
+
+  it("fires at exact equality (inclusive boundary, both directions)", () => {
+    expect(
+      priceTargetAlerts([target({ direction: "above", latestClose: "200.00000000" })]),
+    ).toHaveLength(1);
+    expect(
+      priceTargetAlerts([
+        target({ direction: "below", threshold: "200.00000000", latestClose: "200.00000000" }),
+      ]),
+    ).toHaveLength(1);
+  });
+
+  it("skips an unpriced symbol (no latest close yet)", () => {
+    expect(priceTargetAlerts([target({ latestClose: null, latestDate: null })])).toHaveLength(0);
+  });
+
+  it("keeps the title free of digits (figures live only in detail)", () => {
+    const out = priceTargetAlerts([target({ direction: "above", latestClose: "205.00000000" })]);
+    expect(out[0]?.title).not.toMatch(/\d/);
+    expect(out[0]?.title).toBe("AAPL hit your above target");
+  });
+
+  it("attaches pretend P&L to detail only when provided", () => {
+    const withPnl = priceTargetAlerts([
+      target({ latestClose: "205.00000000", pretendPnl: { gainAbsolute: "55.00" } }),
+    ]);
+    expect(withPnl[0]?.detail.pretendPnl).toEqual({ gainAbsolute: "55.00" });
+    const withoutPnl = priceTargetAlerts([target({ latestClose: "205.00000000" })]);
+    expect(withoutPnl[0]?.detail.pretendPnl).toBeUndefined();
+  });
+
+  it("dedups per (target, day): same day stable, new day re-fires", () => {
+    const a = priceTargetAlerts([
+      target({ latestClose: "205.00000000", latestDate: "2026-06-07" }),
+    ]);
+    const b = priceTargetAlerts([
+      target({ latestClose: "205.00000000", latestDate: "2026-06-07" }),
+    ]);
+    const c = priceTargetAlerts([
+      target({ latestClose: "205.00000000", latestDate: "2026-06-08" }),
+    ]);
+    expect(a[0]?.dedupHash).toBe(b[0]?.dedupHash);
+    expect(a[0]?.dedupHash).not.toBe(c[0]?.dedupHash);
   });
 });
 

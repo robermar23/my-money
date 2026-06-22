@@ -21,7 +21,8 @@ export type AlertType =
   | "stale_snapshot"
   | "stale_price"
   | "sync_failure"
-  | "backup_failure";
+  | "backup_failure"
+  | "price_target";
 
 export type AlertSeverity = "info" | "warning" | "critical";
 
@@ -40,7 +41,12 @@ export interface AlertThresholds {
   readonly currency: string;
 }
 
-/** The rule-managed types (everything except backup_failure, which is externally written). */
+/**
+ * The rule-managed types swept by the anomaly resolve-loop. Excludes the
+ * externally/one-shot-written types: `backup_failure` (written by the backup job,
+ * cleared only on a successful backup) and `price_target` (one-shot, written by
+ * the price-target evaluator and never re-armed automatically — ADR-026).
+ */
 export const RULE_ALERT_TYPES: readonly AlertType[] = [
   "large_transaction",
   "balance_drop",
@@ -78,6 +84,11 @@ function absMoney(m: Money): Money {
 function gtMoney(a: Money, b: Money): boolean {
   const d = a.sub(b);
   return !d.isNegative() && !d.isZero();
+}
+
+/** `a >= b` over Money (same currency): a−b is zero or positive. No floats. */
+function gteMoney(a: Money, b: Money): boolean {
+  return !a.sub(b).isNegative();
 }
 
 /** Whole days between an ISO date string and `now` (both at UTC midnight). */
@@ -279,4 +290,76 @@ export function syncFailureAlerts(runs: readonly FailedSyncRun[]): DetectedAlert
       date: r.startedAt,
     },
   }));
+}
+
+/** A watchlist price target + the latest close to test it against (Phase 11). */
+export interface PriceTargetInput {
+  readonly targetId: string;
+  readonly watchlistItemId: string;
+  readonly symbol: string;
+  readonly direction: "above" | "below";
+  /** Threshold price per unit (decimal string). */
+  readonly threshold: string;
+  /** Latest close (decimal string) or null when the symbol has no price yet. */
+  readonly latestClose: string | null;
+  /** Date of `latestClose` (YYYY-MM-DD) — the dedup period key. Null when unpriced. */
+  readonly latestDate: string | null;
+  /** Currency of the threshold + close (defaults to USD upstream). */
+  readonly currency: string;
+  /**
+   * Optional pretend-position P&L (already valued by the caller) for the
+   * authenticated UI only. Lives in `detail`, NEVER in the title or the email.
+   */
+  readonly pretendPnl?: Record<string, unknown> | null;
+}
+
+/**
+ * One-shot watchlist price-target alerts (Phase 11, ADR-026).
+ *
+ * Fires for each target the latest close satisfies: `above` when `close ≥
+ * threshold`, `below` when `close ≤ threshold` (Money/Decimal compare — never
+ * floats; exact equality fires). Unpriced symbols (no close yet) are skipped.
+ *
+ * Per ADR-015 the title carries ONLY the symbol + direction — no numbers; the
+ * threshold, price, date, and any pretend P&L go in `detail`, shown only in the
+ * authenticated UI and never emailed. `dedupHash('price_target', targetId,
+ * latestDate)` makes the day's evaluation idempotent under job re-runs.
+ *
+ * Note this is a PURE rule: it does not flip the target inactive or write a row —
+ * the `evaluate-price-targets` job (P11-11) persists the alert and stamps the
+ * target. `'price_target'` is deliberately absent from {@link RULE_ALERT_TYPES}
+ * (one-shot; never resolve-swept), exactly like `backup_failure`.
+ *
+ * @param targets - Active targets joined to their latest close.
+ * @returns A `DetectedAlert` per satisfied target.
+ */
+export function priceTargetAlerts(targets: readonly PriceTargetInput[]): DetectedAlert[] {
+  const out: DetectedAlert[] = [];
+  for (const t of targets) {
+    // No price yet → can't test the target; the nightly fetch will catch up.
+    if (t.latestClose === null || t.latestDate === null) continue;
+    const close = Money.fromString(t.latestClose, t.currency);
+    const threshold = Money.fromString(t.threshold, t.currency);
+    const hit = t.direction === "above" ? gteMoney(close, threshold) : gteMoney(threshold, close);
+    if (!hit) continue;
+    const detail: Record<string, unknown> = {
+      targetId: t.targetId,
+      watchlistItemId: t.watchlistItemId,
+      symbol: t.symbol,
+      direction: t.direction,
+      threshold: t.threshold,
+      price: t.latestClose,
+      date: t.latestDate,
+    };
+    if (t.pretendPnl != null) detail.pretendPnl = t.pretendPnl;
+    out.push({
+      type: "price_target",
+      severity: "info",
+      dedupHash: dedupHash("price_target", t.targetId, t.latestDate),
+      // Symbol + direction only — no figures (ADR-015).
+      title: `${t.symbol} hit your ${t.direction} target`,
+      detail,
+    });
+  }
+  return out;
 }
