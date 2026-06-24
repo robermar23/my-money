@@ -15,6 +15,7 @@ import { useState } from "react";
 const LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/accounts", label: "Accounts" },
+  { href: "/transactions", label: "Transactions" },
   { href: "/investments", label: "Investments" },
   { href: "/watchlist", label: "Watchlist" },
   { href: "/analysis", label: "Analysis" },

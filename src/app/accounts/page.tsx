@@ -1,3 +1,4 @@
+import { SearchInput } from "@/components/search-input.tsx";
 import { db } from "@/db/client.ts";
 import { accountSnapshots } from "@/db/schema/index.ts";
 import { listAccounts } from "@/lib/accounts/queries.ts";
@@ -9,7 +10,7 @@ import Link from "next/link";
 import { ReopenAccountButton } from "./reopen-account-button.tsx";
 
 interface AccountsPageProps {
-  readonly searchParams?: Promise<{ closed?: string }>;
+  readonly searchParams?: Promise<{ closed?: string; q?: string }>;
 }
 
 const TYPE_LABEL: Record<string, string> = {
@@ -45,10 +46,18 @@ export default async function AccountsPage(props: AccountsPageProps): Promise<Re
   await requireUser();
   const search = (await props.searchParams) ?? {};
   const showClosed = search.closed === "1";
+  const query = search.q?.trim() ?? "";
 
-  const all = await listAccounts();
+  // P12-10 — trigram filter on name/institution/description (composes with the
+  // `?closed=` toggle). An unfiltered fetch still backs the closed-count chip so
+  // it stays accurate while a query narrows the visible rows.
+  const [all, matched] = await Promise.all([
+    listAccounts(),
+    query ? listAccounts({ q: query }) : Promise.resolve(null),
+  ]);
+  const source = matched ?? all;
   // Closed accounts are hidden by default (P7-04); a URL toggle reveals them.
-  const visible = showClosed ? all : all.filter((a) => a.closedAt === null);
+  const visible = showClosed ? source : source.filter((a) => a.closedAt === null);
   const closedCount = all.length - all.filter((a) => a.closedAt === null).length;
 
   // Fetch latest balance per account in parallel.
@@ -59,16 +68,21 @@ export default async function AccountsPage(props: AccountsPageProps): Promise<Re
     })),
   );
 
+  // The "show/hide closed" toggle preserves the active `?q=` filter.
+  const closedParams = new URLSearchParams();
+  if (!showClosed) closedParams.set("closed", "1");
+  if (query) closedParams.set("q", query);
+  const toggleClosedHref = closedParams.toString()
+    ? `/accounts?${closedParams.toString()}`
+    : "/accounts";
+
   return (
     <main className="mx-auto max-w-4xl p-6">
       <div className="flex items-center justify-between">
         <h1 className="font-semibold text-2xl tracking-tight">Accounts</h1>
         <div className="flex items-center gap-4">
           {closedCount > 0 && (
-            <Link
-              href={showClosed ? "/accounts" : "/accounts?closed=1"}
-              className="text-sm text-zinc-500 hover:underline"
-            >
+            <Link href={toggleClosedHref} className="text-sm text-zinc-500 hover:underline">
               {showClosed ? "Hide closed" : `Show closed (${closedCount})`}
             </Link>
           )}
@@ -84,10 +98,32 @@ export default async function AccountsPage(props: AccountsPageProps): Promise<Re
         </div>
       </div>
 
+      {all.length > 0 && (
+        <div className="mt-6">
+          <SearchInput
+            placeholder="Filter accounts by name or institution…"
+            label="Filter accounts"
+            className="max-w-sm"
+          />
+        </div>
+      )}
+
       {enriched.length === 0 ? (
-        <p className="mt-8 text-sm text-zinc-500">
-          No accounts yet. Add your first account to start tracking your net worth.
-        </p>
+        query ? (
+          <p className="mt-8 text-sm text-zinc-500">
+            No accounts match “{query}”.{" "}
+            <Link
+              href={showClosed ? "/accounts?closed=1" : "/accounts"}
+              className="hover:underline"
+            >
+              Clear filter
+            </Link>
+          </p>
+        ) : (
+          <p className="mt-8 text-sm text-zinc-500">
+            No accounts yet. Add your first account to start tracking your net worth.
+          </p>
+        )
       ) : (
         <div className="mt-6 overflow-x-auto">
           <table className="w-full min-w-[34rem] text-sm">

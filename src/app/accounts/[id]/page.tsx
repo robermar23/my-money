@@ -16,7 +16,8 @@ import { gainLoss } from "@/lib/investments/gain-loss.ts";
 import { lotCoverage, resolveCostBasis } from "@/lib/investments/lots.ts";
 import { Money } from "@/lib/money/money.ts";
 import { balanceAtMonth } from "@/lib/mortgage/amortization.ts";
-import { listTransactions } from "@/lib/transactions/queries.ts";
+import { transactionFilterSchema } from "@/lib/schemas/search.ts";
+import { type TransactionFilters, listTransactions } from "@/lib/transactions/queries.ts";
 import { toAccountId } from "@/lib/types/ids.ts";
 import Decimal from "decimal.js";
 import Link from "next/link";
@@ -37,8 +38,11 @@ import { TransactionsSection } from "./transactions-section.tsx";
 
 interface AccountPageProps {
   readonly params: Promise<{ id: string }>;
-  readonly searchParams?: Promise<{ page?: string; imported?: string }>;
+  readonly searchParams?: Promise<Record<string, string | undefined>>;
 }
+
+/** The filter keys this page reads from the URL (excludes `page`/`imported`). */
+const FILTER_KEYS = ["q", "from", "to", "minAmount", "maxAmount", "categoryId"] as const;
 
 const TYPE_LABEL: Record<string, string> = {
   depository: "Cash",
@@ -82,9 +86,33 @@ export default async function AccountDetailPage(
   await requireUser();
   const { id } = await props.params;
   const search = (await props.searchParams) ?? {};
-  const page = search.page ? Math.max(1, Number.parseInt(search.page, 10)) : 1;
   const justImported = search.imported ? Number.parseInt(search.imported, 10) : null;
   const accountId = toAccountId(id);
+
+  // P12-11 — parse the structured transaction filters from the URL. On an
+  // invalid combination (e.g. from > to) fall back to no filters + page 1; the
+  // bar still echoes the raw URL values so the user can correct them.
+  const parsed = transactionFilterSchema.safeParse(search);
+  const filterData = parsed.success ? parsed.data : null;
+  const page = filterData?.page ?? 1;
+  const filters: TransactionFilters | undefined = filterData
+    ? {
+        q: filterData.q,
+        from: filterData.from,
+        to: filterData.to,
+        minAmount: filterData.minAmount,
+        maxAmount: filterData.maxAmount,
+        categoryId: filterData.categoryId,
+      }
+    : undefined;
+  const filtersActive = FILTER_KEYS.some((k) => (search[k] ?? "") !== "");
+  // Filter params (minus `page`) to carry through pagination links.
+  const filterParams = new URLSearchParams();
+  for (const k of FILTER_KEYS) {
+    const v = search[k];
+    if (v) filterParams.set(k, v);
+  }
+  const filterQuery = filterParams.toString();
   const account = await getAccount(accountId);
   if (!account) notFound();
 
@@ -101,7 +129,7 @@ export default async function AccountDetailPage(
       listLots(accountId),
       getLiability(accountId),
       showTransactions
-        ? listTransactions({ accountId, page })
+        ? listTransactions({ accountId, filters, page })
         : Promise.resolve({ rows: [], totalCount: 0, page: 1, pageSize: 50, totalPages: 1 }),
       showTransactions
         ? listCategoriesWithGroups()
@@ -186,8 +214,14 @@ export default async function AccountDetailPage(
     return !latest || h.updatedAt > latest ? h.updatedAt : latest;
   }, null);
 
+  // While a filter is active a zero `totalCount` reflects the filter, not an
+  // empty account — keep `hasData` true so deletion isn't wrongly enabled.
   const hasData =
-    snapshots.length > 0 || accountHoldings.length > 0 || txnResult.totalCount > 0 || !!liability;
+    snapshots.length > 0 ||
+    accountHoldings.length > 0 ||
+    txnResult.totalCount > 0 ||
+    !!liability ||
+    filtersActive;
 
   const showBalanceForm = account.type === "depository" || account.type === "credit_card";
   const showHoldingsForm = account.type === "investment" || account.type === "crypto_ira";
@@ -579,6 +613,8 @@ export default async function AccountDetailPage(
           page={txnResult.page}
           totalPages={txnResult.totalPages}
           totalCount={txnResult.totalCount}
+          filtersActive={filtersActive}
+          filterQuery={filterQuery}
         />
       )}
 
