@@ -149,6 +149,8 @@ Migration: `drizzle-kit generate` produces (a) two `CREATE TABLE`, (b) a `DROP C
 
 > Task IDs are `P11-NN`. Each is atomic, independently reviewable, and ends green (typecheck + Biome + the stated tests). Acceptance criteria are concrete. Skills to invoke are named per task; see §Skills Map.
 
+**Status — ✅ all batches complete (2026-06-21).** P11-00 → P11-24 shipped: scope/ADRs, schema (`watchlist_items`, `price_targets`, `alerts` CHECK widening), price plumbing (work-list union, Yahoo/CoinGecko daily-series fetch, on-add backfill, `paperValuation`), one-shot price-target alerts (pure rule + evaluator chained off the price fetch), the `/watchlist` UI (nav, list, add/edit, detail, targets, delete), and Batch 5 — unit-test sweep, the **mandatory privacy-regression test** ([privacy-egress.test.ts](../../src/lib/watchlist/privacy-egress.test.ts)), the security checklist + docs ([docs/WATCHLIST.md](../../docs/WATCHLIST.md)), and the E2E happy path ([phase11-watchlist.spec.ts](../../e2e/phase11-watchlist.spec.ts)). `evaluate-price-targets` is wired into [run-once.ts](../../src/worker/run-once.ts) for manual verification.
+
 ### Batch 0 — Scope gate & ADRs
 
 - **P11-00 — Record scope + lock ADRs.** Append ADR-025 + ADR-026 to [IDEAS.md](IDEAS.md) §11 Decision Log (status 🔲→✅ on approval); add the Round-5 scope note to [FEATURE.md](FEATURE.md) (in-scope: watch symbol, pretend position, daily price-target alert; out-of-scope list from the boundary above). **Acceptance**: both ADRs present with the next sequential numbers (025, 026); FEATURE.md links them to PLAN11; no code yet.

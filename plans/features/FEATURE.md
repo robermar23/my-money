@@ -145,5 +145,5 @@ value, up or down. This should not count towards net worth of course."
   the target thresholds are **100% local**, ride the nightly `age`-encrypted
   `pg_dump`, and never appear in the (content-free) notification email.
 
-Implemented under **ADR-025 → ADR-026** (IDEAS.md §11 Decision Log) via [PLAN11.md](PLAN11.md).
+Implemented under **ADR-025 → ADR-026** (IDEAS.md §11 Decision Log) via [PLAN11.md](PLAN11.md). See [docs/WATCHLIST.md](../../docs/WATCHLIST.md).
 
