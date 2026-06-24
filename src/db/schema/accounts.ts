@@ -3,6 +3,7 @@ import {
   type AnyPgColumn,
   check,
   date,
+  index,
   numeric,
   pgTable,
   text,
@@ -73,6 +74,13 @@ export const accounts = pgTable(
     assetCategoryCheck: check(
       "accounts_asset_category_check",
       sql`${table.assetCategory} IS NULL OR ${table.assetCategory} IN ('vehicle', 'watercraft', 'jewelry', 'collectible', 'other')`,
+    ),
+    // Trigram GIN indexes (Phase 12, ADR-028): fuzzy search on account name +
+    // institution for the per-list filter and the ⌘K palette.
+    nameTrgmIdx: index("accounts_name_trgm_idx").using("gin", sql`${table.name} gin_trgm_ops`),
+    institutionTrgmIdx: index("accounts_institution_trgm_idx").using(
+      "gin",
+      sql`${table.institution} gin_trgm_ops`,
     ),
   }),
 );

@@ -85,6 +85,9 @@ export const categories = pgTable(
   (table) => ({
     nameLowerUnique: uniqueIndex("categories_name_lower_unique").on(sql`lower(${table.name})`),
     groupIdx: index("categories_group_id_idx").on(table.groupId),
+    // Trigram GIN index (Phase 12, ADR-028): fuzzy search on category name for
+    // the categories-management filter + the ⌘K palette.
+    nameTrgmIdx: index("categories_name_trgm_idx").using("gin", sql`${table.name} gin_trgm_ops`),
     kindCheck: check(
       "categories_kind_check",
       sql`${table.kind} IN ('income', 'expense', 'transfer')`,

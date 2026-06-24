@@ -102,6 +102,12 @@ export const transactions = pgTable(
       table.categoryId,
       table.postedAt,
     ),
+    // Trigram GIN indexes (Phase 12, ADR-028): fuzzy/substring search on payee
+    // and memo stays fast as transactions grow into five/six figures. Backs the
+    // `ILIKE '%term%'` predicate the search helpers issue (a leading-wildcard
+    // scan without these degrades exactly as the row count climbs).
+    nameTrgmIdx: index("transactions_name_trgm_idx").using("gin", sql`${table.name} gin_trgm_ops`),
+    memoTrgmIdx: index("transactions_memo_trgm_idx").using("gin", sql`${table.memo} gin_trgm_ops`),
     sourceCheck: check(
       "transactions_source_check",
       sql`${table.source} IN ('qfx', 'csv', 'manual', 'plaid')`,

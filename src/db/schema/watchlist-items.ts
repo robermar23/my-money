@@ -2,6 +2,7 @@ import { relations, sql } from "drizzle-orm";
 import {
   check,
   date,
+  index,
   numeric,
   pgTable,
   text,
@@ -77,6 +78,16 @@ export const watchlistItems = pgTable(
       "watchlist_items_pretend_all_or_nothing_check",
       sql`(${table.pretendQuantity} IS NULL) = (${table.pretendUnitCost} IS NULL)
         AND (${table.pretendQuantity} IS NULL) = (${table.pretendPurchasedAt} IS NULL)`,
+    ),
+    // Trigram GIN indexes (Phase 12, ADR-028): fuzzy search on ticker + label for
+    // the watchlist filter + the ⌘K palette.
+    symbolTrgmIdx: index("watchlist_items_symbol_trgm_idx").using(
+      "gin",
+      sql`${table.symbol} gin_trgm_ops`,
+    ),
+    labelTrgmIdx: index("watchlist_items_label_trgm_idx").using(
+      "gin",
+      sql`${table.label} gin_trgm_ops`,
     ),
   }),
 );

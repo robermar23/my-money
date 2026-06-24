@@ -3,6 +3,7 @@ import {
   boolean,
   check,
   date,
+  index,
   jsonb,
   numeric,
   pgTable,
@@ -83,6 +84,17 @@ export const securities = pgTable(
     assetTypeCheck: check(
       "securities_asset_type_check",
       sql`${table.assetType} IS NULL OR ${table.assetType} IN ('equity','etf','mutual_fund','bond','crypto','cash','other')`,
+    ),
+    // Trigram GIN indexes (Phase 12, ADR-028): fuzzy search on ticker, name, and
+    // raw Plaid ticker for the investments filter + the ⌘K palette.
+    symbolTrgmIdx: index("securities_symbol_trgm_idx").using(
+      "gin",
+      sql`${table.symbol} gin_trgm_ops`,
+    ),
+    nameTrgmIdx: index("securities_name_trgm_idx").using("gin", sql`${table.name} gin_trgm_ops`),
+    tickerSymbolTrgmIdx: index("securities_ticker_symbol_trgm_idx").using(
+      "gin",
+      sql`${table.tickerSymbol} gin_trgm_ops`,
     ),
   }),
 );
