@@ -1,10 +1,12 @@
 import { redisConnection } from "@/lib/queue/connection.ts";
 import {
   QUEUE_NAMES,
+  backfillWatchlistSymbolQueue,
   backupDatabaseDailyQueue,
   computeSnapshotsDailyQueue,
   detectAnomaliesDailyQueue,
   enqueuePlaidSyncsDailyQueue,
+  evaluatePriceTargetsQueue,
   exportBeancountDailyQueue,
   fetchPricesDailyQueue,
   heartbeatQueue,
@@ -15,10 +17,12 @@ import {
   syncPlaidItemQueue,
 } from "@/lib/queue/queues.ts";
 import { Worker } from "bullmq";
+import { backfillWatchlistSymbolProcessor } from "./jobs/backfill-watchlist-symbol.ts";
 import { backupDatabaseDailyProcessor } from "./jobs/backup-database-daily.ts";
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
 import { detectAnomaliesDailyProcessor } from "./jobs/detect-anomalies-daily.ts";
 import { enqueuePlaidSyncsDailyProcessor } from "./jobs/enqueue-plaid-syncs-daily.ts";
+import { evaluatePriceTargetsProcessor } from "./jobs/evaluate-price-targets.ts";
 import { exportBeancountDailyProcessor } from "./jobs/export-beancount-daily.ts";
 import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
 import { heartbeatProcessor } from "./jobs/heartbeat.ts";
@@ -63,11 +67,29 @@ const fetchPricesWorker = new Worker(
   // through the processor's optional 2nd parameter (PriceRouter for testing).
   async (job) => {
     await fetchPricesDailyProcessor(job);
+    // P11-12 — chain the one-shot price-target evaluator off the FRESH closes
+    // we just wrote, so it sees today's prices with no race. Enqueued here (not
+    // inside the processor) so the processor stays offline-testable. No cron:
+    // the evaluator rides the 01:30 fetch.
+    await evaluatePriceTargetsQueue.add("evaluate-price-targets", {});
   },
   { connection: redisConnection, concurrency: 1 },
 );
 fetchPricesWorker.on("failed", (job, err) => {
   console.error(`[worker] fetch-prices-daily job ${job?.id} failed:`, err);
+});
+
+// Phase 11 (P11-11): one-shot watchlist price-target evaluator. No cron — it is
+// enqueued by the fetch worker above once the day's closes are in `prices`.
+const evaluatePriceTargetsWorker = new Worker(
+  QUEUE_NAMES.EVALUATE_PRICE_TARGETS,
+  async (job) => {
+    await evaluatePriceTargetsProcessor(job);
+  },
+  { connection: redisConnection, concurrency: 1 },
+);
+evaluatePriceTargetsWorker.on("failed", (job, err) => {
+  console.error(`[worker] evaluate-price-targets job ${job?.id} failed:`, err);
 });
 
 const processImportWorker = new Worker(QUEUE_NAMES.PROCESS_IMPORT, processImportProcessor, {
@@ -170,6 +192,20 @@ const refreshFundamentalsWeeklyWorker = new Worker(
 );
 refreshFundamentalsWeeklyWorker.on("failed", (job, err) => {
   console.error(`[worker] refresh-fundamentals-weekly job ${job?.id} failed:`, err);
+});
+
+// Phase 11 (P11-08): on-demand watchlist history backfill. No cron — enqueued by
+// the create-watchlist-item server action. concurrency=1 keeps it off the
+// nightly fetch's rate-limit budget (it hits the same Yahoo/CoinGecko hosts).
+const backfillWatchlistSymbolWorker = new Worker(
+  QUEUE_NAMES.BACKFILL_WATCHLIST_SYMBOL,
+  async (job) => {
+    await backfillWatchlistSymbolProcessor(job);
+  },
+  { connection: redisConnection, concurrency: 1 },
+);
+backfillWatchlistSymbolWorker.on("failed", (job, err) => {
+  console.error(`[worker] backfill-watchlist-symbol job ${job?.id} failed:`, err);
 });
 
 // Ensure a single heartbeat repeatable job exists. Removing first guards against
@@ -280,6 +316,8 @@ async function shutdown(_signal: string): Promise<void> {
   await exportBeancountDailyWorker.close();
   await detectAnomaliesDailyWorker.close();
   await refreshFundamentalsWeeklyWorker.close();
+  await backfillWatchlistSymbolWorker.close();
+  await evaluatePriceTargetsWorker.close();
   await heartbeatQueue.close();
   await computeSnapshotsDailyQueue.close();
   await fetchPricesDailyQueue.close();
@@ -292,6 +330,8 @@ async function shutdown(_signal: string): Promise<void> {
   await exportBeancountDailyQueue.close();
   await detectAnomaliesDailyQueue.close();
   await refreshFundamentalsWeeklyQueue.close();
+  await backfillWatchlistSymbolQueue.close();
+  await evaluatePriceTargetsQueue.close();
   await redisConnection.quit();
   process.exit(0);
 }

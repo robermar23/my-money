@@ -24,18 +24,31 @@ const YAHOO_BY_METAL = {
 
 export type MetalSymbol = keyof typeof YAHOO_BY_METAL;
 
+/**
+ * Translate a canonical metal symbol (XAU/XAG/XPT/XPD) to its Yahoo futures
+ * ticker (GC=F, …). Shared by the live quote fetcher and the watchlist history
+ * backfill (P11-08) so both agree on the mapping.
+ *
+ * @param symbol - Canonical ISO-4217-style metal symbol.
+ * @returns The Yahoo futures ticker.
+ * @throws If the symbol isn't a supported precious metal.
+ */
+export function yahooSymbolForMetal(symbol: string): string {
+  const yahooSymbol = YAHOO_BY_METAL[symbol.toUpperCase() as MetalSymbol];
+  if (!yahooSymbol) {
+    throw new Error(
+      `Unsupported metal symbol "${symbol}". Supported: ${Object.keys(YAHOO_BY_METAL).join(", ")}.`,
+    );
+  }
+  return yahooSymbol;
+}
+
 export class YahooMetalsFetcher implements PriceFetcher {
   readonly source = "yahoo";
 
   async quote(symbol: string): Promise<PriceQuote> {
     const canonical = symbol.toUpperCase();
-    const yahooSymbol = YAHOO_BY_METAL[canonical as MetalSymbol];
-    if (!yahooSymbol) {
-      throw new Error(
-        `Unsupported metal symbol "${symbol}". Supported: ${Object.keys(YAHOO_BY_METAL).join(", ")}.`,
-      );
-    }
-    const close = await fetchYahooClose(yahooSymbol);
+    const close = await fetchYahooClose(yahooSymbolForMetal(canonical));
     return {
       symbol: canonical,
       date: todayIso(),

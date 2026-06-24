@@ -15,12 +15,14 @@
  *   - backfill-categories
  *   - backfill-holding-snapshots
  *   - refresh-fundamentals-weekly
+ *   - evaluate-price-targets
  */
 import { backfillHoldingSnapshots } from "../lib/investments/backfill-history.ts";
 import { backfillCategoriesProcessor } from "./jobs/backfill-categories.ts";
 import { backupDatabaseDailyProcessor } from "./jobs/backup-database-daily.ts";
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
 import { detectAnomaliesDailyProcessor } from "./jobs/detect-anomalies-daily.ts";
+import { evaluatePriceTargetsProcessor } from "./jobs/evaluate-price-targets.ts";
 import { exportBeancountDailyProcessor } from "./jobs/export-beancount-daily.ts";
 import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
 import { heartbeatProcessor } from "./jobs/heartbeat.ts";
@@ -46,6 +48,7 @@ const PROCESSORS: Record<string, (job: never) => Promise<unknown>> = {
     console.info("[run-once] backfill-holding-snapshots:", result);
   }) as never,
   "refresh-fundamentals-weekly": refreshFundamentalsWeeklyProcessor as never,
+  "evaluate-price-targets": (async (job: never) => evaluatePriceTargetsProcessor(job)) as never,
 };
 
 if (!jobName || !PROCESSORS[jobName]) {

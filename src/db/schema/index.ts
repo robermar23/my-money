@@ -25,3 +25,5 @@ export * from "./plaid-items.ts";
 export * from "./webhook-log.ts";
 export * from "./plaid-sync-runs.ts";
 export * from "./alerts.ts";
+export * from "./watchlist-items.ts";
+export * from "./price-targets.ts";
