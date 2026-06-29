@@ -32,6 +32,8 @@ See [plans/features/FEATURE.md](plans/features/FEATURE.md) for the why, [plans/f
 
 **Phase 11 (watchlist & price targets) — complete.** Follow a symbol you **don't own** (stock / ETF / metal / crypto) at `/watchlist`, optionally "pretend" you bought it `(date, quantity, unit cost)` for a simple display gain/loss + price-history chart, and set **one-shot price targets** ("alert me when it crosses $X, up or down"). A watchlist item is **structurally excluded from net worth** — it is neither an account nor a holding. Targets are evaluated **once daily** after the nightly price fetch (not real-time; intraday deferred) and surfaced through the existing `/alerts` page + **content-free** email. Only the ticker string egresses — pretend qty/cost and thresholds stay 100% local. See [docs/WATCHLIST.md](docs/WATCHLIST.md) and [plans/features/PLAN11.md](plans/features/PLAN11.md) (ADR-025 → ADR-026).
 
+**Phase 12 (search everywhere) — complete.** A global **⌘K / Ctrl-K command palette** (with a nav button) fuzzy-matches across accounts, categories, securities, watchlist items, and the top transaction matches **across all accounts**, and jumps straight to the result. Plus **per-list URL-param filters** on the pages that grow unbounded — accounts, investments, watchlist, categories, and a new cross-account **`/transactions`** view with structured filters (payee/memo text, amount range, date range, category incl. "Uncategorized"). Fuzzy + typo-tolerant via Postgres **`pg_trgm`** trigram GIN indexes; zero new tables, **zero egress**, read-only and session-guarded — the query term never leaves the box and is never logged. See [docs/SEARCH.md](docs/SEARCH.md) and [plans/features/PLAN12.md](plans/features/PLAN12.md) (ADR-027 → ADR-028).
+
 ---
 
 ## Prerequisites
