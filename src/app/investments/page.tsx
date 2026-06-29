@@ -19,6 +19,7 @@ import {
   listInvestmentLots,
   listInvestmentPositions,
 } from "@/lib/investments/queries.ts";
+import { SearchInput } from "@/components/search-input.tsx";
 import { Money } from "@/lib/money/money.ts";
 import Link from "next/link";
 import { AllocationChart } from "./allocation-chart.tsx";
@@ -27,8 +28,11 @@ import { InvestmentTabs } from "./investment-tabs.tsx";
 import { RefreshPricesButton } from "./refresh-prices-button.tsx";
 
 interface InvestmentsPageProps {
-  readonly searchParams?: Promise<{ period?: string; dim?: string }>;
+  readonly searchParams?: Promise<{ period?: string; dim?: string; q?: string }>;
 }
+
+/** Minimum filter length — mirrors `sanitizeSearchTerm` so a 1-char `q` is a no-op. */
+const MIN_FILTER_LENGTH = 2;
 
 const PERIODS: readonly IncomePeriod[] = ["month", "quarter", "year"];
 
@@ -56,6 +60,14 @@ export default async function InvestmentsPage(
   const search = (await props.searchParams) ?? {};
   const period = parsePeriod(search.period);
   const dim = parseDim(search.dim);
+  const query = search.q?.trim() ?? "";
+  // P12-16 — `?q=` narrows the *displayed holdings tables* only; the allocation
+  // donut, concentration, income, and portfolio totals stay computed off the
+  // FULL position set so the summary always reflects the whole portfolio.
+  const holdingsTerm = query.length >= MIN_FILTER_LENGTH ? query.toLowerCase() : "";
+  // Carry the active filter through the dimension/period links so changing the
+  // allocation slice or income period doesn't silently drop the holdings filter.
+  const qSuffix = query ? `&q=${encodeURIComponent(query)}` : "";
   const baseCurrency = "USD";
   const today = new Date().toISOString().slice(0, 10);
 
@@ -182,9 +194,18 @@ export default async function InvestmentsPage(
     interest: Number(pt.interest.toString()),
   }));
 
-  // Group rows by account for the positions tables.
+  // Group rows by account for the positions tables. Apply the `?q=` holdings
+  // filter (symbol or security name) here — and only here — so the tables narrow
+  // while every summary above stays whole-portfolio.
+  const tableRows = holdingsTerm
+    ? rows.filter(
+        (r) =>
+          r.p.holding.symbol.toLowerCase().includes(holdingsTerm) ||
+          (r.p.securityName?.toLowerCase().includes(holdingsTerm) ?? false),
+      )
+    : rows;
   const byAccount = new Map<string, { name: string; currency: string; rows: typeof rows }>();
-  for (const r of rows) {
+  for (const r of tableRows) {
     const g = byAccount.get(r.p.accountId) ?? {
       name: r.p.accountName,
       currency: r.p.accountCurrency,
@@ -247,7 +268,7 @@ export default async function InvestmentsPage(
                 {SLICE_DIMS.map((d) => (
                   <Link
                     key={d.key}
-                    href={`/investments?period=${period}&dim=${d.key}`}
+                    href={`/investments?period=${period}&dim=${d.key}${qSuffix}`}
                     className={`rounded-md px-2 py-1 ${
                       d.key === dim
                         ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"
@@ -290,6 +311,27 @@ export default async function InvestmentsPage(
               </div>
             </div>
           </section>
+
+          {positions.length > 0 && (
+            <div className="mt-8 max-w-sm">
+              <SearchInput
+                placeholder="Filter holdings by symbol or name…"
+                label="Filter holdings"
+              />
+            </div>
+          )}
+
+          {holdingsTerm && tableRows.length === 0 ? (
+            <p className="mt-6 text-sm text-zinc-500">
+              No holdings match “{query}”.{" "}
+              <Link
+                href={`/investments?period=${period}&dim=${dim}`}
+                className="hover:underline"
+              >
+                Clear filter
+              </Link>
+            </p>
+          ) : null}
 
           {[...byAccount.values()].map((group) => {
             const subtotal = group.rows.reduce(
@@ -379,8 +421,11 @@ export default async function InvestmentsPage(
             );
           })}
 
-          {balanceOnly.map((a) => (
-            <section key={a.accountId} className="mt-8">
+          {/* Balance-only accounts have no itemized securities, so a holdings
+              symbol/name filter can't match them — hide them while filtering. */}
+          {!holdingsTerm &&
+            balanceOnly.map((a) => (
+              <section key={a.accountId} className="mt-8">
               <div className="flex items-center justify-between">
                 <h2 className="font-medium">{a.accountName}</h2>
                 <span className="font-mono text-sm text-zinc-600 tabular-nums dark:text-zinc-400">
@@ -401,7 +446,7 @@ export default async function InvestmentsPage(
                 {PERIODS.map((p) => (
                   <Link
                     key={p}
-                    href={`/investments?period=${p}&dim=${dim}`}
+                    href={`/investments?period=${p}&dim=${dim}${qSuffix}`}
                     className={`rounded-md px-2 py-1 capitalize ${
                       p === period
                         ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-zinc-900"

@@ -1,3 +1,4 @@
+import { SearchInput } from "@/components/search-input.tsx";
 import { db } from "@/db/client.ts";
 import { categoryRules } from "@/db/schema/index.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
@@ -10,8 +11,16 @@ import { DeleteRule, RecategorizeAllButton, ToggleRule } from "./rule-actions.ts
 import { NewRuleForm } from "./rule-form.tsx";
 import { TestPanel } from "./test-panel.tsx";
 
-export default async function CategoriesSettingsPage(): Promise<React.JSX.Element> {
+interface CategoriesSettingsPageProps {
+  readonly searchParams?: Promise<{ q?: string }>;
+}
+
+export default async function CategoriesSettingsPage(
+  props: CategoriesSettingsPageProps,
+): Promise<React.JSX.Element> {
   await requireUser();
+  const search = (await props.searchParams) ?? {};
+  const query = search.q?.trim() ?? "";
   // Auto-seed the defaults the first time the user lands here (idempotent).
   await seedDefaultCategoriesAndRulesIfEmpty();
 
@@ -65,7 +74,15 @@ export default async function CategoriesSettingsPage(): Promise<React.JSX.Elemen
         </div>
       </div>
 
-      <CategoryManager categories={managedCategories} groups={managedGroups} />
+      <div className="mt-6">
+        <SearchInput
+          placeholder="Filter categories by name…"
+          label="Filter categories"
+          className="max-w-sm"
+        />
+      </div>
+
+      <CategoryManager categories={managedCategories} groups={managedGroups} filter={query} />
 
       <section className="mt-10">
         <h2 className="font-medium">Rules ({rules.length})</h2>

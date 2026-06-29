@@ -1,3 +1,4 @@
+import { SearchInput } from "@/components/search-input.tsx";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { Money } from "@/lib/money/money.ts";
 import { assetClassLabel } from "@/lib/watchlist/display.ts";
@@ -7,14 +8,24 @@ import Link from "next/link";
 
 export const metadata: Metadata = { title: "Watchlist" };
 
+interface WatchlistPageProps {
+  readonly searchParams?: Promise<{ q?: string }>;
+}
+
 /**
  * P11-15 — the `/watchlist` list page. Symbols the user FOLLOWS but does not own;
  * structurally excluded from net worth (ADR-025). Mirrors the /investments table
  * tokens. `Number()` never appears here — money goes through `Money.format()`.
+ *
+ * P12-17 — an optional `?q=` trigram filter narrows the list by symbol/label/notes.
  */
-export default async function WatchlistPage(): Promise<React.JSX.Element> {
+export default async function WatchlistPage(
+  props: WatchlistPageProps,
+): Promise<React.JSX.Element> {
   await requireUser();
-  const rows = await listWatchlist();
+  const search = (await props.searchParams) ?? {};
+  const query = search.q?.trim() ?? "";
+  const rows = await listWatchlist({ q: query });
 
   return (
     <main className="mx-auto max-w-5xl p-6">
@@ -38,14 +49,33 @@ export default async function WatchlistPage(): Promise<React.JSX.Element> {
         </Link>
       </div>
 
+      {(query !== "" || rows.length > 0) && (
+        <div className="mt-6">
+          <SearchInput
+            placeholder="Filter by symbol or name…"
+            label="Filter watchlist"
+            className="max-w-sm"
+          />
+        </div>
+      )}
+
       {rows.length === 0 ? (
-        <p className="mt-8 rounded-md border border-zinc-200 border-dashed p-6 text-center text-sm text-zinc-500 dark:border-zinc-800">
-          You're not watching anything yet.{" "}
-          <Link href="/watchlist/new" className="underline">
-            Add a symbol
-          </Link>{" "}
-          to follow its price and set target alerts.
-        </p>
+        query !== "" ? (
+          <p className="mt-6 text-sm text-zinc-500">
+            No watched symbols match “{query}”.{" "}
+            <Link href="/watchlist" className="hover:underline">
+              Clear filter
+            </Link>
+          </p>
+        ) : (
+          <p className="mt-8 rounded-md border border-zinc-200 border-dashed p-6 text-center text-sm text-zinc-500 dark:border-zinc-800">
+            You're not watching anything yet.{" "}
+            <Link href="/watchlist/new" className="underline">
+              Add a symbol
+            </Link>{" "}
+            to follow its price and set target alerts.
+          </p>
+        )
       ) : (
         <div className="mt-6 overflow-x-auto">
           <table className="w-full min-w-[44rem] text-sm">
