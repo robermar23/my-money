@@ -3,6 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { OPEN_COMMAND_PALETTE_EVENT } from "./command-palette.tsx";
+
+/** Open the single mounted ⌘K palette without prop-drilling or a shared store. */
+function openCommandPalette(): void {
+  window.dispatchEvent(new Event(OPEN_COMMAND_PALETTE_EVENT));
+}
 
 /**
  * Responsive nav body (P6-17). A single inline row at `sm:` and up; a
@@ -68,6 +74,18 @@ export function NavMenu({ alertCount }: Props): React.JSX.Element {
     <>
       {/* Desktop: inline row */}
       <div className="hidden items-center gap-4 text-sm sm:flex">
+        <button
+          type="button"
+          onClick={openCommandPalette}
+          aria-label="Search (Command or Control + K)"
+          aria-keyshortcuts="Meta+K Control+K"
+          className="flex items-center gap-2 rounded-md border border-zinc-300 px-2 py-1 text-zinc-500 hover:text-zinc-900 dark:border-zinc-700 dark:hover:text-zinc-50"
+        >
+          <span>Search…</span>
+          <kbd className="rounded bg-zinc-100 px-1 py-0.5 text-[10px] text-zinc-500 dark:bg-zinc-800">
+            ⌘K
+          </kbd>
+        </button>
         {LINKS.map((l) => (
           <Link key={l.href} href={l.href} className={linkClass(l.href)}>
             {l.label}
@@ -109,6 +127,29 @@ export function NavMenu({ alertCount }: Props): React.JSX.Element {
       {open && (
         <div className="absolute inset-x-0 top-full z-20 border-zinc-200 border-b bg-white sm:hidden dark:border-zinc-800 dark:bg-zinc-950">
           <div className="mx-auto flex max-w-5xl flex-col px-6 py-2 text-sm">
+            <button
+              type="button"
+              aria-label="Search"
+              onClick={() => {
+                setOpen(false);
+                openCommandPalette();
+              }}
+              className="flex items-center gap-1.5 py-2.5 text-left text-zinc-600 dark:text-zinc-400"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                className="h-4 w-4"
+                fill="none"
+                stroke="currentColor"
+                role="img"
+                aria-hidden="true"
+              >
+                <title>Search</title>
+                <circle cx="11" cy="11" r="7" strokeWidth="2" />
+                <path strokeWidth="2" strokeLinecap="round" d="m20 20-3.5-3.5" />
+              </svg>
+              Search
+            </button>
             {LINKS.map((l) => (
               <Link
                 key={l.href}
