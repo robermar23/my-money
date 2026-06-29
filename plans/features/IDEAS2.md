@@ -34,15 +34,15 @@ Assets I am thinking our high value like:
 - vehicles
 - boats
 - jewlery
-- you get the idea
+- what else?
 
-Should count towards net worth.  
+Should count towards net worth.  Should track value over time that the user can adjust.  
 
 A user should be able to upload a file associated with the asset for proof of authenticity.  you think that is too much?
 
 ## Round 5
 
-What if a user wants to add a stock to track the history of and "pretend" they purchased it at a certain date/time and track its progress and even get alerted when the stock/metal/whatever reaches a specific value, up or down.  This shou ld not count towards net worth of course.
+What if a user wants to add a stock to track the history of and "pretend" they purchased it at a certain date/time and track its progress and even get alerted when the stock/metal/whatever reaches a specific value, up or down.  This should not count towards net worth of course.
 
 ## Round 6
 
@@ -52,3 +52,18 @@ Whether it be the accounts page.  The items page per account.  You get the idea.
 
 Transactions/items add up quickly over time and the user needs to find specific ones easily
 
+## Round 7
+
+Enhance Dashboard
+
+The dashboard has not been touched since we added several features to my-money
+
+what can and should we add to the dashboard to make it more informative given all of the features we have added?
+
+## Round 8
+
+401k investments from a retirement plan do not show cost basis or gain/loss which is understood.
+
+However, from a user's perspective, the "cost basis" would be the amount of income they invest in their 401k every paycheck.
+
+Can the user not have the ability to define their "income" in an intentional way and have the 401k amount or percentage defined so it is included in investment calculations?
