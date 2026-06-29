@@ -189,3 +189,38 @@ user needs to find specific ones easily."
   fragment is financial data — CLAUDE.md §Privacy).
 
 Implemented under **ADR-027 → ADR-028** (IDEAS.md §11 Decision Log) via [PLAN12.md](PLAN12.md). See [docs/SEARCH.md](../../docs/SEARCH.md).
+
+### 2026-06-28 — Enhance the dashboard: a curated at-a-glance command center (in scope)
+
+Source: [IDEAS2.md](IDEAS2.md) Round 7. The owner asked: "Enhance Dashboard. The dashboard
+has not been touched since we added several features to my-money. What can and should we add
+to the dashboard to make it more informative given all of the features we have added?"
+
+- **In scope (newly added):**
+  - **A curated, fixed-section dashboard** — the Phase-1 net-worth page (number + history
+    line + accounts table) becomes a hand-designed responsive layout: a full-width
+    **net-worth hero** (value + range delta + history) over a responsive **card grid**.
+    No drag-and-drop, no per-widget show/hide, no persisted custom layout (single user —
+    re-curate by editing the template, not a config system).
+  - **The four highest-value cards** on top of the hero: **asset allocation**,
+    **investment performance** (TWR + benchmark), **spending vs budget (this month)**, and
+    **dividend / forward income**. Plus secondary cards whose data is already computed and
+    cheap to surface — **open alerts** and **watchlist movers** — and a **reserved slot for
+    a savings-rate card** added later by Round 8 ([PLAN14.md](PLAN14.md)).
+  - **One shared time-range control** (`?range=`, default 1Y) drives the time-series cards
+    (hero history + performance); point-in-time cards (allocation, this-month budget,
+    forward income) intentionally ignore it.
+- **Reaffirmed OUT of scope (not relaxed):** any new metric the underlying libraries don't
+  already compute (the dashboard *displays* what Phases 2–12 built — every figure comes from
+  an existing tested function, never new math in a component); a configurable/customizable
+  widget system, saved layouts, or a "dashboard settings" table; any write action from the
+  dashboard (every card is read-only and links out to the page that owns the mutation); a
+  third-party dashboard/BI/embed (no Grafana, Metabase, Looker, charting SaaS — the app *is*
+  the dashboard); and new chart libraries (Recharts only, reusing the existing islands).
+  Crossing any of these needs a new FEATURE.md decision first.
+- **Privacy stance:** introduces **no egress whatsoever** — like search, the dashboard
+  touches **only local Postgres** through functions already on the read path. No balance,
+  ticker, payee, or amount leaves the box; there is no outbound HTTP on any dashboard code
+  path, nothing financial is logged, and the page is `requireUser()`-guarded exactly as today.
+
+Implemented under **ADR-029** (IDEAS.md §11 Decision Log) via [PLAN13.md](PLAN13.md).
