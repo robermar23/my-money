@@ -1,0 +1,428 @@
+import "server-only";
+
+import { listOpenAlerts } from "@/lib/alerts/queries.ts";
+import { spendingSummary } from "@/lib/analytics/spending.ts";
+import { budgetVsActual, monthRange } from "@/lib/budgets/queries.ts";
+import {
+  type AllocationSlice,
+  type ValuedHolding,
+  allocationByAssetClass,
+} from "@/lib/investments/allocation.ts";
+import { type ForwardHolding, forwardIncome } from "@/lib/investments/forward-income.ts";
+import {
+  BENCHMARK_SYMBOL,
+  type DatedFlow,
+  type GainLossSeriesPoint,
+  benchmarkTwr,
+  externalFlow,
+  gainLossSeries,
+  twr,
+  valueSeries,
+} from "@/lib/investments/performance.ts";
+import {
+  benchmarkCloseSeries,
+  listHoldingSnapshots,
+  listInvestmentFlows,
+} from "@/lib/investments/queries.ts";
+import { listValuedPositions } from "@/lib/investments/valued.ts";
+import { Money } from "@/lib/money/money.ts";
+import {
+  type NetWorthBreakdown,
+  type NetWorthPoint,
+  computeNetWorth,
+  netWorthSeries,
+} from "@/lib/net-worth/compute.ts";
+import { listWatchlist } from "@/lib/watchlist/queries.ts";
+import { type RangeDelta, rangeDelta } from "./delta.ts";
+import { type DashboardRange, type DashboardWindow, rangeWindow } from "./range.ts";
+
+/**
+ * Dashboard data layer (Phase 13, P13-02, ADR-029).
+ *
+ * `loadDashboard(range)` is the *single* place the dashboard fetches data. It
+ * **composes already-tested library functions** — `computeNetWorth`,
+ * `netWorthSeries`, `listValuedPositions` → `allocationByAssetClass`/`forwardIncome`,
+ * the `performance.ts` series + TWR, `budgetVsActual` + `spendingSummary`,
+ * `listOpenAlerts`, and `listWatchlist` — and runs the independent reads in
+ * parallel (`Promise.all`). It writes **no new SQL** of its own (CLAUDE.md
+ * §Architecture): the dashboard's numbers are identical by construction to the
+ * dedicated pages because they call the same functions.
+ *
+ * Every card field carries a discriminated `status` so the (dumb) card components
+ * render their degraded state without re-deriving "is this empty/insufficient."
+ * Server-only, zero egress; money stays in {@link Money}/string (no `Number()`).
+ */
+
+const BASE_CURRENCY = "USD";
+
+// ── Per-card result shapes (discriminated on `status`) ───────────────────────
+
+/** The net-worth hero — always present (the dashboard's spine). */
+export interface NetWorthHero {
+  readonly total: Money;
+  readonly asOf: Date;
+  /** History points within the active range, for the hero chart. */
+  readonly series: readonly NetWorthPoint[];
+  /** Value-now vs value-at-range-start (P13-03). */
+  readonly delta: RangeDelta;
+  /** Per-account line items, for the de-emphasized accounts table. */
+  readonly accounts: NetWorthBreakdown["items"];
+}
+
+export type AllocationCard =
+  | { readonly status: "ok"; readonly total: Money; readonly slices: readonly AllocationSlice[] }
+  | { readonly status: "empty" };
+
+export type PerformanceCard =
+  | {
+      readonly status: "ok";
+      /** Time-weighted return % string for the range, or null when not computable. */
+      readonly twr: string | null;
+      readonly benchmarkTwr: string | null;
+      /** Portfolio TWR − benchmark TWR (point-difference string), or null. */
+      readonly benchmarkDelta: string | null;
+      /** Gain/loss series for the sparkline. */
+      readonly gainLoss: readonly GainLossSeriesPoint[];
+    }
+  /** Has investments, but < 2 snapshot days in range (ADR-021: no bogus %). */
+  | { readonly status: "insufficient" }
+  /** No investment holdings at all. */
+  | { readonly status: "empty" };
+
+export interface OverBudgetLine {
+  readonly categoryId: string;
+  readonly name: string;
+  /** actual − target (positive = over), as Money. */
+  readonly over: Money;
+  /** actual ÷ target × 100 (display ratio). */
+  readonly pct: number;
+}
+
+export type SpendingCard =
+  | {
+      readonly status: "ok";
+      readonly month: string;
+      readonly totalSpend: Money;
+      readonly totalBudget: Money;
+      /** Run-rate end-of-month projection (in-progress month only), or null. */
+      readonly projected: Money | null;
+      /** Whether any budget is set this month (drives the "Set budgets" nudge). */
+      readonly hasBudgets: boolean;
+      /** Top over-budget categories, largest overage first (≤ 3). */
+      readonly overBudget: readonly OverBudgetLine[];
+      /** Income/expense/net + uncategorized context for the month. */
+      readonly summary: {
+        readonly income: Money;
+        readonly expense: Money;
+        readonly net: Money;
+        readonly uncategorizedCount: number;
+      };
+    }
+  /** No spend recorded this month and no budgets set. */
+  | { readonly status: "empty" };
+
+export interface ForwardPayer {
+  readonly holdingId: string;
+  readonly symbol: string;
+  readonly annualIncome: Money;
+}
+
+export type IncomeCard =
+  | {
+      readonly status: "ok";
+      readonly forward12mo: Money;
+      readonly yieldOnCost: string | null;
+      /** A few of the largest forward-income holdings ("next likely payers"). */
+      readonly topPayers: readonly ForwardPayer[];
+    }
+  /** No dividend-paying holdings. */
+  | { readonly status: "empty" };
+
+export interface AlertSummary {
+  readonly id: string;
+  readonly title: string;
+  readonly detectedAt: Date;
+}
+
+export type AlertsCard =
+  | { readonly status: "ok"; readonly count: number; readonly recent: readonly AlertSummary[] }
+  /** No open alerts — a calm, good-news state. */
+  | { readonly status: "empty" };
+
+export interface Mover {
+  readonly id: string;
+  readonly symbol: string;
+  readonly label: string | null;
+  /** Paper gain/loss percent string (signed). */
+  readonly percent: string;
+  /** Paper gain/loss absolute. */
+  readonly gain: Money;
+}
+
+export type MoversCard =
+  | { readonly status: "ok"; readonly movers: readonly Mover[] }
+  /** No watchlist items with a valuable (priced) paper position. */
+  | { readonly status: "empty" };
+
+/** Everything the curated dashboard renders, one field per card. */
+export interface DashboardData {
+  readonly range: DashboardRange;
+  readonly window: DashboardWindow;
+  readonly baseCurrency: string;
+  /** False on a brand-new install (no accounts) → page shows the first-run prompt. */
+  readonly hasAnyAccount: boolean;
+  readonly netWorth: NetWorthHero;
+  readonly allocation: AllocationCard;
+  readonly performance: PerformanceCard;
+  readonly spending: SpendingCard;
+  readonly income: IncomeCard;
+  readonly alerts: AlertsCard;
+  readonly movers: MoversCard;
+  /**
+   * Reserved seam for PLAN14's savings-rate card (P13-13). Absent this phase; the
+   * field exists so Phase 14 drops the card in without restructuring the grid.
+   */
+  readonly savingsRate?: never;
+}
+
+// ── Composition ──────────────────────────────────────────────────────────────
+
+/**
+ * Load every figure the curated dashboard renders for the given range.
+ *
+ * @param range - The active dashboard range (drives the time-series cards).
+ * @param now - Reference "today" (injected for tests). Defaults to `new Date()`.
+ * @returns Typed, per-card data with discriminated empty/insufficient states.
+ */
+export async function loadDashboard(
+  range: DashboardRange,
+  now: Date = new Date(),
+): Promise<DashboardData> {
+  const window = rangeWindow(range, now);
+  const month = now.toISOString().slice(0, 7);
+  const today = now.toISOString().slice(0, 10);
+  const monthBounds = monthRange(month);
+
+  // Independent reads fan out in parallel — one round-trip of concurrent queries.
+  const [nw, series, valued, snapshots, flowTxns, benchCloses, budget, summary, openAlerts, watch] =
+    await Promise.all([
+      computeNetWorth(now, BASE_CURRENCY),
+      netWorthSeries(BASE_CURRENCY),
+      listValuedPositions(today),
+      listHoldingSnapshots({ from: window.from, to: window.to }),
+      listInvestmentFlows({ from: window.from, to: window.to }),
+      benchmarkCloseSeries(BENCHMARK_SYMBOL, { from: window.from, to: window.to }),
+      budgetVsActual(month, now),
+      spendingSummary({ from: monthBounds.from, to: monthBounds.to }),
+      listOpenAlerts(),
+      listWatchlist(),
+    ]);
+
+  const netWorth: NetWorthHero = {
+    total: nw.total,
+    asOf: nw.asOf,
+    series: series.filter((p) => p.date >= window.from && p.date <= window.to),
+    delta: rangeDelta(series, range, BASE_CURRENCY, now),
+    accounts: nw.items,
+  };
+
+  return {
+    range,
+    window,
+    baseCurrency: BASE_CURRENCY,
+    hasAnyAccount: nw.items.length > 0,
+    netWorth,
+    allocation: buildAllocation(valued),
+    performance: buildPerformance(valued, snapshots, flowTxns, benchCloses),
+    spending: buildSpending(budget, summary),
+    income: buildIncome(valued),
+    alerts: buildAlerts(openAlerts),
+    movers: buildMovers(watch),
+  };
+}
+
+type Valued = Awaited<ReturnType<typeof listValuedPositions>>;
+
+/** Whether the book has any investment value to slice/measure. */
+function hasInvestments(valued: Valued): boolean {
+  return valued.positions.length > 0 || valued.balanceOnly.length > 0;
+}
+
+/** Asset-class allocation over priced positions + balance-only "other" buckets. */
+function buildAllocation(valued: Valued): AllocationCard {
+  if (!hasInvestments(valued)) return { status: "empty" };
+
+  const holdings: ValuedHolding[] = [
+    ...valued.positions.map((r) => ({
+      assetClass: r.position.holding.assetClass,
+      accountId: r.position.accountId,
+      value: r.value,
+      sector: r.position.sector,
+      region: r.position.region,
+      assetType: r.position.assetType,
+    })),
+    ...valued.balanceOnly
+      .filter((a) => a.currency === BASE_CURRENCY)
+      .map((a) => ({
+        assetClass: "other",
+        accountId: a.accountId,
+        value: Money.fromString(a.balance, BASE_CURRENCY),
+        sector: null,
+        region: null,
+        assetType: null,
+      })),
+  ];
+
+  const slices = allocationByAssetClass(holdings, BASE_CURRENCY);
+  if (slices.length === 0) return { status: "empty" };
+  const total = Money.sum(
+    holdings.map((h) => h.value),
+    BASE_CURRENCY,
+  );
+  return { status: "ok", total, slices };
+}
+
+/** TWR + benchmark + gain/loss sparkline; degrades to insufficient/empty. */
+function buildPerformance(
+  valued: Valued,
+  snapshots: Awaited<ReturnType<typeof listHoldingSnapshots>>,
+  flowTxns: Awaited<ReturnType<typeof listInvestmentFlows>>,
+  benchCloses: Awaited<ReturnType<typeof benchmarkCloseSeries>>,
+): PerformanceCard {
+  if (!hasInvestments(valued)) return { status: "empty" };
+
+  const values = valueSeries(snapshots, BASE_CURRENCY);
+  if (values.length < 2) return { status: "insufficient" };
+
+  const gains = gainLossSeries(snapshots, BASE_CURRENCY);
+  const flows: DatedFlow[] = flowTxns.map(externalFlow).filter((f): f is DatedFlow => f !== null);
+  const portfolioTwr = twr(values, flows);
+  const benchTwr = benchmarkTwr(benchCloses);
+  // Mirror the performance page's point-difference of the two %-strings.
+  const benchmarkDelta =
+    portfolioTwr !== null && benchTwr !== null
+      ? Money.fromString(portfolioTwr, BASE_CURRENCY)
+          .sub(Money.fromString(benchTwr, BASE_CURRENCY))
+          .toString()
+      : null;
+
+  return {
+    status: "ok",
+    twr: portfolioTwr,
+    benchmarkTwr: benchTwr,
+    benchmarkDelta,
+    gainLoss: gains,
+  };
+}
+
+/** This month's spend-vs-budget + top overages; degrades to empty. */
+function buildSpending(
+  budget: Awaited<ReturnType<typeof budgetVsActual>>,
+  summary: Awaited<ReturnType<typeof spendingSummary>>,
+): SpendingCard {
+  const totalSpend = Money.fromString(budget.totals.actual, BASE_CURRENCY);
+  const totalBudget = Money.fromString(budget.totals.target, BASE_CURRENCY);
+  const hasBudgets = budget.lines.some((l) => l.hasBudget);
+  const expense = Money.fromString(summary.expense, BASE_CURRENCY);
+
+  // Nothing budgeted and nothing spent → the calm empty state.
+  if (!hasBudgets && totalSpend.isZero() && expense.isZero()) return { status: "empty" };
+
+  const overBudget: OverBudgetLine[] = budget.lines
+    .filter((l) => l.hasBudget)
+    .map((l) => ({
+      categoryId: l.categoryId,
+      name: l.name,
+      over: Money.fromString(l.actual, BASE_CURRENCY).sub(
+        Money.fromString(l.target, BASE_CURRENCY),
+      ),
+      pct: l.pct,
+    }))
+    .filter((l) => !l.over.isZero() && !l.over.isNegative())
+    .sort((a, b) => (b.over.sub(a.over).isNegative() ? -1 : 1))
+    .slice(0, 3);
+
+  return {
+    status: "ok",
+    month: budget.month,
+    totalSpend,
+    totalBudget,
+    projected:
+      budget.totals.projected === null
+        ? null
+        : Money.fromString(budget.totals.projected, BASE_CURRENCY),
+    hasBudgets,
+    overBudget,
+    summary: {
+      income: Money.fromString(summary.income, BASE_CURRENCY),
+      expense,
+      net: Money.fromString(summary.net, BASE_CURRENCY),
+      uncategorizedCount: summary.uncategorizedCount,
+    },
+  };
+}
+
+/** Forward 12-month dividend income + yield-on-cost; degrades to empty. */
+function buildIncome(valued: Valued): IncomeCard {
+  const forwardHoldings: ForwardHolding[] = valued.positions.map((r) => ({
+    holdingId: r.position.holding.id,
+    symbol: r.position.holding.symbol,
+    accountId: r.position.accountId,
+    accountName: r.position.accountName,
+    quantity: r.position.holding.quantity,
+    dividendRate: r.position.dividendRate,
+    costBasis: r.costBasis ? r.costBasis.toString() : null,
+  }));
+
+  const fwd = forwardIncome(forwardHoldings, BASE_CURRENCY);
+  if (fwd.rows.length === 0) return { status: "empty" };
+
+  return {
+    status: "ok",
+    forward12mo: fwd.total,
+    yieldOnCost: fwd.yieldOnCost,
+    topPayers: fwd.rows.slice(0, 3).map((r) => ({
+      holdingId: r.holdingId,
+      symbol: r.symbol,
+      annualIncome: r.annualIncome,
+    })),
+  };
+}
+
+/** Open-alert count + the 3 most recent titles (content-free per ADR-015). */
+function buildAlerts(open: Awaited<ReturnType<typeof listOpenAlerts>>): AlertsCard {
+  if (open.length === 0) return { status: "empty" };
+  return {
+    status: "ok",
+    count: open.length,
+    recent: open.slice(0, 3).map((a) => ({ id: a.id, title: a.title, detectedAt: a.detectedAt })),
+  };
+}
+
+/** Top ±2 watchlist paper movers by gain/loss percent; degrades to empty. */
+function buildMovers(watch: Awaited<ReturnType<typeof listWatchlist>>): MoversCard {
+  const rows: Mover[] = watch
+    .filter((r) => r.valuation.gainLoss.percent !== null && r.valuation.gainLoss.absolute !== null)
+    .map((r) => ({
+      id: r.id,
+      symbol: r.symbol,
+      label: r.label,
+      // Non-null asserted by the filter above.
+      percent: r.valuation.gainLoss.percent as string,
+      gain: r.valuation.gainLoss.absolute as Money,
+    }))
+    // Percent is a display ratio (not money) — Number() for sorting is acceptable.
+    .sort((a, b) => Number(b.percent) - Number(a.percent));
+
+  if (rows.length === 0) return { status: "empty" };
+
+  // Top 2 gainers + bottom 2 losers, de-duplicated when fewer than 4 qualify.
+  const seen = new Set<string>();
+  const movers: Mover[] = [];
+  for (const r of [...rows.slice(0, 2), ...rows.slice(-2)]) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    movers.push(r);
+  }
+  return { status: "ok", movers };
+}
