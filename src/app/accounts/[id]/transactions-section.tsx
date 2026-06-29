@@ -3,6 +3,7 @@ import type { Transaction } from "@/db/schema/index.ts";
 import { Money } from "@/lib/money/money.ts";
 import Link from "next/link";
 import { CategoryCell } from "./category-cell.tsx";
+import { TransactionFilters } from "./transaction-filters.tsx";
 
 interface Props {
   readonly accountId: string;
@@ -13,12 +14,17 @@ interface Props {
   readonly page: number;
   readonly totalPages: number;
   readonly totalCount: number;
+  /** Whether any structured filter is active (drives the empty-state copy). */
+  readonly filtersActive: boolean;
+  /** Encoded filter params (no `page`), so pagination links keep the filter. */
+  readonly filterQuery: string;
 }
 
 /**
- * Server-rendered transactions table. Pagination is via URL search params so
- * the URL is shareable / refresh-stable; the inline category cell is the only
- * Client Component island.
+ * Server-rendered transactions table with the structured filter bar (P12-11).
+ * Filters + pagination live in URL search params so the URL is shareable /
+ * refresh-stable; the filter bar and the inline category cell are the only
+ * Client Component islands.
  */
 export function TransactionsSection({
   accountId,
@@ -29,7 +35,17 @@ export function TransactionsSection({
   page,
   totalPages,
   totalCount,
+  filtersActive,
+  filterQuery,
 }: Props): React.JSX.Element {
+  // Build a paged href that carries the active filters forward.
+  const hrefFor = (target: number): string => {
+    const sp = new URLSearchParams(filterQuery);
+    if (target > 1) sp.set("page", String(target));
+    const qs = sp.toString();
+    return qs ? `/accounts/${accountId}?${qs}` : `/accounts/${accountId}`;
+  };
+
   return (
     <section className="mt-8">
       <div className="flex items-baseline justify-between">
@@ -44,9 +60,17 @@ export function TransactionsSection({
         </Link>
       </div>
 
+      {(totalCount > 0 || filtersActive) && (
+        <div className="mt-4">
+          <TransactionFilters categories={categories} />
+        </div>
+      )}
+
       {rows.length === 0 ? (
         <p className="mt-3 text-sm text-zinc-500">
-          No transactions yet. Drop in a QFX or CSV export to populate this account.
+          {filtersActive
+            ? "No transactions match these filters."
+            : "No transactions yet. Drop in a QFX or CSV export to populate this account."}
         </p>
       ) : (
         <div className="mt-4 overflow-x-auto">
@@ -98,7 +122,7 @@ export function TransactionsSection({
       {totalPages > 1 && (
         <nav className="mt-4 flex items-center justify-between text-xs text-zinc-500">
           <Link
-            href={page > 1 ? `/accounts/${accountId}?page=${page - 1}` : `/accounts/${accountId}`}
+            href={hrefFor(page - 1)}
             aria-disabled={page <= 1}
             className={page <= 1 ? "pointer-events-none opacity-30" : "hover:underline"}
           >
@@ -108,7 +132,7 @@ export function TransactionsSection({
             Page {page} of {totalPages}
           </span>
           <Link
-            href={`/accounts/${accountId}?page=${page + 1}`}
+            href={hrefFor(page + 1)}
             aria-disabled={page >= totalPages}
             className={page >= totalPages ? "pointer-events-none opacity-30" : "hover:underline"}
           >

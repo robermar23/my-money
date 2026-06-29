@@ -74,6 +74,17 @@
   },
   "overrides": [
     {
+      "include": ["src/components/command-palette.tsx"],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "useSemanticElements": "off",
+            "useFocusableInteractive": "off"
+          }
+        }
+      }
+    },
+    {
       "include": ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.spec.tsx", "e2e/**/*.ts"],
       "linter": {
         "rules": {

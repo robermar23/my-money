@@ -147,3 +147,45 @@ value, up or down. This should not count towards net worth of course."
 
 Implemented under **ADR-025 → ADR-026** (IDEAS.md §11 Decision Log) via [PLAN11.md](PLAN11.md). See [docs/WATCHLIST.md](../../docs/WATCHLIST.md).
 
+### 2026-06-23 — Search everywhere: ⌘K command palette + per-list filters (in scope)
+
+Source: [IDEAS2.md](IDEAS2.md) Round 6. The owner asked: "Searching. The user should
+be able to search for things on every page. Whether it be the accounts page. The items
+page per account. You get the idea. Transactions/items add up quickly over time and the
+user needs to find specific ones easily."
+
+- **In scope (newly added):**
+  - **Global command palette** — a ⌘K / Ctrl-K (and nav-button) overlay available on
+    **every** authenticated page that fuzzy-matches across accounts, categories,
+    securities, watchlist items, and the top transaction matches **across all
+    accounts**, and **navigates** straight to the result. Read-only: it jumps, it
+    never edits.
+  - **Per-list filters** — the growing list pages (accounts, per-account
+    transactions, a **new cross-account `/transactions` view**, investments,
+    watchlist, categories) gain an in-place filter whose state lives in the **URL
+    `searchParams`** (shareable, refresh-stable, back-button-correct), exactly like
+    the existing `?page=` / `?closed=` params.
+  - **Structured transaction filters** — free-text payee/memo, **amount range**
+    (min/max), **date range** (from/to), **category** (including "Uncategorized"),
+    and an **all-accounts** mode, all composed server-side as a SQL `WHERE` + paged
+    count (never ship 10k rows to the browser).
+  - **Fuzzy matching** — Postgres `pg_trgm` trigram indexes give typo-tolerant
+    substring search (`amazn` → `Amazon`) that stays fast as transactions climb into
+    five/six figures.
+- **Reaffirmed OUT of scope (not relaxed):** any public/external search API (the one
+  route handler is session-guarded + same-origin — single user, zero public surface);
+  a third-party/SaaS search engine (Algolia, Elastic Cloud, Typesense Cloud,
+  Meilisearch SaaS, OpenSearch — ships payees + balances off-box); LLM/embedding
+  "semantic" search (sends financial text to a hosted model); persisted saved
+  searches / search history / "recent searches" (the URL is the saved search); write
+  actions from the palette ("quick-categorize from search"); and full-document /
+  attachment-body / OCR search of uploaded asset proofs (we index filenames +
+  descriptions only, never file bytes). Crossing any of these needs a new FEATURE.md
+  decision first.
+- **Privacy stance:** introduces **no egress whatsoever** — search touches **only
+  local Postgres**. No payee, ticker, balance, or query string ever leaves the box;
+  there is no outbound HTTP on any search code path. The search route handler is
+  internal/authenticated/same-origin and **never logs the query string** (a payee
+  fragment is financial data — CLAUDE.md §Privacy).
+
+Implemented under **ADR-027 → ADR-028** (IDEAS.md §11 Decision Log) via [PLAN12.md](PLAN12.md). See [docs/SEARCH.md](../../docs/SEARCH.md).

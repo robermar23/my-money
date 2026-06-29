@@ -28,6 +28,12 @@ export interface ManagedGroup {
 interface Props {
   readonly categories: readonly ManagedCategory[];
   readonly groups: readonly ManagedGroup[];
+  /**
+   * Optional case-insensitive name filter (P12-17, the categories `?q=` filter).
+   * Narrows the *displayed rows* only — the full `categories` list still backs
+   * the "Merge into…" dropdowns so every category stays a valid merge target.
+   */
+  readonly filter?: string;
 }
 
 const inputClass =
@@ -39,10 +45,15 @@ const inputClass =
  * archive (soft-delete), and merge categories (to fold backfilled duplicates)
  * all live above the rules table.
  */
-export function CategoryManager({ categories, groups }: Props): React.JSX.Element {
+export function CategoryManager({ categories, groups, filter }: Props): React.JSX.Element {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+
+  const needle = filter?.trim().toLowerCase() ?? "";
+  const visible = needle
+    ? categories.filter((c) => c.name.toLowerCase().includes(needle))
+    : categories;
 
   function run(fn: () => Promise<{ error?: string }>): void {
     setError(null);
@@ -58,7 +69,10 @@ export function CategoryManager({ categories, groups }: Props): React.JSX.Elemen
 
   return (
     <section className="mt-8">
-      <h2 className="font-medium">Categories &amp; groups ({categories.length})</h2>
+      <h2 className="font-medium">
+        Categories &amp; groups{" "}
+        {needle ? `(${visible.length} of ${categories.length})` : `(${categories.length})`}
+      </h2>
       <p className="mt-1 text-sm text-zinc-500">
         Add, rename, regroup, set income/expense/transfer, archive, or merge categories. Rules below
         resolve to these.
@@ -85,7 +99,7 @@ export function CategoryManager({ categories, groups }: Props): React.JSX.Elemen
           </tr>
         </thead>
         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
-          {categories.map((c) => (
+          {visible.map((c) => (
             <CategoryRow
               key={c.id}
               category={c}
@@ -95,6 +109,13 @@ export function CategoryManager({ categories, groups }: Props): React.JSX.Elemen
               onRun={run}
             />
           ))}
+          {needle && visible.length === 0 && (
+            <tr>
+              <td colSpan={4} className="py-3 text-sm text-zinc-500">
+                No categories match “{filter}”.
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </section>

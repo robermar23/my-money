@@ -5,6 +5,8 @@ import { priceTargets, watchlistItems } from "@/db/schema/index.ts";
 import type { PriceTarget, WatchlistItem } from "@/db/schema/index.ts";
 import { securityPriceHistory } from "@/lib/investments/queries.ts";
 import { latestCloseOnOrBefore } from "@/lib/prices/store.ts";
+import { trigramIlikeAny } from "@/lib/search/predicates.ts";
+import { sanitizeSearchTerm } from "@/lib/search/term.ts";
 import { type PaperValuation, paperValuation } from "@/lib/watchlist/valuation.ts";
 import { asc, count, desc, eq } from "drizzle-orm";
 
@@ -46,10 +48,24 @@ export interface WatchlistRow {
  * count — display-ready rows for the list page. Missing-price items carry null
  * valuation (the page renders "—"); nothing throws.
  *
+ * With no `q` the behavior is unchanged (all watched symbols, sorted). A provided
+ * `q` is sanitized and matched against `symbol`/`label`/`notes` via the trigram
+ * `ILIKE` predicate (Phase 12, P12-17); a too-short term is ignored (treated as
+ * no filter), matching the rest of the search surface.
+ *
+ * @param opts.q - Optional free-text term to filter by.
  * @returns Watchlist rows sorted by symbol.
  */
-export async function listWatchlist(): Promise<WatchlistRow[]> {
-  const items = await db.select().from(watchlistItems).orderBy(asc(watchlistItems.symbol));
+export async function listWatchlist(opts?: { q?: string }): Promise<WatchlistRow[]> {
+  const term = sanitizeSearchTerm(opts?.q);
+  const where = term
+    ? trigramIlikeAny([watchlistItems.symbol, watchlistItems.label, watchlistItems.notes], term)
+    : undefined;
+  const items = await db
+    .select()
+    .from(watchlistItems)
+    .where(where)
+    .orderBy(asc(watchlistItems.symbol));
 
   // One grouped pass for active-target counts, keyed by watchlist item.
   const counts = await db

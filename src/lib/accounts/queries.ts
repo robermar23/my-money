@@ -15,11 +15,27 @@ import {
   holdings,
   liabilities,
 } from "@/db/schema/index.ts";
+import { trigramIlikeAny } from "@/lib/search/predicates.ts";
+import { sanitizeSearchTerm } from "@/lib/search/term.ts";
 import type { AccountId } from "@/lib/types/ids.ts";
 import { asc, desc, eq } from "drizzle-orm";
 
-export async function listAccounts(): Promise<Account[]> {
-  return db.select().from(accounts).orderBy(asc(accounts.type), asc(accounts.name));
+/**
+ * List accounts, optionally narrowed by a free-text trigram filter (Phase 12,
+ * P12-10). With no `q` the behavior is unchanged (all accounts, type then name).
+ * A provided `q` is sanitized and matched against `name`/`institution`/
+ * `description` via the trigram `ILIKE` predicate; a too-short term is ignored
+ * (treated as no filter), matching the rest of the search surface.
+ *
+ * @param opts.q - Optional free-text term to filter by.
+ * @returns Accounts ordered by type then name.
+ */
+export async function listAccounts(opts?: { q?: string }): Promise<Account[]> {
+  const term = sanitizeSearchTerm(opts?.q);
+  const where = term
+    ? trigramIlikeAny([accounts.name, accounts.institution, accounts.description], term)
+    : undefined;
+  return db.select().from(accounts).where(where).orderBy(asc(accounts.type), asc(accounts.name));
 }
 
 export async function getAccount(id: AccountId): Promise<Account | undefined> {

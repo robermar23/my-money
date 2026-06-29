@@ -121,6 +121,13 @@ You need the encrypted dump (`money-<ts>.dump.age`) and the **age identity**
 3. Set `DATABASE_URL` in `.env.local` to point at the restored DB.
 4. Run `pnpm db:migrate` — should be a no-op against a restored Drizzle DB
    (the migrations table is in the dump).
+   - **`pg_trgm` extension (Phase 12, ADR-028):** search relies on the `pg_trgm`
+     contrib extension, enabled by migration `0017`. A `pg_dump -Fc` of a DB that
+     has it already emits the `CREATE EXTENSION`, so a normal restore recreates it.
+     The only requirement is that the **target Postgres image ships the `pg_trgm`
+     contrib module** — the official `postgres:16` image does. If you restore onto a
+     stripped image that lacks contrib, the trigram GIN indexes (and search) will
+     fail to build; install `postgresql-contrib` or use the official image.
 5. `pnpm dev` and verify login works and a known net-worth figure looks right.
 6. If you use Plaid, confirm `MONEY_ENCRYPTION_KEY` matches the one that was live
    when the tokens were stored; otherwise re-link each Item.
