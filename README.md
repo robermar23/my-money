@@ -389,3 +389,14 @@ docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml --env-file
   src/worker/run-once.ts backfill-categories
 ```
 
+## Restart
+
+```sh
+ docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml   --env-file /mnt/user/appdata/my-money/repo/.env --profile prod up -d --force-recreate app worker
+ ```
+
+ ## Pull
+
+ ```sh
+ docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml   --env-file /mnt/user/appdata/my-money/repo/.env --profile prod pull
+ ```
