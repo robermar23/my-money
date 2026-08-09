@@ -164,6 +164,26 @@ export type MoversCard =
   /** No watchlist items with a valuable (priced) paper position. */
   | { readonly status: "empty" };
 
+/**
+ * Savings-rate card data — the seam reserved for PLAN14 (P13-13).
+ *
+ * Phase 13 defines the *shape* only; `loadDashboard` never populates it, because
+ * the income sources it derives from don't exist until Phase 14 (ADR-030/031).
+ * Declaring it here means P14-17 wires `savingsRate(...)` into the loader and
+ * drops its card into the reserved grid slot without restructuring either.
+ */
+export type SavingsRateCard =
+  | {
+      readonly status: "ok";
+      /** Employee contributions ÷ annual gross × 100; null when gross is zero. */
+      readonly ratePct: string | null;
+      readonly annualGross: Money;
+      readonly annualEmployee: Money;
+      readonly annualEmployer: Money;
+    }
+  /** No income source defined yet. */
+  | { readonly status: "empty" };
+
 /** Everything the curated dashboard renders, one field per card. */
 export interface DashboardData {
   readonly range: DashboardRange;
@@ -179,10 +199,11 @@ export interface DashboardData {
   readonly alerts: AlertsCard;
   readonly movers: MoversCard;
   /**
-   * Reserved seam for PLAN14's savings-rate card (P13-13). Absent this phase; the
-   * field exists so Phase 14 drops the card in without restructuring the grid.
+   * Reserved seam for PLAN14's savings-rate card (P13-13). Always `undefined` in
+   * Phase 13 — the field exists so Phase 14 drops the card in without
+   * restructuring the loader's return type or the grid.
    */
-  readonly savingsRate?: never;
+  readonly savingsRate?: SavingsRateCard;
 }
 
 // ── Composition ──────────────────────────────────────────────────────────────

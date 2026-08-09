@@ -1,6 +1,10 @@
+import { AlertsCard } from "@/components/dashboard/alerts-card.tsx";
 import { AllocationCard } from "@/components/dashboard/allocation-card.tsx";
+import { IncomeCard } from "@/components/dashboard/income-card.tsx";
+import { MoversCard } from "@/components/dashboard/movers-card.tsx";
 import { PerformanceCard } from "@/components/dashboard/performance-card.tsx";
 import { RangeToggle } from "@/components/dashboard/range-toggle.tsx";
+import { SavingsRateSlot } from "@/components/dashboard/savings-rate-slot.tsx";
 import { SpendCard } from "@/components/dashboard/spend-card.tsx";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import type { RangeDelta } from "@/lib/dashboard/delta.ts";
@@ -86,11 +90,17 @@ export default async function HomePage(props: HomePageProps): Promise<React.JSX.
         </div>
       </section>
 
-      {/* Card grid (extended in Batches 3–5) */}
+      {/* Card grid (final layout lands in Batch 5) */}
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <AllocationCard data={data.allocation} />
         <PerformanceCard data={data.performance} currency={data.baseCurrency} />
         <SpendCard data={data.spending} />
+        <IncomeCard data={data.income} />
+        <AlertsCard data={data.alerts} />
+        <MoversCard data={data.movers} />
+        {/* Reserved slot (P13-13) — renders nothing until PLAN14's P14-17
+            populates `savingsRate` in the loader. */}
+        <SavingsRateSlot data={data.savingsRate} />
       </div>
 
       {/* Accounts table — still useful, de-emphasized below the cards */}
