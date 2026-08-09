@@ -34,6 +34,8 @@ See [plans/features/FEATURE.md](plans/features/FEATURE.md) for the why, [plans/f
 
 **Phase 12 (search everywhere) — complete.** A global **⌘K / Ctrl-K command palette** (with a nav button) fuzzy-matches across accounts, categories, securities, watchlist items, and the top transaction matches **across all accounts**, and jumps straight to the result. Plus **per-list URL-param filters** on the pages that grow unbounded — accounts, investments, watchlist, categories, and a new cross-account **`/transactions`** view with structured filters (payee/memo text, amount range, date range, category incl. "Uncategorized"). Fuzzy + typo-tolerant via Postgres **`pg_trgm`** trigram GIN indexes; zero new tables, **zero egress**, read-only and session-guarded — the query term never leaves the box and is never logged. See [docs/SEARCH.md](docs/SEARCH.md) and [plans/features/PLAN12.md](plans/features/PLAN12.md) (ADR-027 → ADR-028).
 
+**Phase 13 (the dashboard) — complete.** The landing page answers *"where do I stand?"* without a click: a net-worth hero with a signed change over the selected range, then a curated grid — **allocation**, **performance** (TWR vs. `^GSPC`), **spending vs. budget**, **forward income**, **open alerts**, and **watchlist movers** — each linking out to the page that owns it. One shared **`?range=`** toggle (1M / 3M / 6M / 1Y / YTD / ALL) re-drives the history and the return; state lives in the URL, so the view is shareable and back-button-correct. The layout is **curated, not customizable** (no drag-and-drop, no widget picker), every card degrades gracefully when its feature is unused, and a brand-new install shows one "Add your first account" prompt instead of eight empty cards. The dashboard **computes nothing of its own** — a single loader composes the same functions the deep pages call, so the numbers agree by construction, with **zero egress** and nothing logged. See [docs/DASHBOARD.md](docs/DASHBOARD.md) and [plans/features/PLAN13.md](plans/features/PLAN13.md) (ADR-029).
+
 ---
 
 ## Prerequisites
@@ -387,3 +389,14 @@ docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml --env-file
   src/worker/run-once.ts backfill-categories
 ```
 
+## Restart
+
+```sh
+ docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml   --env-file /mnt/user/appdata/my-money/repo/.env --profile prod up -d --force-recreate app worker
+ ```
+
+ ## Pull
+
+ ```sh
+ docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml   --env-file /mnt/user/appdata/my-money/repo/.env --profile prod pull
+ ```

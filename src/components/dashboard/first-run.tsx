@@ -1,0 +1,36 @@
+import Link from "next/link";
+
+/**
+ * First-run dashboard state (Phase 13, P13-16, ADR-029 §5).
+ *
+ * On a brand-new install there is nothing to curate: no accounts means no net
+ * worth, no holdings, no transactions, and therefore no allocation, performance,
+ * spending, income, alerts, or movers. Rendering the full grid would show seven
+ * "nothing here yet" placeholders at once, which reads as a broken page rather
+ * than an empty one.
+ *
+ * So the dashboard collapses to a single instruction. This is the far end of
+ * ADR-029's graceful-degradation rule — the same curated page, degrading all the
+ * way from *everything* to *nothing* — and it keeps the one action that unblocks
+ * every card in front of the user.
+ */
+export function FirstRunDashboard(): React.JSX.Element {
+  return (
+    <>
+      <h1 className="font-semibold text-2xl tracking-tight">Welcome</h1>
+      <div className="mt-6 rounded-lg border border-zinc-200 border-dashed p-10 text-center dark:border-zinc-800">
+        <p className="font-medium text-lg">Add your first account</p>
+        <p className="mx-auto mt-2 max-w-md text-sm text-zinc-500">
+          Your net worth, allocation, performance, spending, and forward income all build from your
+          accounts. Add one and this page fills in as you go.
+        </p>
+        <Link
+          href="/accounts/new"
+          className="mt-6 inline-block rounded-md bg-zinc-900 px-4 py-2 font-medium text-sm text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+        >
+          Add an account
+        </Link>
+      </div>
+    </>
+  );
+}

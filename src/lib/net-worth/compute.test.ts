@@ -156,5 +156,86 @@ describe("computeNetWorth", () => {
   });
 });
 
+/**
+ * The optional date window (NW-03). The distinction that matters: the window
+ * clips **which dates come back**, never **how a point is computed** — the
+ * snapshot lookback still reaches behind `from`, so a windowed point carries the
+ * same value it has in the full series. Anything else would make `?range=1M`
+ * show different numbers than `?range=ALL` for the same day.
+ */
+describe("netWorthSeries windowing", () => {
+  beforeEach(async () => {
+    await resetDomain();
+  });
+
+  afterAll(async () => {
+    await resetDomain();
+  });
+
+  /** One account, balances set in January and only carried forward after. */
+  async function seedCarryForward(): Promise<void> {
+    const [acc] = await db
+      .insert(accounts)
+      .values({ name: "Savings", institution: "M&T", type: "depository", currency: "USD" })
+      .returning({ id: accounts.id });
+    const [other] = await db
+      .insert(accounts)
+      .values({ name: "Checking", institution: "M&T", type: "depository", currency: "USD" })
+      .returning({ id: accounts.id });
+    if (!acc || !other) throw new Error("seed failed");
+    await db.insert(accountSnapshots).values([
+      { accountId: acc.id, date: "2026-01-01", balance: "1000.00" },
+      // `other` supplies the later dates on the spine; `acc` has nothing after
+      // January, so its contribution on those dates can only come from a
+      // lookback that reaches back past the window's `from`.
+      { accountId: other.id, date: "2026-03-01", balance: "50.00" },
+      { accountId: other.id, date: "2026-04-01", balance: "60.00" },
+      { accountId: other.id, date: "2026-05-01", balance: "70.00" },
+    ]);
+  }
+
+  it("clips the point list to the window", async () => {
+    await seedCarryForward();
+
+    const all = await netWorthSeries();
+    expect(all.map((p) => p.date)).toEqual([
+      "2026-01-01",
+      "2026-03-01",
+      "2026-04-01",
+      "2026-05-01",
+    ]);
+
+    const clipped = await netWorthSeries("USD", { from: "2026-03-15", to: "2026-05-01" });
+    expect(clipped.map((p) => p.date)).toEqual(["2026-04-01", "2026-05-01"]);
+  });
+
+  it("computes the same value for a point whether or not it is windowed", async () => {
+    await seedCarryForward();
+
+    const all = await netWorthSeries();
+    const windowed = await netWorthSeries("USD", { from: "2026-04-01", to: "2026-05-01" });
+
+    // 1000.00 carried from January + 60.00 — the January balance is outside the
+    // window and must still be found.
+    expect(windowed).toEqual(all.filter((p) => p.date >= "2026-04-01"));
+    expect(windowed[0]?.value).toBe("1060.00");
+  });
+
+  it("an open-ended window equals the unranged series", async () => {
+    await seedCarryForward();
+
+    const unranged = await netWorthSeries();
+    // How `ALL` arrives from the dashboard: a real lower bound, no upper one.
+    expect(await netWorthSeries("USD", { from: "0001-01-01" })).toEqual(unranged);
+    expect(await netWorthSeries("USD", {})).toEqual(unranged);
+    expect(await netWorthSeries("USD", { to: "2026-05-01" })).toEqual(unranged);
+  });
+
+  it("returns no points when the window predates every snapshot", async () => {
+    await seedCarryForward();
+    expect(await netWorthSeries("USD", { from: "2020-01-01", to: "2020-12-31" })).toEqual([]);
+  });
+});
+
 // Keep the `holdings` import referenced so the schema barrel doesn't tree-shake.
 void holdings;

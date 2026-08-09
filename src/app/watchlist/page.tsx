@@ -19,9 +19,7 @@ interface WatchlistPageProps {
  *
  * P12-17 — an optional `?q=` trigram filter narrows the list by symbol/label/notes.
  */
-export default async function WatchlistPage(
-  props: WatchlistPageProps,
-): Promise<React.JSX.Element> {
+export default async function WatchlistPage(props: WatchlistPageProps): Promise<React.JSX.Element> {
   await requireUser();
   const search = (await props.searchParams) ?? {};
   const query = search.q?.trim() ?? "";

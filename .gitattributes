@@ -1,0 +1,30 @@
+# Line endings — LF everywhere, in the repository AND in the working tree.
+#
+# Without this, `core.autocrlf=true` on Windows checks every file out as CRLF
+# while biome.json's `formatter.lineEnding: "lf"` rewrites them all back to LF
+# on `pnpm format`. Git then cannot mark those files clean (the next checkout
+# would rewrite them), so `git status` shows the whole repo as modified with an
+# empty `git diff` — and the two tools can never both be satisfied at once:
+# CRLF makes `pnpm check` fail, LF makes `git status` noisy.
+#
+# `eol=lf` settles it by making checkout produce what Biome wants. It also
+# matches where this app actually runs: Docker on Linux (CLAUDE.md §Deployment),
+# where a stray CR in a shell script or migration is a real bug, not cosmetics.
+* text=auto eol=lf
+
+# Binary — never touch these, and never try to diff them as text.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.pdf  binary
+*.woff  binary
+*.woff2 binary
+*.zip binary
+*.gz  binary
+
+# Generated: incremental build state, not something to review in a diff.
+tsconfig.tsbuildinfo -diff
+pnpm-lock.yaml -diff linguist-generated
