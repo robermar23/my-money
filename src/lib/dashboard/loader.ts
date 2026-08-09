@@ -228,7 +228,11 @@ export async function loadDashboard(
   const [nw, series, valued, snapshots, flowTxns, benchCloses, budget, summary, openAlerts, watch] =
     await Promise.all([
       computeNetWorth(now, BASE_CURRENCY),
-      netWorthSeries(BASE_CURRENCY),
+      // Windowed at the database, not in JS. `rangeDelta` re-derives the same
+      // `rangeWindow(range, now)` and filters to it internally, so it can never
+      // read a point outside `window` — passing a pre-windowed series is exactly
+      // equivalent to filtering the full one, minus the full-history query.
+      netWorthSeries(BASE_CURRENCY, { from: window.from, to: window.to }),
       listValuedPositions(today),
       listHoldingSnapshots({ from: window.from, to: window.to }),
       listInvestmentFlows({ from: window.from, to: window.to }),
@@ -242,7 +246,7 @@ export async function loadDashboard(
   const netWorth: NetWorthHero = {
     total: nw.total,
     asOf: nw.asOf,
-    series: series.filter((p) => p.date >= window.from && p.date <= window.to),
+    series,
     delta: rangeDelta(series, range, BASE_CURRENCY, now),
     accounts: nw.items,
   };

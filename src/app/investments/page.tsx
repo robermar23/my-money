@@ -1,3 +1,4 @@
+import { SearchInput } from "@/components/search-input.tsx";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { valueHolding } from "@/lib/holdings/value.ts";
 import {
@@ -19,7 +20,6 @@ import {
   listInvestmentLots,
   listInvestmentPositions,
 } from "@/lib/investments/queries.ts";
-import { SearchInput } from "@/components/search-input.tsx";
 import { Money } from "@/lib/money/money.ts";
 import Link from "next/link";
 import { AllocationChart } from "./allocation-chart.tsx";
@@ -324,10 +324,7 @@ export default async function InvestmentsPage(
           {holdingsTerm && tableRows.length === 0 ? (
             <p className="mt-6 text-sm text-zinc-500">
               No holdings match “{query}”.{" "}
-              <Link
-                href={`/investments?period=${period}&dim=${dim}`}
-                className="hover:underline"
-              >
+              <Link href={`/investments?period=${period}&dim=${dim}`} className="hover:underline">
                 Clear filter
               </Link>
             </p>
@@ -426,18 +423,18 @@ export default async function InvestmentsPage(
           {!holdingsTerm &&
             balanceOnly.map((a) => (
               <section key={a.accountId} className="mt-8">
-              <div className="flex items-center justify-between">
-                <h2 className="font-medium">{a.accountName}</h2>
-                <span className="font-mono text-sm text-zinc-600 tabular-nums dark:text-zinc-400">
-                  {Money.fromString(a.balance, a.currency).format()}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-zinc-500">
-                Plaid reports this account's balance but not its individual holdings, so positions
-                aren't itemized. The value above is included in the total and your net worth.
-              </p>
-            </section>
-          ))}
+                <div className="flex items-center justify-between">
+                  <h2 className="font-medium">{a.accountName}</h2>
+                  <span className="font-mono text-sm text-zinc-600 tabular-nums dark:text-zinc-400">
+                    {Money.fromString(a.balance, a.currency).format()}
+                  </span>
+                </div>
+                <p className="mt-1 text-xs text-zinc-500">
+                  Plaid reports this account's balance but not its individual holdings, so positions
+                  aren't itemized. The value above is included in the total and your net worth.
+                </p>
+              </section>
+            ))}
 
           <section className="mt-10">
             <div className="flex flex-wrap items-center justify-between gap-2">

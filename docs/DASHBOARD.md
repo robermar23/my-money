@@ -148,65 +148,82 @@ compares the parallel fan-out against the sum of the same reads run serially.
 Dataset: 12 accounts, 32 holdings, 1,096 snapshot days, ~36k price rows, ~36k
 holding snapshots, ~7.6k transactions.
 
-**Per-read cost and queries issued, `ALL` window:**
+**Per-read cost, `ALL` window:**
 
-| Read | Time | Queries |
-|---|---:|---:|
-| `netWorthSeries` | **84,717 ms** | **98,089** |
-| `listHoldingSnapshots` | 110 ms | 215 |
-| `computeNetWorth` | 109 ms | ~13 |
-| `listValuedPositions` | 62 ms | 8 |
-| `listWatchlist` | 18 ms | ~1 |
-| `budgetVsActual` | 12 ms | ~1 |
-| `spendingSummary` | 8 ms | ~1 |
-| `listInvestmentFlows` | 6 ms | ~1 |
-| `benchmarkCloseSeries` | 5 ms | ~1 |
-| `listOpenAlerts` | 4 ms | ~1 |
+| Read | Time |
+|---|---:|
+| `netWorthSeries` (ALL) | 342 ms |
+| `computeNetWorth` | 110 ms |
+| `listHoldingSnapshots` | 98 ms |
+| `listValuedPositions` | 58 ms |
+| `netWorthSeries` (1M) | 16 ms |
+| `listWatchlist` | 14 ms |
+| `budgetVsActual` | 11 ms |
+| `spendingSummary` | 6 ms |
+| `listInvestmentFlows` | 4 ms |
+| `benchmarkCloseSeries` | 3 ms |
+| `listOpenAlerts` | 3 ms |
 
-*(Postgres flushes per-database stats about once a second, so the sub-second
-reads under-report their query count — those are floors. The 98k is real.)*
-
-**End to end:** `1M` 85.1 s · `1Y` 87.1 s · `ALL` 86.7 s.
+**End to end:** `1M` ~108 ms · `1Y` ~165 ms · `ALL` ~440 ms.
 
 ### Verdicts
 
-**✅ The fan-out is parallel.** Wall time (86.7 s) tracks the *slowest single read*
-(84.7 s), not the sum of the ten (85.1 s). The one `Promise.all` in
+**✅ The fan-out is parallel.** Wall time for `ALL` (~440 ms) sits well below the
+sum of the ten reads run one after another (~660 ms). The one `Promise.all` in
 `loadDashboard` does what P13-14 requires — there is no stray sequential `await`.
+No single read dominates any more, so the ten contend for connections and wall
+time lands between the slowest read and the sum; that is the expected shape.
 
-**✅ Nine of the ten reads are fast and flat.** Every card except the hero's
-history costs single- or double-digit milliseconds against three years of data,
-because they read snapshot/indexed tables and return summaries. No *card* triggers
-an N+1.
+**✅ No read triggers an N+1.** Every card costs single- or double-digit
+milliseconds against three years of data. The whole fan-out issues single-digit
+statement counts, flat with respect to the book size.
 
-**❌ `netWorthSeries` is a severe N+1 — and it is the whole page's cost.**
-[`netWorthSeries`](../src/lib/net-worth/compute.ts) calls `computeNetWorth` once
-per distinct snapshot date, and each of those queries once per account plus once
-per holding for live valuation. That is **O(days × (accounts + holdings))**
-queries: 1,096 days × 12 accounts × 32 holdings ⇒ ~98k queries and ~85 s. It grows
-every single day the snapshot job runs.
+**✅ The range actually narrows the work.** `1M` is ~4× cheaper than `ALL`, because
+the hero's history query is windowed *in the database* rather than fetched whole
+and filtered in JS.
 
-Two things make it worse on this page specifically:
+### The `netWorthSeries` rewrite
 
-1. The loader calls `netWorthSeries()` **unranged** and filters the result in JS,
-   so a `1M` view pays the full-history cost — the timings above are flat across
-   ranges for exactly that reason.
-2. It sits on the **landing page**, so it is the first thing that runs after login.
+The first P13-20 run found one severe N+1, and it was the entire page's cost:
+`netWorthSeries` called `computeNetWorth` once per distinct snapshot date, and
+each of those queried once per account plus once per holding —
+**O(days × (accounts + holdings))**. On this same book that was **84,717 ms and
+98,089 queries**, 99% of the dashboard's load time, growing by one more
+`computeNetWorth` call every night the snapshot job ran.
 
-**This is pre-existing Phase 1 library code, not something Phase 13 introduced** —
-the same call backs the net-worth chart elsewhere. But the dashboard is what makes
-it hurt. The Suspense boundary (P13-15) keeps the shell painting immediately, so
-the page is never blank, but the content behind it still takes ~85 s at this
-scale.
+It is now a **single set-based query** plus one liabilities read — 2 statements
+per call, regardless of days, accounts, or holdings. Loans stay in TypeScript,
+where `Money`/decimal.js owns the arithmetic; SQL does only the per-date,
+per-account "latest value on or before D" lookups.
 
-**Recommended fix (not applied — needs an explicit decision, see
-[PLAN13.md](../plans/features/PLAN13.md) §Open Items):** replace the
-date-loop-of-`computeNetWorth` with a single set-based query — a lateral join (or
-window function) picking each account's latest snapshot on or before each date,
-aggregated in SQL — and give `netWorthSeries` a date-range parameter so a `1M`
-view reads a month. That is a change to the net-worth math the whole app depends
-on, with its own tests, and belongs in its own task rather than inside a dashboard
-batch.
+| | before | after |
+|---|---:|---:|
+| `netWorthSeries("USD")`, 1,096 days | 84,717 ms | **342 ms** |
+| statements issued | 98,089 | **2** |
+| `loadDashboard("ALL")` | 86.7 s | **~440 ms** |
+| `loadDashboard("1M")` | 85.1 s | **~108 ms** |
+
+**Numbers are unchanged.** That is the acceptance bar, not a hope: the pre-rewrite
+implementation is kept as an oracle and run side by side against the new one over
+a fixture book exercising every rule, over randomized books
+([series-parity.test.ts](../src/lib/net-worth/series-parity.test.ts)), and over
+the full 3-year seeded book via
+[scripts/networth-parity.ts](../scripts/networth-parity.ts) — **0 mismatches over
+1,096 points**. The plan, including the rules the query has to reproduce and the
+traps it has to avoid, is
+[PLAN_NETWORTH_SERIES.md](../plans/features/PLAN_NETWORTH_SERIES.md).
+
+**No new index.** `EXPLAIN (ANALYZE, BUFFERS)` shows both lateral lookups landing
+on primary keys that already existed — `account_snapshots_account_id_date_pk`
+(13,152 probes at ~0.002 ms) and `prices_symbol_date_pk` (35,072 probes at
+~0.006 ms), both `Index Scan Backward`. The only sequential scans are over
+`accounts` (12 rows), `holdings` (32 rows), and the one pass over
+`account_snapshots` that builds the date axis (0.8 ms). Adding an index would
+have been guessing; the measurement says there is nothing to fix.
+
+The remaining cost is the price lookup (35k index probes ≈ 214 ms of the 342 ms).
+That is comfortably inside budget for the default `1Y` view, so it stays as is —
+profile before optimizing (CLAUDE.md §Performance).
 
 ---
 

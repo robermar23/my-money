@@ -456,13 +456,17 @@ async function main(): Promise<void> {
 
     const now = new Date();
     const w = rangeWindow("ALL", now);
+    // A narrow window, to prove the series read actually honors its bounds
+    // rather than reading all of history and filtering afterwards.
+    const wMonth = rangeWindow("1M", now);
     const month = now.toISOString().slice(0, 7);
     const today = now.toISOString().slice(0, 10);
     const bounds = monthRange(month);
 
     const reads: ReadonlyArray<readonly [string, () => Promise<unknown>]> = [
       ["computeNetWorth", () => computeNetWorth(now, "USD")],
-      ["netWorthSeries", () => netWorthSeries("USD")],
+      ["netWorthSeries (ALL)", () => netWorthSeries("USD")],
+      ["netWorthSeries (1M)", () => netWorthSeries("USD", { from: wMonth.from, to: wMonth.to })],
       ["listValuedPositions", () => listValuedPositions(today)],
       ["listHoldingSnapshots", () => listHoldingSnapshots({ from: w.from, to: w.to })],
       ["listInvestmentFlows", () => listInvestmentFlows({ from: w.from, to: w.to })],
@@ -497,6 +501,49 @@ async function main(): Promise<void> {
     }
     console.table(perRead);
 
+    // ── How many statements does the series read actually issue? ────────────
+    // The per-read column above cannot answer this. Postgres backends buffer
+    // their statistics and flush at most about once a second, so a read that
+    // finishes in milliseconds reports zero — and worse, its backlog is charged
+    // to whatever is measured next, which is why a naive reading here comes out
+    // several times too high.
+    //
+    // Two things make the number trustworthy, and BOTH are required — a probe
+    // that skips either reports several times too high (undrained backlog) or
+    // near zero (window closed before anything flushed):
+    //   1. a discarded drain phase, so the per-read loop's backlog is charged
+    //      where it belongs;
+    //   2. a window sized in SECONDS rather than repetitions, so the measured
+    //      calls' own statements have flushed by the time it closes. A fast
+    //      range needs hundreds of reps to fill the same window a slow one
+    //      fills with a dozen.
+    //
+    // What matters is that the figure is CONSTANT and the same for a one-month
+    // window as for all of history — the whole point of the set-based rewrite is
+    // that it no longer tracks days × accounts × holdings.
+    console.log("\nStatements issued per netWorthSeries call");
+    const statementProbes: ReadonlyArray<readonly [string, () => Promise<unknown>]> = [
+      ["1M", () => netWorthSeries("USD", { from: wMonth.from, to: wMonth.to })],
+      ["ALL", () => netWorthSeries("USD")],
+    ];
+    const statementCounts: Record<string, { perCall: string; reps: number }> = {};
+    for (const [label, run] of statementProbes) {
+      const drainUntil = Date.now() + 2_000;
+      while (Date.now() < drainUntil) await run();
+
+      const before = await xactCount(sql, dbName);
+      const measureUntil = Date.now() + 6_000;
+      let reps = 0;
+      while (Date.now() < measureUntil) {
+        await run();
+        reps++;
+      }
+      const after = await xactCount(sql, dbName);
+      // −1 for the `xactCount` SELECT that ran between the two samples.
+      statementCounts[label] = { perCall: ((after - before - 1) / reps).toFixed(2), reps };
+    }
+    console.table(statementCounts);
+
     // ── End-to-end, by range ────────────────────────────────────────────────
     // 1M vs ALL is the interesting comparison: if a narrow range costs the same
     // as the full history, something upstream is ignoring the window.
@@ -523,12 +570,18 @@ async function main(): Promise<void> {
       `\nsequential sum of the ten reads: ${ms(sequentialTotal)}  |  ` +
         `slowest single read: ${ms(slowestRead)}  |  loadDashboard("ALL"): ${ms(parallel)}`,
     );
-    // The test is "does wall time track the SLOWEST read" — not "is it well under
-    // the sum". When one read dominates, slowest ≈ sum and a sum-based threshold
-    // would call a perfectly parallel fan-out serialized.
+    // Two acceptable shapes, because which one applies depends on the data:
+    //   - one read dominates ⇒ wall time tracks the SLOWEST read, and a
+    //     sum-based threshold would wrongly call a parallel fan-out serialized;
+    //   - no read dominates ⇒ the ten reads contend for connections and CPU, so
+    //     wall time lands between the slowest and the sum. Then the signal is
+    //     that it is comfortably BELOW the sum.
+    // Serialized execution can satisfy neither.
+    const tracksSlowest = parallel <= slowestRead * 1.25;
+    const beatsSum = parallel < sequentialTotal * 0.85;
     console.log(
-      parallel <= slowestRead * 1.25
-        ? "✓ fan-out is parallel (wall time tracks the slowest read, not the sum)"
+      tracksSlowest || beatsSum
+        ? `✓ fan-out is parallel (${tracksSlowest ? "tracks the slowest read" : "well under the sequential sum"})`
         : "✗ fan-out looks serialized — check for a stray sequential await",
     );
 

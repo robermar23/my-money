@@ -24,9 +24,7 @@ describe("seedDefaultCategoriesAndRulesIfEmpty", () => {
     const second = await seedDefaultCategoriesAndRulesIfEmpty();
     expect(second).toEqual({ groupsInserted: 0, categoriesInserted: 0, rulesInserted: 0 });
 
-    const countRows = await db
-      .select({ count: sql<number>`count(*)::int` })
-      .from(categories);
+    const countRows = await db.select({ count: sql<number>`count(*)::int` }).from(categories);
     expect(countRows[0]?.count).toBe(first.categoriesInserted);
   });
 

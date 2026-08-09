@@ -269,7 +269,6 @@ describe("loadDashboard — composition", () => {
       ],
     } satisfies NetWorthBreakdown);
     q.netWorthSeries.mockResolvedValue([
-      { date: "2024-01-01", value: "50000.00" },
       { date: "2026-05-01", value: "120000.00" },
       { date: "2026-06-01", value: "125000.00" },
     ] satisfies NetWorthPoint[]);
@@ -280,7 +279,15 @@ describe("loadDashboard — composition", () => {
     expect(data.window).toEqual({ from: "2026-03-15", to: "2026-06-15" });
     expect(data.baseCurrency).toBe(USD);
     expect(data.hasAnyAccount).toBe(true);
-    // The 2024 point is outside the 3M window; the two 2026 points survive.
+    // Windowing is the query's job, not the loader's: it pushes the active
+    // window down so a 3M view reads three months instead of fetching all of
+    // history and filtering in JS (which is what made the hero the slowest
+    // thing on the page). The loader must therefore pass the window through…
+    expect(q.netWorthSeries).toHaveBeenCalledWith(USD, {
+      from: "2026-03-15",
+      to: "2026-06-15",
+    });
+    // …and hand the result to the card untouched.
     expect(data.netWorth.series.map((p) => p.date)).toEqual(["2026-05-01", "2026-06-01"]);
     // Money reaches the card as Money — never round-tripped through Number.
     expect(data.netWorth.total).toBeInstanceOf(Money);
