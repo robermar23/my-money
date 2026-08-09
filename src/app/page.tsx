@@ -1,6 +1,7 @@
 import { AllocationCard } from "@/components/dashboard/allocation-card.tsx";
 import { PerformanceCard } from "@/components/dashboard/performance-card.tsx";
 import { RangeToggle } from "@/components/dashboard/range-toggle.tsx";
+import { SpendCard } from "@/components/dashboard/spend-card.tsx";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import type { RangeDelta } from "@/lib/dashboard/delta.ts";
 import { loadDashboard } from "@/lib/dashboard/loader.ts";
@@ -89,6 +90,7 @@ export default async function HomePage(props: HomePageProps): Promise<React.JSX.
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
         <AllocationCard data={data.allocation} />
         <PerformanceCard data={data.performance} currency={data.baseCurrency} />
+        <SpendCard data={data.spending} />
       </div>
 
       {/* Accounts table — still useful, de-emphasized below the cards */}
