@@ -223,4 +223,4 @@ to the dashboard to make it more informative given all of the features we have a
   ticker, payee, or amount leaves the box; there is no outbound HTTP on any dashboard code
   path, nothing financial is logged, and the page is `requireUser()`-guarded exactly as today.
 
-Implemented under **ADR-029** (IDEAS.md §11 Decision Log) via [PLAN13.md](PLAN13.md).
+Implemented under **ADR-029** (IDEAS.md §11 Decision Log) via [PLAN13.md](PLAN13.md). See [docs/DASHBOARD.md](../../docs/DASHBOARD.md).

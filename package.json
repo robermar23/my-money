@@ -23,6 +23,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
+    "perf:dashboard": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/dashboard-perf.ts",
     "plaid:ping": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/plaid-ping.ts",
     "plaid:set-webhook-url": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/plaid-set-webhook-url.ts",
     "plaid:rotate-key": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/rotate-encryption.ts"
