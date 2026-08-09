@@ -59,7 +59,7 @@ export const investmentTransactions = pgTable(
     amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
     name: text("name"),
     isoCurrencyCode: text("iso_currency_code").notNull().default("USD"),
-    /** 'plaid' | 'manual'. */
+    /** 'plaid' | 'manual' | 'income' (Phase 14 — a materialized 401k contribution). */
     source: text("source").notNull(),
     /** Full Plaid payload for debug + re-derivation. */
     raw: jsonb("raw"),
@@ -85,7 +85,14 @@ export const investmentTransactions = pgTable(
       "investment_txns_type_check",
       sql`${table.type} IN ('buy', 'sell', 'cash', 'fee', 'transfer', 'cancel')`,
     ),
-    sourceCheck: check("investment_txns_source_check", sql`${table.source} IN ('plaid', 'manual')`),
+    // 'income' (Phase 14, ADR-031): a contribution materialized from a defined
+    // paycheck — a `buy` when the holding is priceable, else a `cash`/`deposit`.
+    // The contribution job is scoped to this source and never mutates the
+    // others, which is what keeps a Plaid-synced 401k from double-counting.
+    sourceCheck: check(
+      "investment_txns_source_check",
+      sql`${table.source} IN ('plaid', 'manual', 'income')`,
+    ),
   }),
 );
 

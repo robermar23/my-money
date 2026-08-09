@@ -36,7 +36,10 @@ BUILDER    ?= my-money-builder
 # tokens — preserving those breaks the connections/map flow (INVALID_ACCESS_
 # TOKEN). Re-linking against Plaid sandbox is quick. Only `category_rules` is
 # preserved (it holds seeded defaults the app relies on).
-DOMAIN_TABLES := users, accounts, holdings, securities, plaid_items, plaid_sync_runs, webhook_log, account_snapshots, liabilities, prices, alerts
+# `income_sources` cascades to retirement_contributions → income_contributions
+# (Phase 14). Listed explicitly because nothing else reaches it: a contribution
+# rule hangs off an account, but the paycheck that defines it does not.
+DOMAIN_TABLES := users, accounts, holdings, securities, plaid_items, plaid_sync_runs, webhook_log, account_snapshots, liabilities, prices, alerts, income_sources
 
 # ---------------------------------------------------------------------------
 # Help (cross-platform; plain @echo lines so cmd.exe + bash both render OK)
