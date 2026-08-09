@@ -16,6 +16,8 @@ import { DashboardCard } from "./card.tsx";
 interface Props {
   readonly data: PerformanceCardData;
   readonly currency: string;
+  /** Grid column span assigned by the dashboard layout (P13-14). */
+  readonly className?: string;
 }
 
 const CARD_TITLE = "Performance";
@@ -28,10 +30,15 @@ function toneFor(value: number): string {
   return "text-zinc-500";
 }
 
-export function PerformanceCard({ data, currency }: Props): React.JSX.Element {
+export function PerformanceCard({ data, currency, className }: Props): React.JSX.Element {
   if (data.status === "empty") {
     return (
-      <DashboardCard title={CARD_TITLE} href={DEEP_LINK} linkLabel="Performance →">
+      <DashboardCard
+        title={CARD_TITLE}
+        href={DEEP_LINK}
+        linkLabel="Performance →"
+        className={className}
+      >
         <DashboardCard.Empty
           message="No investments to measure yet."
           href="/investments"
@@ -43,7 +50,12 @@ export function PerformanceCard({ data, currency }: Props): React.JSX.Element {
 
   if (data.status === "insufficient") {
     return (
-      <DashboardCard title={CARD_TITLE} href={DEEP_LINK} linkLabel="Performance →">
+      <DashboardCard
+        title={CARD_TITLE}
+        href={DEEP_LINK}
+        linkLabel="Performance →"
+        className={className}
+      >
         <DashboardCard.Empty message="Insufficient history for this range." />
       </DashboardCard>
     );
@@ -61,7 +73,12 @@ export function PerformanceCard({ data, currency }: Props): React.JSX.Element {
   }));
 
   return (
-    <DashboardCard title={CARD_TITLE} href={DEEP_LINK} linkLabel="Performance →">
+    <DashboardCard
+      title={CARD_TITLE}
+      href={DEEP_LINK}
+      linkLabel="Performance →"
+      className={className}
+    >
       <div className="flex items-baseline justify-between gap-3">
         <div>
           <div className="text-xs text-zinc-500">Return (range)</div>

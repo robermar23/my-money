@@ -18,6 +18,8 @@ import type { SavingsRateCard } from "@/lib/dashboard/loader.ts";
 interface Props {
   /** Undefined until PLAN14's loader wiring populates it. */
   readonly data?: SavingsRateCard;
+  /** Grid column span the slot will occupy once it renders (P13-14). */
+  readonly className?: string;
 }
 
 export function SavingsRateSlot({ data }: Props): React.JSX.Element | null {

@@ -20,6 +20,8 @@ import { DashboardCard } from "./card.tsx";
 
 interface Props {
   readonly data: AlertsCardData;
+  /** Grid column span assigned by the dashboard layout (P13-14). */
+  readonly className?: string;
 }
 
 const CARD_TITLE = "Alerts";
@@ -30,10 +32,10 @@ function detectedLabel(at: Date): string {
   return at.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-export function AlertsCard({ data }: Props): React.JSX.Element {
+export function AlertsCard({ data, className }: Props): React.JSX.Element {
   if (data.status === "empty") {
     return (
-      <DashboardCard title={CARD_TITLE} href={DEEP_LINK} linkLabel="Alerts →">
+      <DashboardCard title={CARD_TITLE} href={DEEP_LINK} linkLabel="Alerts →" className={className}>
         <div className="flex min-h-24 items-center justify-center gap-2 rounded-md border border-emerald-200 bg-emerald-50/50 p-4 text-emerald-700 text-sm dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-300">
           <span aria-hidden>✓</span>
           <span>No open alerts</span>
@@ -43,7 +45,7 @@ export function AlertsCard({ data }: Props): React.JSX.Element {
   }
 
   return (
-    <DashboardCard title={CARD_TITLE} href={DEEP_LINK} linkLabel="Alerts →">
+    <DashboardCard title={CARD_TITLE} href={DEEP_LINK} linkLabel="Alerts →" className={className}>
       <div className="flex items-center gap-2">
         <span className="inline-flex min-w-7 items-center justify-center rounded-full bg-amber-100 px-2 py-0.5 font-medium font-mono text-amber-900 text-sm tabular-nums dark:bg-amber-900/40 dark:text-amber-200">
           {data.count}

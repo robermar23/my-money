@@ -15,12 +15,19 @@ import { DashboardCard } from "./card.tsx";
 
 interface Props {
   readonly data: AllocationCardData;
+  /** Grid column span assigned by the dashboard layout (P13-14). */
+  readonly className?: string;
 }
 
-export function AllocationCard({ data }: Props): React.JSX.Element {
+export function AllocationCard({ data, className }: Props): React.JSX.Element {
   if (data.status === "empty") {
     return (
-      <DashboardCard title="Allocation" href="/investments" linkLabel="Investments →">
+      <DashboardCard
+        title="Allocation"
+        href="/investments"
+        linkLabel="Investments →"
+        className={className}
+      >
         <DashboardCard.Empty
           message="No priced holdings yet."
           href="/investments"
@@ -39,7 +46,12 @@ export function AllocationCard({ data }: Props): React.JSX.Element {
   }));
 
   return (
-    <DashboardCard title="Allocation" href="/investments" linkLabel="Investments →">
+    <DashboardCard
+      title="Allocation"
+      href="/investments"
+      linkLabel="Investments →"
+      className={className}
+    >
       <p className="mb-3 font-mono text-xl tabular-nums">{data.total.format()}</p>
       <AllocationChart slices={slices} />
     </DashboardCard>

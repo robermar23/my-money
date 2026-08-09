@@ -18,6 +18,8 @@ import { DashboardCard } from "./card.tsx";
 
 interface Props {
   readonly data: SpendingCardData;
+  /** Grid column span assigned by the dashboard layout (P13-14). */
+  readonly className?: string;
 }
 
 const CARD_TITLE = "Spending";
@@ -123,10 +125,15 @@ function OverBudgetList({
   );
 }
 
-export function SpendCard({ data }: Props): React.JSX.Element {
+export function SpendCard({ data, className }: Props): React.JSX.Element {
   if (data.status === "empty") {
     return (
-      <DashboardCard title={CARD_TITLE} href={DEEP_LINK} linkLabel="Analysis →">
+      <DashboardCard
+        title={CARD_TITLE}
+        href={DEEP_LINK}
+        linkLabel="Analysis →"
+        className={className}
+      >
         <DashboardCard.Empty
           message="No spending recorded yet."
           href={BUDGETS_LINK}
@@ -137,7 +144,7 @@ export function SpendCard({ data }: Props): React.JSX.Element {
   }
 
   return (
-    <DashboardCard title={CARD_TITLE} href={DEEP_LINK} linkLabel="Analysis →">
+    <DashboardCard title={CARD_TITLE} href={DEEP_LINK} linkLabel="Analysis →" className={className}>
       <div className="flex items-baseline justify-between gap-3">
         <div className="font-mono text-2xl tabular-nums">{data.totalSpend.format()}</div>
         <div className="text-right text-xs text-zinc-500">{monthLabel(data.month)}</div>

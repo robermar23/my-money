@@ -15,6 +15,8 @@ import { DashboardCard } from "./card.tsx";
 
 interface Props {
   readonly data: MoversCardData;
+  /** Grid column span assigned by the dashboard layout (P13-14). */
+  readonly className?: string;
 }
 
 const CARD_TITLE = "Watchlist movers";
@@ -52,10 +54,15 @@ function MoverRow({ mover }: { readonly mover: Mover }): React.JSX.Element {
   );
 }
 
-export function MoversCard({ data }: Props): React.JSX.Element {
+export function MoversCard({ data, className }: Props): React.JSX.Element {
   if (data.status === "empty") {
     return (
-      <DashboardCard title={CARD_TITLE} href={DEEP_LINK} linkLabel="Watchlist →">
+      <DashboardCard
+        title={CARD_TITLE}
+        href={DEEP_LINK}
+        linkLabel="Watchlist →"
+        className={className}
+      >
         <DashboardCard.Empty
           message="No paper positions to track yet."
           href={DEEP_LINK}
@@ -66,7 +73,12 @@ export function MoversCard({ data }: Props): React.JSX.Element {
   }
 
   return (
-    <DashboardCard title={CARD_TITLE} href={DEEP_LINK} linkLabel="Watchlist →">
+    <DashboardCard
+      title={CARD_TITLE}
+      href={DEEP_LINK}
+      linkLabel="Watchlist →"
+      className={className}
+    >
       <ul className="space-y-1.5 text-sm">
         {data.movers.map((mover) => (
           <MoverRow key={mover.id} mover={mover} />

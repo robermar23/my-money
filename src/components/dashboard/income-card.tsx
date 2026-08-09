@@ -22,15 +22,22 @@ import { DashboardCard } from "./card.tsx";
 
 interface Props {
   readonly data: IncomeCardData;
+  /** Grid column span assigned by the dashboard layout (P13-14). */
+  readonly className?: string;
 }
 
 const CARD_TITLE = "Forward income";
 const DEEP_LINK = "/investments/forecast";
 
-export function IncomeCard({ data }: Props): React.JSX.Element {
+export function IncomeCard({ data, className }: Props): React.JSX.Element {
   if (data.status === "empty") {
     return (
-      <DashboardCard title={CARD_TITLE} href={DEEP_LINK} linkLabel="Forecast →">
+      <DashboardCard
+        title={CARD_TITLE}
+        href={DEEP_LINK}
+        linkLabel="Forecast →"
+        className={className}
+      >
         <DashboardCard.Empty
           message="No dividend-paying holdings yet."
           href="/investments"
@@ -41,7 +48,7 @@ export function IncomeCard({ data }: Props): React.JSX.Element {
   }
 
   return (
-    <DashboardCard title={CARD_TITLE} href={DEEP_LINK} linkLabel="Forecast →">
+    <DashboardCard title={CARD_TITLE} href={DEEP_LINK} linkLabel="Forecast →" className={className}>
       <div className="flex items-baseline justify-between gap-3">
         <div>
           <div className="font-mono text-2xl tabular-nums">{data.forward12mo.format()}</div>

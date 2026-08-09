@@ -1,10 +1,13 @@
 import { AlertsCard } from "@/components/dashboard/alerts-card.tsx";
 import { AllocationCard } from "@/components/dashboard/allocation-card.tsx";
+import { FirstRunDashboard } from "@/components/dashboard/first-run.tsx";
+import { DASHBOARD_GRID, SPAN_STANDARD, SPAN_WIDE } from "@/components/dashboard/grid.ts";
 import { IncomeCard } from "@/components/dashboard/income-card.tsx";
 import { MoversCard } from "@/components/dashboard/movers-card.tsx";
 import { PerformanceCard } from "@/components/dashboard/performance-card.tsx";
 import { RangeToggle } from "@/components/dashboard/range-toggle.tsx";
 import { SavingsRateSlot } from "@/components/dashboard/savings-rate-slot.tsx";
+import { DashboardSkeleton } from "@/components/dashboard/skeleton.tsx";
 import { SpendCard } from "@/components/dashboard/spend-card.tsx";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import type { RangeDelta } from "@/lib/dashboard/delta.ts";
@@ -12,7 +15,19 @@ import { loadDashboard } from "@/lib/dashboard/loader.ts";
 import { parseDashboardRange } from "@/lib/dashboard/range.ts";
 import { Money } from "@/lib/money/money.ts";
 import Link from "next/link";
+import { Suspense } from "react";
 import { NetWorthChart } from "./net-worth-chart.tsx";
+
+/**
+ * The curated dashboard (Phase 13, P13-14, ADR-029).
+ *
+ * Structure is fixed in this template — full-width net-worth hero, the shared
+ * `?range=` history chart, then the responsive card grid, with the accounts
+ * table de-emphasized at the bottom. Every figure comes from a single
+ * `loadDashboard(range)` call whose ten reads fan out through one `Promise.all`;
+ * cards receive typed slices and only format (ADR-029 §2 — cards are dumb, the
+ * loader is smart).
+ */
 
 const TYPE_LABEL: Record<string, string> = {
   depository: "Cash",
@@ -49,19 +64,29 @@ function DeltaBadge({ delta }: { readonly delta: RangeDelta }): React.JSX.Elemen
   );
 }
 
-export default async function HomePage(props: HomePageProps): Promise<React.JSX.Element> {
-  // requireUser handles both unauthenticated AND first-run cases by redirecting
-  // to /login, which then detects "no user row exists" and renders the
-  // first-run "Set a password" copy.
-  await requireUser();
-
-  const search = (await props.searchParams) ?? {};
+/**
+ * The data-dependent half of the dashboard, isolated behind `<Suspense>` so the
+ * page shell paints before the loader resolves (P13-15).
+ *
+ * `searchParams` is awaited *here* rather than in the page for the same reason:
+ * reading it in the page would make the shell itself wait on the request.
+ */
+async function DashboardBody({
+  searchParams,
+}: {
+  readonly searchParams?: Promise<{ range?: string }>;
+}): Promise<React.JSX.Element> {
+  const search = (await searchParams) ?? {};
   const range = parseDashboardRange(search.range);
   const data = await loadDashboard(range);
+
+  // Brand-new install: one instruction beats seven empty cards (P13-16).
+  if (!data.hasAnyAccount) return <FirstRunDashboard />;
+
   const { netWorth } = data;
 
   return (
-    <main className="mx-auto max-w-5xl p-6">
+    <>
       {/* Net-worth hero (full width) */}
       <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
         <div>
@@ -80,6 +105,7 @@ export default async function HomePage(props: HomePageProps): Promise<React.JSX.
         </div>
       </div>
 
+      {/* Shared range control — drives the hero history and the performance card */}
       <section className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-medium text-sm">History</h2>
@@ -90,17 +116,27 @@ export default async function HomePage(props: HomePageProps): Promise<React.JSX.
         </div>
       </section>
 
-      {/* Card grid (final layout lands in Batch 5) */}
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <AllocationCard data={data.allocation} />
-        <PerformanceCard data={data.performance} currency={data.baseCurrency} />
-        <SpendCard data={data.spending} />
-        <IncomeCard data={data.income} />
-        <AlertsCard data={data.alerts} />
-        <MoversCard data={data.movers} />
+      {/*
+        Curated card grid (ADR-029 §1). Order is deliberate and fixed:
+        the two chart-bearing investment cards lead at half-width, then the
+        numeric cards run three-up — spending and income (cash flow), then
+        alerts and movers (things to look at).
+      */}
+      <div className={`mt-6 ${DASHBOARD_GRID}`}>
+        <AllocationCard data={data.allocation} className={SPAN_WIDE} />
+        <PerformanceCard
+          data={data.performance}
+          currency={data.baseCurrency}
+          className={SPAN_WIDE}
+        />
+        <SpendCard data={data.spending} className={SPAN_STANDARD} />
+        <IncomeCard data={data.income} className={SPAN_STANDARD} />
+        <AlertsCard data={data.alerts} className={SPAN_STANDARD} />
+        <MoversCard data={data.movers} className={SPAN_STANDARD} />
         {/* Reserved slot (P13-13) — renders nothing until PLAN14's P14-17
-            populates `savingsRate` in the loader. */}
-        <SavingsRateSlot data={data.savingsRate} />
+            populates `savingsRate`, at which point it takes the column beside
+            the movers card. */}
+        <SavingsRateSlot data={data.savingsRate} className={SPAN_STANDARD} />
       </div>
 
       {/* Accounts table — still useful, de-emphasized below the cards */}
@@ -116,48 +152,55 @@ export default async function HomePage(props: HomePageProps): Promise<React.JSX.
             </Link>
           </div>
         </div>
-        {netWorth.accounts.length === 0 ? (
-          <p className="mt-4 rounded-md border border-zinc-200 border-dashed p-6 text-center text-sm text-zinc-500 dark:border-zinc-800">
-            No accounts yet.{" "}
-            <Link href="/accounts/new" className="underline">
-              Add your first
-            </Link>
-            .
-          </p>
-        ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full min-w-[28rem] text-sm">
-              <thead className="text-left text-xs text-zinc-500 uppercase">
-                <tr>
-                  <th className="py-2">Account</th>
-                  <th className="py-2">Type</th>
-                  <th className="py-2 text-right">Balance</th>
+        {/* No empty branch: zero accounts is the first-run state handled above. */}
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[28rem] text-sm">
+            <thead className="text-left text-xs text-zinc-500 uppercase">
+              <tr>
+                <th className="py-2">Account</th>
+                <th className="py-2">Type</th>
+                <th className="py-2 text-right">Balance</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
+              {netWorth.accounts.map((item) => (
+                <tr key={item.accountId}>
+                  <td className="py-2">
+                    <Link
+                      href={`/accounts/${item.accountId}`}
+                      className="font-medium hover:underline"
+                    >
+                      {item.accountName}
+                    </Link>
+                  </td>
+                  <td className="py-2 text-zinc-600 dark:text-zinc-400">
+                    {TYPE_LABEL[item.accountType] ?? item.accountType}
+                  </td>
+                  <td className="py-2 text-right font-mono tabular-nums">
+                    {Money.fromString(item.balance.toString(), item.currency).format()}
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
-                {netWorth.accounts.map((item) => (
-                  <tr key={item.accountId}>
-                    <td className="py-2">
-                      <Link
-                        href={`/accounts/${item.accountId}`}
-                        className="font-medium hover:underline"
-                      >
-                        {item.accountName}
-                      </Link>
-                    </td>
-                    <td className="py-2 text-zinc-600 dark:text-zinc-400">
-                      {TYPE_LABEL[item.accountType] ?? item.accountType}
-                    </td>
-                    <td className="py-2 text-right font-mono tabular-nums">
-                      {Money.fromString(item.balance.toString(), item.currency).format()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+              ))}
+            </tbody>
+          </table>
+        </div>
       </section>
+    </>
+  );
+}
+
+export default async function HomePage(props: HomePageProps): Promise<React.JSX.Element> {
+  // requireUser handles both unauthenticated AND first-run cases by redirecting
+  // to /login, which then detects "no user row exists" and renders the
+  // first-run "Set a password" copy. It gates the shell deliberately — nothing
+  // streams to an unauthenticated visitor.
+  await requireUser();
+
+  return (
+    <main className="mx-auto max-w-5xl p-6">
+      <Suspense fallback={<DashboardSkeleton />}>
+        <DashboardBody searchParams={props.searchParams} />
+      </Suspense>
     </main>
   );
 }
