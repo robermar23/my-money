@@ -50,6 +50,8 @@ export const QUEUE_NAMES = {
   BACKFILL_WATCHLIST_SYMBOL: "backfill-watchlist-symbol",
   /** Phase 11 (P11-11): one-shot watchlist price-target evaluation, chained off the price fetch. */
   EVALUATE_PRICE_TARGETS: "evaluate-price-targets",
+  /** Phase 14 (P14-09): turn each due pay date into a contribution buy + cost-basis lot. */
+  MATERIALIZE_CONTRIBUTIONS: "materialize-contributions",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -108,3 +110,5 @@ export const refreshFundamentalsWeeklyQueue = lazyQueue(QUEUE_NAMES.REFRESH_FUND
 export const backfillWatchlistSymbolQueue = lazyQueue(QUEUE_NAMES.BACKFILL_WATCHLIST_SYMBOL);
 
 export const evaluatePriceTargetsQueue = lazyQueue(QUEUE_NAMES.EVALUATE_PRICE_TARGETS);
+
+export const materializeContributionsQueue = lazyQueue(QUEUE_NAMES.MATERIALIZE_CONTRIBUTIONS);
