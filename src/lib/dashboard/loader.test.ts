@@ -45,6 +45,7 @@ const q = vi.hoisted(() => ({
   spendingSummary: vi.fn(),
   listOpenAlerts: vi.fn(),
   listWatchlist: vi.fn(),
+  savingsRateInputs: vi.fn(),
 }));
 
 // Only the *reads* are replaced. The pure modules the loader composes —
@@ -64,6 +65,9 @@ vi.mock("@/lib/investments/queries.ts", () => ({
 vi.mock("@/lib/analytics/spending.ts", () => ({ spendingSummary: q.spendingSummary }));
 vi.mock("@/lib/alerts/queries.ts", () => ({ listOpenAlerts: q.listOpenAlerts }));
 vi.mock("@/lib/watchlist/queries.ts", () => ({ listWatchlist: q.listWatchlist }));
+// P14-17: only the income *read* is replaced — `savingsRate` itself stays real,
+// so the card's arithmetic is the same code the settings preview runs.
+vi.mock("@/lib/income/queries.ts", () => ({ savingsRateInputs: q.savingsRateInputs }));
 // `monthRange` is pure and drives the spending window — keep the real one.
 vi.mock("@/lib/budgets/queries.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/budgets/queries.ts")>()),
@@ -220,6 +224,7 @@ function emptyBook(): void {
   q.spendingSummary.mockResolvedValue(summary());
   q.listOpenAlerts.mockResolvedValue([]);
   q.listWatchlist.mockResolvedValue([] as WatchlistRow[]);
+  q.savingsRateInputs.mockResolvedValue({ sources: [], contributions: [] });
 }
 
 beforeEach(() => {
@@ -295,11 +300,16 @@ describe("loadDashboard — composition", () => {
     expect(data.netWorth.delta.direction).toBe("up");
   });
 
-  it("leaves the Phase 14 savings-rate seam unpopulated", async () => {
-    // P13-13: the field exists on the type so P14-17 drops a card in; the
-    // Phase 13 loader must never fabricate one.
-    const data = await loadDashboard("1Y", NOW);
-    expect(data.savingsRate).toBeUndefined();
+  it("reads the savings rate over a trailing year whatever the range", async () => {
+    // P14-17: a savings rate is annual by definition. Scoping it to the selected
+    // range would answer a different question ("what did I save in the last
+    // month?") while still dividing by an ANNUAL gross — a wrong number, not a
+    // zoomed-in one. So the window is pinned to 12 months even on "1M".
+    await loadDashboard("1M", NOW);
+    expect(q.savingsRateInputs).toHaveBeenCalledWith({ from: "2025-06-15", to: "2026-06-15" });
+
+    // …while the range-driven reads still see the 1M window.
+    expect(q.listHoldingSnapshots).toHaveBeenCalledWith({ from: "2026-05-15", to: "2026-06-15" });
   });
 });
 
@@ -316,6 +326,7 @@ describe("loadDashboard — brand-new install", () => {
     expect(data.income.status).toBe("empty");
     expect(data.alerts.status).toBe("empty");
     expect(data.movers.status).toBe("empty");
+    expect(data.savingsRate?.status).toBe("empty");
     // The hero still renders — it is the dashboard's spine, at $0.
     expect(data.netWorth.total.isZero()).toBe(true);
     expect(data.netWorth.series).toEqual([]);
@@ -607,5 +618,81 @@ describe("loadDashboard — watchlist movers card", () => {
     if (movers.status !== "ok") throw new Error("expected an ok movers card");
     // Top-2 and bottom-2 overlap entirely — the same row must not appear twice.
     expect(movers.movers.map((m) => m.id)).toEqual(["w1", "w2"]);
+  });
+});
+
+describe("loadDashboard — savings-rate card", () => {
+  /** A biweekly $3,000 paycheck: 26 × 3000 = $78,000 projected annual gross. */
+  const paycheck = { cadence: "biweekly" as const, grossPerPeriod: "3000.00", currency: USD };
+
+  it("is empty when no income source is defined", async () => {
+    // Distinct from a 0% rate: with no paycheck on file we have no basis to
+    // claim the user saves nothing.
+    const card = (await loadDashboard("1Y", NOW)).savingsRate;
+    expect(card?.status).toBe("empty");
+  });
+
+  it("derives the rate from contributions over projected gross", async () => {
+    q.savingsRateInputs.mockResolvedValue({
+      sources: [{ ...paycheck, active: true }],
+      // 26 pay periods × $180 employee / $90 employer — a full year materialized.
+      contributions: Array.from({ length: 26 }, () => ({
+        employeeAmount: "180.00",
+        employerAmount: "90.00",
+        currency: USD,
+      })),
+    });
+
+    const card = (await loadDashboard("1Y", NOW)).savingsRate;
+    if (card?.status !== "ok") throw new Error("expected an ok savings-rate card");
+    expect(card.annualGross.toString()).toBe("78000.00");
+    expect(card.annualEmployee.toString()).toBe("4680.00");
+    expect(card.annualEmployer.toString()).toBe("2340.00");
+    // 4680 / 78000 = 6% — the employer match is deliberately NOT in the numerator.
+    expect(card.ratePct).toBe("6");
+    // Money reaches the card as Money, never round-tripped through Number.
+    expect(card.annualGross).toBeInstanceOf(Money);
+  });
+
+  it("carries the contribution window so the card can frame it as an estimate", async () => {
+    q.savingsRateInputs.mockResolvedValue({
+      sources: [{ ...paycheck, active: true }],
+      contributions: [],
+    });
+
+    const card = (await loadDashboard("3M", NOW)).savingsRate;
+    if (card?.status !== "ok") throw new Error("expected an ok savings-rate card");
+    // The window is the one the contributions were actually summed over — the
+    // trailing year, not the selected 3M range.
+    expect(card.window).toEqual({ from: "2025-06-15", to: "2026-06-15" });
+  });
+
+  it("reports an undefined rate rather than 0% when every source is paused", async () => {
+    // A paused paycheck is not income, so projected gross is $0 and the ratio has
+    // no denominator. The historical contributions still show — those dollars
+    // were really saved (savings-rate.ts §inactive sources).
+    q.savingsRateInputs.mockResolvedValue({
+      sources: [{ ...paycheck, active: false }],
+      contributions: [{ employeeAmount: "500.00", employerAmount: "0.00", currency: USD }],
+    });
+
+    const card = (await loadDashboard("1Y", NOW)).savingsRate;
+    if (card?.status !== "ok") throw new Error("expected an ok savings-rate card");
+    expect(card.ratePct).toBeNull();
+    expect(card.annualGross.isZero()).toBe(true);
+    expect(card.annualEmployee.toString()).toBe("500.00");
+  });
+
+  it("shows a defined source with no contributions yet as 0%", async () => {
+    // The rule exists but the job hasn't run (or the rule funds nothing) — an
+    // honest 0%, unlike the empty state which means "no paycheck on file".
+    q.savingsRateInputs.mockResolvedValue({
+      sources: [{ ...paycheck, active: true }],
+      contributions: [],
+    });
+
+    const card = (await loadDashboard("1Y", NOW)).savingsRate;
+    if (card?.status !== "ok") throw new Error("expected an ok savings-rate card");
+    expect(card.ratePct).toBe("0");
   });
 });

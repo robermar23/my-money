@@ -9,7 +9,8 @@ import {
   retirementContributions,
 } from "@/db/schema/index.ts";
 import type { EmployeeContributionBasis, EmployerMatchBasis } from "@/db/schema/index.ts";
-import { asc, count, desc, eq, max, sum } from "drizzle-orm";
+import { asc, between, count, desc, eq, max, sum } from "drizzle-orm";
+import type { SavingsRateContribution, SavingsRateSource } from "./savings-rate.ts";
 
 /**
  * Read models for the income-management surface (P14-14).
@@ -206,6 +207,100 @@ export async function loadIncomeSettings(): Promise<IncomeSettings> {
       hasPlaidLots: plaidHoldings.has(holding.id),
     })),
   };
+}
+
+// ── Batch 5 surfacing reads ──────────────────────────────────────────────────
+
+/** What `savingsRate` (P14-07) needs, scoped to a display window. */
+export interface SavingsRateInputs {
+  readonly sources: readonly SavingsRateSource[];
+  readonly contributions: readonly SavingsRateContribution[];
+}
+
+/**
+ * Read the inputs for the dashboard savings-rate card (P14-17).
+ *
+ * Sources come back whole (active AND inactive): `savingsRate` skips inactive
+ * ones when projecting gross, but the caller still needs to know a source
+ * *exists* to tell "no income defined yet" (empty card) apart from "defined but
+ * paused" (a real, if odd, rate). Contributions are windowed at the database.
+ *
+ * @param window - Inclusive ISO date bounds for the contribution ledger.
+ * @returns Sources and the contributions materialized inside the window.
+ */
+export async function savingsRateInputs(window: {
+  readonly from: string;
+  readonly to: string;
+}): Promise<SavingsRateInputs> {
+  const [sources, contributions] = await Promise.all([
+    db
+      .select({
+        cadence: incomeSources.cadence,
+        grossPerPeriod: incomeSources.grossPerPeriod,
+        currency: incomeSources.currency,
+        active: incomeSources.active,
+      })
+      .from(incomeSources),
+    db
+      .select({
+        employeeAmount: incomeContributions.employeeAmount,
+        employerAmount: incomeContributions.employerAmount,
+        currency: incomeContributions.currency,
+      })
+      .from(incomeContributions)
+      .where(between(incomeContributions.payDate, window.from, window.to)),
+  ]);
+
+  return {
+    sources: sources.map((row) => ({ ...row, cadence: row.cadence as IncomeCadence })),
+    contributions,
+  };
+}
+
+/** One row of the per-account contribution ledger (P14-18). */
+export interface AccountContributionRow {
+  readonly id: string;
+  readonly payDate: string;
+  readonly employeeAmount: string;
+  readonly employerAmount: string;
+  readonly currency: string;
+  /** The paycheck that funded it — several sources may fund one 401k. */
+  readonly sourceName: string;
+}
+
+/**
+ * Recent contributions that funded one account, newest first (P14-18).
+ *
+ * This is the audit trail behind the account's cost basis: it answers "where did
+ * this basis come from" from the account it landed in. Read-only — contributions
+ * are written solely by the materialization job (ADR-031).
+ *
+ * @param accountId - The investment account the rules point at.
+ * @param limit - How many rows to return. Default 12 (a quarter of biweekly pay).
+ * @returns The most recent contributions, newest pay date first.
+ */
+export async function listAccountContributions(
+  accountId: string,
+  limit = 12,
+): Promise<readonly AccountContributionRow[]> {
+  return db
+    .select({
+      id: incomeContributions.id,
+      payDate: incomeContributions.payDate,
+      employeeAmount: incomeContributions.employeeAmount,
+      employerAmount: incomeContributions.employerAmount,
+      currency: incomeContributions.currency,
+      sourceName: incomeSources.name,
+    })
+    .from(incomeContributions)
+    .innerJoin(
+      retirementContributions,
+      eq(retirementContributions.id, incomeContributions.retirementContributionId),
+    )
+    .innerJoin(incomeSources, eq(incomeSources.id, retirementContributions.incomeSourceId))
+    .where(eq(retirementContributions.accountId, accountId))
+    .orderBy(desc(incomeContributions.payDate))
+    .limit(limit);
 }
 
 /**

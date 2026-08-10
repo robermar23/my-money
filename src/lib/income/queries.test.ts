@@ -10,7 +10,12 @@ import {
 } from "@/db/schema/index.ts";
 import { sql } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { countMaterializedContributions, loadIncomeSettings } from "./queries.ts";
+import {
+  countMaterializedContributions,
+  listAccountContributions,
+  loadIncomeSettings,
+  savingsRateInputs,
+} from "./queries.ts";
 
 /**
  * P14-14 — the read model behind `/settings/income`.
@@ -224,5 +229,87 @@ describe("countMaterializedContributions", () => {
       .returning({ id: incomeSources.id });
 
     expect(await countMaterializedContributions({ sourceId: source?.id ?? "" })).toBe(0);
+  });
+});
+
+describe("savingsRateInputs", () => {
+  beforeEach(reset);
+  afterAll(reset);
+
+  it("windows contributions at the database and returns sources whole", async () => {
+    const { ruleId } = await seed();
+    await seedContributions(ruleId); // 2026-01-02 and 2026-01-16
+    await db.insert(incomeContributions).values({
+      retirementContributionId: ruleId,
+      payDate: "2025-06-01", // outside the window below
+      grossAmount: "3000.00",
+      employeeAmount: "999.00",
+      employerAmount: "0.00",
+    });
+
+    const inputs = await savingsRateInputs({ from: "2026-01-01", to: "2026-06-30" });
+    expect(inputs.contributions).toHaveLength(2);
+    expect(inputs.contributions.map((c) => c.employeeAmount)).toEqual(["180.00", "180.00"]);
+    expect(inputs.sources).toHaveLength(1);
+    expect(inputs.sources[0]).toMatchObject({
+      cadence: "biweekly",
+      grossPerPeriod: "3000.00",
+      active: true,
+    });
+  });
+
+  it("includes the window's boundary dates", async () => {
+    // `between` is inclusive; a pay date landing exactly on the boundary is a
+    // real contribution and dropping it would understate the rate.
+    const { ruleId } = await seed();
+    await seedContributions(ruleId);
+
+    const inputs = await savingsRateInputs({ from: "2026-01-02", to: "2026-01-16" });
+    expect(inputs.contributions).toHaveLength(2);
+  });
+
+  it("returns inactive sources too, so the card can tell paused from undefined", async () => {
+    await seed();
+    await db.update(incomeSources).set({ active: false });
+
+    const inputs = await savingsRateInputs({ from: "2026-01-01", to: "2026-12-31" });
+    expect(inputs.sources).toHaveLength(1);
+    expect(inputs.sources[0]?.active).toBe(false);
+  });
+});
+
+describe("listAccountContributions", () => {
+  beforeEach(reset);
+  afterAll(reset);
+
+  it("lists the account's contributions newest first, with the paycheck name", async () => {
+    const { ruleId, investmentId } = await seed();
+    await seedContributions(ruleId);
+
+    const rows = await listAccountContributions(investmentId);
+    expect(rows.map((r) => r.payDate)).toEqual(["2026-01-16", "2026-01-02"]);
+    expect(rows[0]?.sourceName).toBe("Acme Corp");
+    expect(rows[0]?.employeeAmount).toBe("180.00");
+    expect(rows[0]?.employerAmount).toBe("90.00");
+  });
+
+  it("returns nothing for an account no rule funds", async () => {
+    const { ruleId } = await seed();
+    await seedContributions(ruleId);
+    const [other] = await db
+      .insert(accounts)
+      .values({ name: "Brokerage", institution: "Vanguard", type: "investment", currency: "USD" })
+      .returning({ id: accounts.id });
+
+    expect(await listAccountContributions(other?.id ?? "")).toEqual([]);
+  });
+
+  it("caps the ledger at the requested limit", async () => {
+    const { ruleId, investmentId } = await seed();
+    await seedContributions(ruleId);
+
+    const rows = await listAccountContributions(investmentId, 1);
+    // The cap keeps the newest, not an arbitrary page.
+    expect(rows.map((r) => r.payDate)).toEqual(["2026-01-16"]);
   });
 });
