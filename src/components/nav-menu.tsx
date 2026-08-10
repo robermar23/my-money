@@ -26,6 +26,7 @@ const LINKS = [
   { href: "/watchlist", label: "Watchlist" },
   { href: "/analysis", label: "Analysis" },
   { href: "/settings/categories", label: "Categories" },
+  { href: "/settings/income", label: "Income" },
   { href: "/settings/connections", label: "Connections" },
   { href: "/alerts", label: "Alerts" },
 ] as const;
