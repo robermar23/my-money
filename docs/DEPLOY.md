@@ -623,6 +623,7 @@ the worker container's local time; set the host/container `TZ` accordingly.
 | Time  | Job                          | Why this order                                  |
 |-------|------------------------------|-------------------------------------------------|
 | 01:30 | `fetch-prices-daily`         | prices land before holdings are valued          |
+| 01:45 | `materialize-contributions`  | after 01:30's prices, before 02:00's snapshots  |
 | 02:00 | `compute-snapshots-daily`    | values holdings using 01:30's prices            |
 | 03:00 | `enqueue-plaid-syncs-daily`  | safety-net Plaid sync (webhooks are primary)    |
 | 04:00 | `backup-database-daily`      | dump captures the day's synced transactions     |
