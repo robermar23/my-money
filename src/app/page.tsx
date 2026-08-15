@@ -6,7 +6,7 @@ import { IncomeCard } from "@/components/dashboard/income-card.tsx";
 import { MoversCard } from "@/components/dashboard/movers-card.tsx";
 import { PerformanceCard } from "@/components/dashboard/performance-card.tsx";
 import { RangeToggle } from "@/components/dashboard/range-toggle.tsx";
-import { SavingsRateSlot } from "@/components/dashboard/savings-rate-slot.tsx";
+import { SavingsRateCard } from "@/components/dashboard/savings-rate-card.tsx";
 import { DashboardSkeleton } from "@/components/dashboard/skeleton.tsx";
 import { SpendCard } from "@/components/dashboard/spend-card.tsx";
 import { requireUser } from "@/lib/auth/require-user.ts";
@@ -133,10 +133,9 @@ async function DashboardBody({
         <IncomeCard data={data.income} className={SPAN_STANDARD} />
         <AlertsCard data={data.alerts} className={SPAN_STANDARD} />
         <MoversCard data={data.movers} className={SPAN_STANDARD} />
-        {/* Reserved slot (P13-13) — renders nothing until PLAN14's P14-17
-            populates `savingsRate`, at which point it takes the column beside
-            the movers card. */}
-        <SavingsRateSlot data={data.savingsRate} className={SPAN_STANDARD} />
+        {/* Savings rate (P14-17) — fills the column Phase 13 reserved beside
+            the movers card (P13-13). */}
+        <SavingsRateCard data={data.savingsRate} className={SPAN_STANDARD} />
       </div>
 
       {/* Accounts table — still useful, de-emphasized below the cards */}

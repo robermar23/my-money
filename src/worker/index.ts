@@ -10,6 +10,7 @@ import {
   exportBeancountDailyQueue,
   fetchPricesDailyQueue,
   heartbeatQueue,
+  materializeContributionsQueue,
   processImportQueue,
   recategorizeAllQueue,
   refreshFundamentalsWeeklyQueue,
@@ -26,6 +27,7 @@ import { evaluatePriceTargetsProcessor } from "./jobs/evaluate-price-targets.ts"
 import { exportBeancountDailyProcessor } from "./jobs/export-beancount-daily.ts";
 import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
 import { heartbeatProcessor } from "./jobs/heartbeat.ts";
+import { materializeContributionsProcessor } from "./jobs/materialize-contributions.ts";
 import { processImportProcessor } from "./jobs/process-import.ts";
 import { recategorizeAllProcessor } from "./jobs/recategorize-all.ts";
 import { refreshFundamentalsWeeklyProcessor } from "./jobs/refresh-fundamentals-weekly.ts";
@@ -208,6 +210,22 @@ backfillWatchlistSymbolWorker.on("failed", (job, err) => {
   console.error(`[worker] backfill-watchlist-symbol job ${job?.id} failed:`, err);
 });
 
+// Phase 14 (P14-09): nightly payroll-contribution materialization. concurrency=1
+// — a single sequential pass over the user's rules, each contribution in its own
+// DB transaction.
+const materializeContributionsWorker = new Worker(
+  QUEUE_NAMES.MATERIALIZE_CONTRIBUTIONS,
+  // Wrapped so BullMQ's (job, token) signature doesn't land a string in the
+  // processor's optional options parameter.
+  async (job) => {
+    await materializeContributionsProcessor(job);
+  },
+  { connection: redisConnection, concurrency: 1 },
+);
+materializeContributionsWorker.on("failed", (job, err) => {
+  console.error(`[worker] materialize-contributions job ${job?.id} failed:`, err);
+});
+
 // Ensure a single heartbeat repeatable job exists. Removing first guards against
 // pattern duplication across restarts.
 await heartbeatQueue.removeJobScheduler("heartbeat-tick").catch(() => {
@@ -228,6 +246,23 @@ await fetchPricesDailyQueue.upsertJobScheduler(
   "fetch-prices-daily-cron",
   { pattern: "30 1 * * *" },
   { name: "fetch-prices-daily", data: {} },
+);
+
+// P14-10 — Nightly contribution materialization at 01:45 local, wedged into the
+// existing chain: AFTER the 01:30 price fetch so a same-day pay date prices off
+// a same-day close, and BEFORE the 02:00 snapshot so the lots and quantities it
+// writes are valued that same night. The price ordering is an optimization, not
+// a correctness dependency — `latestCloseOnOrBefore` falls back to the previous
+// close, and a pay date with no price at all degrades to basis-only (ADR-031).
+await materializeContributionsQueue
+  .removeJobScheduler("materialize-contributions-cron")
+  .catch(() => {
+    /* first run */
+  });
+await materializeContributionsQueue.upsertJobScheduler(
+  "materialize-contributions-cron",
+  { pattern: "45 1 * * *" },
+  { name: "materialize-contributions", data: {} },
 );
 
 // Nightly snapshot job: every day at 02:00 local. Cron pattern "0 2 * * *".
@@ -318,6 +353,7 @@ async function shutdown(_signal: string): Promise<void> {
   await refreshFundamentalsWeeklyWorker.close();
   await backfillWatchlistSymbolWorker.close();
   await evaluatePriceTargetsWorker.close();
+  await materializeContributionsWorker.close();
   await heartbeatQueue.close();
   await computeSnapshotsDailyQueue.close();
   await fetchPricesDailyQueue.close();
@@ -332,6 +368,7 @@ async function shutdown(_signal: string): Promise<void> {
   await refreshFundamentalsWeeklyQueue.close();
   await backfillWatchlistSymbolQueue.close();
   await evaluatePriceTargetsQueue.close();
+  await materializeContributionsQueue.close();
   await redisConnection.quit();
   process.exit(0);
 }

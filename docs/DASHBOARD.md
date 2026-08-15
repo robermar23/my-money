@@ -42,7 +42,7 @@ If a figure looks wrong here, it is wrong on its deep page too — fix it there.
 | **Forward income** | Estimated forward 12-month income, yield-on-cost, largest payers | `listValuedPositions` → `forwardIncome` | `/investments/forecast` |
 | **Alerts** | Open-alert count + the three most recent titles | `listOpenAlerts` | `/alerts` |
 | **Watchlist movers** | Top two and bottom two *paper* movers | `listWatchlist` (Phase 11 `paperValuation`) | `/watchlist` |
-| **Savings rate** | — reserved seam, renders nothing | *(Phase 14, ADR-030/031)* | — |
+| **Savings rate** | Employee contributions ÷ projected annual gross, with the employer match beside it | `savingsRateInputs` → `savingsRate` (Phase 14, ADR-030/031) | `/settings/income` |
 
 Three of those carry a label that is not decoration:
 
@@ -53,6 +53,11 @@ Three of those carry a label that is not decoration:
 - **Watchlist movers** are *pretend* positions and are labeled "not counted in
   net worth" (**ADR-025**). They are structurally outside net worth: a watchlist
   item is neither an account nor a holding.
+
+The **savings rate** carries the same kind of label for the same kind of reason:
+its denominator is *projected* (current gross × pay periods) while its numerator
+is *measured* (contributions materialized in the window), so the card says
+"estimate" and names the window it summed.
 
 Alert titles are **content-free** (**ADR-015**) — the card shows the title and the
 count, never a figure.
@@ -80,8 +85,11 @@ One control, one URL param, shared by everything time-based.
 performance card (its TWR window and its benchmark window).
 
 **What it deliberately does not drive:** spending is always the **current calendar
-month** (a "3M budget" is not a thing), and allocation, forward income, alerts,
-and movers are all **as-of-now** figures with no time window to rewind.
+month** (a "3M budget" is not a thing); the savings rate always reads a **trailing
+12 months**, because an annual ratio measured over one month is not a zoomed-in
+number but a wrong one (see [INCOME.md](INCOME.md)); and allocation, forward
+income, alerts, and movers are all **as-of-now** figures with no time window to
+rewind.
 
 ---
 
@@ -101,6 +109,7 @@ card renders its degraded state without re-deriving "is this empty?" (ADR-029 §
 | No dividend payers | Forward income shows an empty state |
 | No open alerts | Alerts shows the empty state — here that is good news |
 | No priced paper positions | Movers shows an empty state |
+| No income source defined | Savings rate says "Define your income…" — *not* 0%, which would claim you save nothing |
 
 ---
 

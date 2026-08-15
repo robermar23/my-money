@@ -44,13 +44,13 @@ Phase 14 plugs into the Phase-5 investment ledger. Inventory before writing a li
 
 ## ADRs locked at plan time
 
-Two decisions surface in Phase 14. Both are 🔲 **Proposed** — append to [IDEAS.md](IDEAS.md) §11 Decision Log (next free numbers **ADR-030 → ADR-031**; verified ADR-029 is current max after Phase 13) after this plan is approved (P14-00).
+Two decisions surface in Phase 14. Both are ✅ **Locked 2026-08-09** — appended to [IDEAS.md](IDEAS.md) §11 Decision Log as **ADR-030 → ADR-031** (ADR-029 verified as the max after Phase 13) under P14-00.
 
 ---
 
 ### ADR-030 — Income & retirement-contribution model: `income_sources` (the paycheck) + `retirement_contributions` (the 401k rule) + `income_contributions` (the materialized ledger); multiple sources; single-tier employer match with a cap
 
-**Status**: 🔲 Proposed
+**Status**: ✅ Locked 2026-08-09
 
 **Context**: Round 8 needs three distinct things stored: *what the paycheck is* (cadence + gross), *the rule that turns a paycheck into a 401k contribution* (employee %/$, employer match, which account/holding it funds), and *the record that a specific period's contribution happened* (so materialization is idempotent and the basis is auditable). Conflating them into one table breaks down the moment there are two income sources, or the rule changes mid-year, or we need to dedupe "did we already create March 15th's contribution?"
 
@@ -81,7 +81,7 @@ Two decisions surface in Phase 14. Both are 🔲 **Proposed** — append to [IDE
 
 ### ADR-031 — A scheduled job materializes each due contribution into the investment ledger as a `buy` + cost-basis lot (priceable holdings) or a basis-only increment (unpriceable funds); idempotent by `(rule, pay_date)`; run-once backfill from each source's start
 
-**Status**: 🔲 Proposed
+**Status**: ✅ Locked 2026-08-09
 
 **Context**: ADR-030 stores the *rule*; something has to turn "biweekly, 6% of $4,000, 50% match up to 4%" into actual cost basis on the 401k. The cleanest integration is to make a contribution **look exactly like a buy**, so the existing lots → cost-basis → gain/loss → TWR/XIRR machinery (ADR-012/019/021) consumes it with zero special-casing. But 401k plans split into two real cases: (a) the position is a **priceable** fund/ETF with a public ticker (e.g. `FXAIX`) — we can compute shares from the contribution-date close; (b) the position is an **institutional fund with no public price** — we know the dollars contributed but not a defensible share count.
 

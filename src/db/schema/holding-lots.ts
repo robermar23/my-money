@@ -41,7 +41,7 @@ export const holdingLots = pgTable(
     quantity: numeric("quantity", { precision: 28, scale: 8 }).notNull(),
     /** Total dollar basis for this lot. Per-unit = total / quantity (computed at display). */
     costBasisTotal: numeric("cost_basis_total", { precision: 18, scale: 2 }).notNull(),
-    /** 'manual' | 'plaid'. */
+    /** 'manual' | 'plaid' | 'income' (Phase 14 — a materialized 401k contribution). */
     source: text("source").notNull().default("manual"),
     /** The Plaid buy transaction that created a Plaid-derived lot; dedup key. */
     plaidInvestmentTransactionId: text("plaid_investment_transaction_id"),
@@ -57,7 +57,13 @@ export const holdingLots = pgTable(
     holdingPlaidTxnUnique: uniqueIndex("holding_lots_holding_plaid_txn_unique")
       .on(table.holdingId, table.plaidInvestmentTransactionId)
       .where(sql`${table.plaidInvestmentTransactionId} IS NOT NULL`),
-    sourceCheck: check("holding_lots_source_check", sql`${table.source} IN ('manual', 'plaid')`),
+    // 'income' (Phase 14, ADR-031): a lot materialized from a defined paycheck
+    // contribution. Source-scoping is the double-count guard — the contribution
+    // job reads and writes ONLY these rows and never touches manual/plaid lots.
+    sourceCheck: check(
+      "holding_lots_source_check",
+      sql`${table.source} IN ('manual', 'plaid', 'income')`,
+    ),
   }),
 );
 

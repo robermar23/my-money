@@ -224,3 +224,66 @@ to the dashboard to make it more informative given all of the features we have a
   path, nothing financial is logged, and the page is `requireUser()`-guarded exactly as today.
 
 Implemented under **ADR-029** (IDEAS.md §11 Decision Log) via [PLAN13.md](PLAN13.md). See [docs/DASHBOARD.md](../../docs/DASHBOARD.md).
+
+### 2026-08-09 — Intentional income + 401k contributions as cost basis (in scope)
+
+Source: [IDEAS2.md](IDEAS2.md) Round 8. The owner asked: "401k investments from a
+retirement plan do not show cost basis or gain/loss which is understood. However, from a
+user's perspective, the 'cost basis' would be the amount of income they invest in their
+401k every paycheck. Can the user not have the ability to define their 'income' in an
+intentional way and have the 401k amount or percentage defined so it is included in
+investment calculations?"
+
+The owner is right, and the framing is the feature: for a payroll-funded retirement
+account, **cost basis is just the sum of what you contributed**. Employer-plan data
+(Plaid or otherwise) rarely carries basis, so the 401k renders "—" for gain/loss forever
+unless the user can state what they put in. Defining income is therefore lifted into
+scope on exactly the ADR-018 grounds that lifted budgets: **the owner explicitly asked
+for it**, and this file is where that decision is recorded.
+
+- **In scope (newly added):**
+  - **Intentional income sources** — the user defines one or more paychecks (name,
+    cadence ∈ weekly/biweekly/semimonthly/monthly, **gross per period**, anchor pay date,
+    start/optional end). Multiple sources are first-class (a job change mid-year, or two
+    jobs), not a singleton setting.
+  - **A 401k contribution rule per source** — employee contribution as a **percent of
+    gross or a fixed dollar amount**, plus a **single-tier employer match**
+    (none / % of gross / % of contribution / flat amount) with an optional
+    **cap as a % of gross**, targeting a specific `investment` account and optionally a
+    specific holding. A `pretax` flag is stored as a **label only**.
+  - **Contributions materialized into the real investment ledger** — a daily job turns
+    each due pay date into an actual `investment_transactions` row + a `holding_lots`
+    cost-basis lot, so the 401k's **cost basis, gain/loss, TWR, XIRR, allocation, and
+    snapshots populate through the machinery Phases 5/9 already built** — no parallel
+    "retirement" valuation path. Holdings with a public price get real shares
+    (dollars ÷ that day's close); opaque institutional funds accrue **basis only** with
+    quantity left to manual entry, honestly labeled as such.
+  - **A run-once backfill** materializes every historical pay date from each source's
+    start, so historical basis and the contribution timeline are right from day one.
+  - **A savings-rate card on the dashboard** — annual employee contributions ÷ annualized
+    gross, **derived on read, never stored** — dropping into the slot Round 7 reserved.
+  - **A contribution ledger** on the 401k account (date, employee, employer, total) so the
+    basis is auditable from the account it funds.
+- **Reaffirmed OUT of scope (not relaxed):** this models income **only as far as it
+  defines a retirement contribution and a savings rate** — it is not payroll and not
+  budgeting-income. Specifically still out: net-pay / take-home modeling, tax
+  withholding, FICA, deduction stacks, or a paycheck stub (we store *gross per period* +
+  *contribution*, nothing about taxes); pre-tax vs Roth **tax treatment** beyond the
+  label; a general income ledger feeding budgets or cash-flow envelopes (Round 2 budgeting
+  stays expense-side); any tax-lot **selection**, wash-sale tracking, realized/unrealized
+  **tax** reporting, or 1099 generation (gain/loss remains a display figure — reaffirms
+  the PLAN5/PLAN9 boundary); multi-tier employer-match formula engines ("100% to 4%, then
+  50% to 6%"); IRS contribution-limit enforcement; and **pulling real payroll data from an
+  external provider** (no ADP, Gusto, or Plaid-payroll — the user *defines* it
+  intentionally, which is the entire point). Crossing any of these needs a new FEATURE.md
+  decision first.
+- **Privacy stance:** income, gross pay, and contribution amounts are the **most sensitive
+  new data class in the app**, and they stay **100% in local Postgres**. This phase
+  introduces **no new egress class** — the only outbound HTTP on any contribution code
+  path is the *existing* daily price fetch for the designated holding's ticker (the same
+  data category Phases 2/5/11 already send: **only the symbol leaves the box, never a
+  dollar amount**). No income or contribution figure is ever logged, and none of it
+  appears in the content-free notification email. It rides the nightly `age`-encrypted
+  `pg_dump` like everything else. A regression test enforces both properties.
+
+Implemented under **ADR-030 → ADR-031** (IDEAS.md §11 Decision Log) via [PLAN14.md](PLAN14.md). See [docs/INCOME.md](../../docs/INCOME.md).

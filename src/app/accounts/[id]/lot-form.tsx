@@ -18,6 +18,13 @@ const initial: ActionResult = {};
 const fieldClass =
   "mt-1 w-full rounded-md border border-zinc-300 px-2 py-1.5 text-sm shadow-sm focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900";
 
+/** Lot provenance labels — `income` is a payroll contribution (P14-16). */
+const LOT_SOURCE_LABEL: Record<string, string> = {
+  manual: "Manual",
+  plaid: "Synced",
+  income: "Contribution",
+};
+
 export interface LotView {
   readonly id: string;
   readonly acquiredAt: string | null;
@@ -92,7 +99,9 @@ export function LotsEditor({
                       {fmt.format(Number(lot.costBasisTotal))}
                     </td>
                     <td className="py-1 text-right font-mono">{fmt.format(Number(lot.perUnit))}</td>
-                    <td className="py-1 text-zinc-500">{lot.source}</td>
+                    <td className="py-1 text-zinc-500">
+                      {LOT_SOURCE_LABEL[lot.source] ?? lot.source}
+                    </td>
                     <td className="py-1 text-right">
                       <button
                         type="button"

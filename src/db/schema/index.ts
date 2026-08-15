@@ -27,3 +27,6 @@ export * from "./plaid-sync-runs.ts";
 export * from "./alerts.ts";
 export * from "./watchlist-items.ts";
 export * from "./price-targets.ts";
+export * from "./income-sources.ts";
+export * from "./retirement-contributions.ts";
+export * from "./income-contributions.ts";

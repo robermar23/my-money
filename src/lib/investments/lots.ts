@@ -104,6 +104,9 @@ export interface BuyTxnInput {
   readonly isoCurrencyCode?: string;
 }
 
+/** Where a lot came from — mirrors the `holding_lots.source` CHECK. */
+export type LotSource = "manual" | "plaid" | "income";
+
 /**
  * P5-14 — Construct a cost-basis lot from a `buy` investment transaction.
  *
@@ -113,9 +116,16 @@ export interface BuyTxnInput {
  *
  * @param txn - A mapped investment-transaction row.
  * @param holdingId - The holding this lot belongs to.
+ * @param source - Lot provenance. Defaults to 'plaid' (the P5-14 caller);
+ *   the Phase-14 contribution job passes 'income' so its lots stay
+ *   source-scoped and never mingle with synced ones (ADR-031 §5).
  * @returns A `NewHoldingLot`, or null when the row can't form a lot.
  */
-export function lotFromBuy(txn: BuyTxnInput, holdingId: string): NewHoldingLot | null {
+export function lotFromBuy(
+  txn: BuyTxnInput,
+  holdingId: string,
+  source: LotSource = "plaid",
+): NewHoldingLot | null {
   if (txn.type !== "buy") return null;
   if (txn.quantity === null || txn.quantity === undefined) return null;
   const quantity = new Decimal(txn.quantity);
@@ -130,7 +140,7 @@ export function lotFromBuy(txn: BuyTxnInput, holdingId: string): NewHoldingLot |
     acquiredAt: txn.tradeDate,
     quantity: txn.quantity,
     costBasisTotal: costBasisTotal.toString(),
-    source: "plaid",
+    source,
     plaidInvestmentTransactionId: txn.plaidInvestmentTransactionId,
   };
 }

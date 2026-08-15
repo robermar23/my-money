@@ -12,6 +12,8 @@ import { spendByCategory } from "@/lib/analytics/spending.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { listCategoriesWithGroups } from "@/lib/categories/queries.ts";
 import { valueHolding } from "@/lib/holdings/value.ts";
+import { listAccountContributions } from "@/lib/income/queries.ts";
+import { basisProvenance } from "@/lib/investments/basis-provenance.ts";
 import { gainLoss } from "@/lib/investments/gain-loss.ts";
 import { lotCoverage, resolveCostBasis } from "@/lib/investments/lots.ts";
 import { Money } from "@/lib/money/money.ts";
@@ -121,20 +123,31 @@ export default async function AccountDetailPage(
     account.type === "credit_card" ||
     account.type === "investment";
 
-  const [latestSnap, snapshots, accountHoldings, accountLots, liability, txnResult, categoryData] =
-    await Promise.all([
-      getLatestSnapshot(accountId),
-      listSnapshots(accountId),
-      listHoldings(accountId),
-      listLots(accountId),
-      getLiability(accountId),
-      showTransactions
-        ? listTransactions({ accountId, filters, page })
-        : Promise.resolve({ rows: [], totalCount: 0, page: 1, pageSize: 50, totalPages: 1 }),
-      showTransactions
-        ? listCategoriesWithGroups()
-        : Promise.resolve({ groups: [], categories: [] }),
-    ]);
+  // P14-18 — only an `investment` account can be a contribution target (the
+  // rule editor refuses anything else), so nothing else pays for this read.
+  const showContributions = account.type === "investment";
+
+  const [
+    latestSnap,
+    snapshots,
+    accountHoldings,
+    accountLots,
+    liability,
+    txnResult,
+    categoryData,
+    contributions,
+  ] = await Promise.all([
+    getLatestSnapshot(accountId),
+    listSnapshots(accountId),
+    listHoldings(accountId),
+    listLots(accountId),
+    getLiability(accountId),
+    showTransactions
+      ? listTransactions({ accountId, filters, page })
+      : Promise.resolve({ rows: [], totalCount: 0, page: 1, pageSize: 50, totalPages: 1 }),
+    showTransactions ? listCategoriesWithGroups() : Promise.resolve({ groups: [], categories: [] }),
+    showContributions ? listAccountContributions(accountId) : Promise.resolve([]),
+  ]);
 
   const categoryOptions = categoryData.categories.map((c) => ({
     id: c.id,
@@ -191,6 +204,8 @@ export default async function AccountDetailPage(
     const gl =
       priced && resolvedBasis ? gainLoss({ value: v.value, costBasis: resolvedBasis }) : null;
     const coverage = lots.length > 0 ? lotCoverage(v.holding, lotInputs) : null;
+    // P14-16 — did a payroll contribution rule fund this basis?
+    const provenance = basisProvenance(lots);
     const coverageNote =
       coverage && !coverage.isComplete
         ? `lots cover ${coverage.coveredQty} of ${coverage.holdingQty}`
@@ -206,8 +221,14 @@ export default async function AccountDetailPage(
         source: l.source,
       };
     });
-    return { v, resolvedBasis, gl, coverageNote, lotViews };
+    return { v, resolvedBasis, gl, coverageNote, lotViews, provenance };
   });
+
+  // P14-16 — page-level flags for the contribution-basis footnote.
+  const anyContributionBasis = holdingDerived.some((h) => h.provenance.fromContributions);
+  const anyBasisOnlyContribution = holdingDerived.some(
+    (h) => h.provenance.hasBasisOnlyContributions,
+  );
 
   // Quarterly-update hint: when was any holding last touched?
   const lastHoldingUpdate = accountHoldings.reduce<Date | null>((latest, h) => {
@@ -364,7 +385,7 @@ export default async function AccountDetailPage(
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
-                  {holdingDerived.map(({ v, resolvedBasis, gl, coverageNote }) => (
+                  {holdingDerived.map(({ v, resolvedBasis, gl, coverageNote, provenance }) => (
                     <tr key={v.holding.id}>
                       <td className="py-2 font-mono">{v.holding.symbol}</td>
                       <td className="py-2 text-zinc-600 dark:text-zinc-400">
@@ -390,6 +411,14 @@ export default async function AccountDetailPage(
                             title={coverageNote}
                           >
                             *
+                          </span>
+                        )}
+                        {provenance.fromContributions && (
+                          <span
+                            className="ml-1 text-zinc-400"
+                            title="Cost basis tracked from payroll contributions"
+                          >
+                            †
                           </span>
                         )}
                       </td>
@@ -429,6 +458,24 @@ export default async function AccountDetailPage(
             </div>
           )}
 
+          {/* P14-16 — a 401k's basis now comes from the user's own contribution
+              rule rather than the institution; say so where the figure appears. */}
+          {anyContributionBasis && (
+            <p className="mt-2 text-xs text-zinc-500">
+              † Cost basis tracked from payroll contributions.{" "}
+              <Link href="/settings/income" className="underline">
+                Income settings
+              </Link>
+              {anyBasisOnlyContribution && (
+                <>
+                  {" "}
+                  Some contributions could not be priced, so their basis is recorded without shares
+                  — those quantities are your own entries.
+                </>
+              )}
+            </p>
+          )}
+
           {/* P5-18 — per-holding cost-basis lot editors. */}
           {holdingDerived.length > 0 && (
             <div className="mt-6 border-zinc-200 border-t pt-4 dark:border-zinc-800">
@@ -452,6 +499,57 @@ export default async function AccountDetailPage(
               </div>
             </div>
           )}
+        </section>
+      )}
+
+      {/* P14-18 — the audit trail behind the cost basis above: which paycheck
+          put which dollars in, read-only. Contributions are written solely by
+          the materialization job (ADR-031), so there is nothing to edit here —
+          the rule that generates them lives in /settings/income. */}
+      {contributions.length > 0 && (
+        <section className="mt-8 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-medium">Contributions</h2>
+            <Link href="/settings/income" className="text-sm text-zinc-500 hover:underline">
+              Income settings →
+            </Link>
+          </div>
+          <p className="mt-1 text-sm text-zinc-500">
+            Payroll contributions that funded this account, newest first. These created the cost
+            basis on the holdings above.
+          </p>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[30rem] text-sm">
+              <thead className="text-left text-xs text-zinc-500 uppercase">
+                <tr>
+                  <th className="py-2">Pay date</th>
+                  <th className="py-2">Source</th>
+                  <th className="py-2 text-right">You</th>
+                  <th className="py-2 text-right">Employer</th>
+                  <th className="py-2 text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
+                {contributions.map((c) => (
+                  <tr key={c.id}>
+                    <td className="py-2 font-mono">{c.payDate}</td>
+                    <td className="py-2 text-zinc-600 dark:text-zinc-400">{c.sourceName}</td>
+                    <td className="py-2 text-right font-mono tabular-nums">
+                      {Money.fromString(c.employeeAmount, c.currency).format()}
+                    </td>
+                    <td className="py-2 text-right font-mono tabular-nums">
+                      {Money.fromString(c.employerAmount, c.currency).format()}
+                    </td>
+                    <td className="py-2 text-right font-mono tabular-nums">
+                      {Money.fromString(c.employeeAmount, c.currency)
+                        .add(Money.fromString(c.employerAmount, c.currency))
+                        .format()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 

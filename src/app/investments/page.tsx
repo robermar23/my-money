@@ -10,6 +10,7 @@ import {
   allocationBySector,
   concentration,
 } from "@/lib/investments/allocation.ts";
+import { basisProvenance } from "@/lib/investments/basis-provenance.ts";
 import { formatQuantity } from "@/lib/investments/format.ts";
 import { gainLoss, portfolioGainLoss } from "@/lib/investments/gain-loss.ts";
 import { type IncomePeriod, incomeByPeriod } from "@/lib/investments/income.ts";
@@ -78,10 +79,13 @@ export default async function InvestmentsPage(
     listBalanceOnlyInvestmentAccounts(),
   ]);
 
-  const lotsByHolding = new Map<string, { quantity: string; costBasisTotal: string }[]>();
+  const lotsByHolding = new Map<
+    string,
+    { quantity: string; costBasisTotal: string; source: string }[]
+  >();
   for (const lot of lots) {
     const arr = lotsByHolding.get(lot.holdingId) ?? [];
-    arr.push({ quantity: lot.quantity, costBasisTotal: lot.costBasisTotal });
+    arr.push({ quantity: lot.quantity, costBasisTotal: lot.costBasisTotal, source: lot.source });
     lotsByHolding.set(lot.holdingId, arr);
   }
 
@@ -101,7 +105,9 @@ export default async function InvestmentsPage(
         : resolveCostBasis({ costBasis: p.holding.costBasis }, lotInputs, currency);
       const priced = valuation.closeUsed !== null || isCash;
       const gl = priced && costBasis ? gainLoss({ value: valuation.value, costBasis }) : null;
-      return { p, valuation, priced, costBasis, gl };
+      // P14-16 — mark basis that a payroll contribution rule funded.
+      const provenance = basisProvenance(lotInputs);
+      return { p, valuation, priced, costBasis, gl, provenance };
     }),
   );
 
@@ -335,6 +341,7 @@ export default async function InvestmentsPage(
               (acc, r) => acc.add(r.valuation.value),
               Money.zero(group.currency),
             );
+            const fromContributions = group.rows.some((r) => r.provenance.fromContributions);
             return (
               <section key={group.name} className="mt-8">
                 <div className="flex items-center justify-between">
@@ -397,6 +404,14 @@ export default async function InvestmentsPage(
                           </td>
                           <td className="py-2 pr-2 text-right font-mono tabular-nums">
                             {r.costBasis ? r.costBasis.format() : "—"}
+                            {r.provenance.fromContributions && (
+                              <span
+                                className="ml-1 text-zinc-400"
+                                title="Cost basis tracked from payroll contributions"
+                              >
+                                †
+                              </span>
+                            )}
                           </td>
                           <td
                             className={`whitespace-nowrap py-2 text-right font-mono tabular-nums ${
@@ -414,6 +429,17 @@ export default async function InvestmentsPage(
                     </tbody>
                   </table>
                 </div>
+                {/* P14-16 — explain the † marker where it appears, so a basis
+                    that only exists because of a contribution rule is never
+                    mistaken for one the institution reported. */}
+                {fromContributions && (
+                  <p className="mt-2 text-xs text-zinc-500">
+                    † Cost basis tracked from payroll contributions.{" "}
+                    <Link href="/settings/income" className="underline">
+                      Income settings
+                    </Link>
+                  </p>
+                )}
               </section>
             );
           })}

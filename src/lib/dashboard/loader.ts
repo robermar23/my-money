@@ -3,6 +3,8 @@ import "server-only";
 import { listOpenAlerts } from "@/lib/alerts/queries.ts";
 import { spendingSummary } from "@/lib/analytics/spending.ts";
 import { budgetVsActual, monthRange } from "@/lib/budgets/queries.ts";
+import { savingsRateInputs } from "@/lib/income/queries.ts";
+import { savingsRate } from "@/lib/income/savings-rate.ts";
 import {
   type AllocationSlice,
   type ValuedHolding,
@@ -165,12 +167,15 @@ export type MoversCard =
   | { readonly status: "empty" };
 
 /**
- * Savings-rate card data — the seam reserved for PLAN14 (P13-13).
+ * Savings-rate card data — the seam reserved in P13-13, filled in by P14-17.
  *
- * Phase 13 defines the *shape* only; `loadDashboard` never populates it, because
- * the income sources it derives from don't exist until Phase 14 (ADR-030/031).
- * Declaring it here means P14-17 wires `savingsRate(...)` into the loader and
- * drops its card into the reserved grid slot without restructuring either.
+ * The figures come straight from `savingsRate` (P14-07, ADR-031 §4): the rate is
+ * derived on every read and never stored. `window` travels with them because the
+ * two halves of the ratio are measured differently — `annualGross` is *projected*
+ * forward from the current paycheck, while the contribution totals are *measured*
+ * sums over that window. The card states this rather than presenting the number
+ * as a fact (the plan's "estimate framing"), and carrying the window means the
+ * copy stays true if the loader's window ever changes.
  */
 export type SavingsRateCard =
   | {
@@ -180,6 +185,8 @@ export type SavingsRateCard =
       readonly annualGross: Money;
       readonly annualEmployee: Money;
       readonly annualEmployer: Money;
+      /** The contribution window the two totals were summed over. */
+      readonly window: DashboardWindow;
     }
   /** No income source defined yet. */
   | { readonly status: "empty" };
@@ -199,9 +206,9 @@ export interface DashboardData {
   readonly alerts: AlertsCard;
   readonly movers: MoversCard;
   /**
-   * Reserved seam for PLAN14's savings-rate card (P13-13). Always `undefined` in
-   * Phase 13 — the field exists so Phase 14 drops the card in without
-   * restructuring the loader's return type or the grid.
+   * The savings-rate card (P13-13 seam, populated by P14-17). Stays optional:
+   * the loader always sets it now, but the field's optionality is what let the
+   * card arrive a phase later without a breaking type change.
    */
   readonly savingsRate?: SavingsRateCard;
 }
@@ -224,24 +231,41 @@ export async function loadDashboard(
   const today = now.toISOString().slice(0, 10);
   const monthBounds = monthRange(month);
 
+  // The savings rate is annual by definition, so it reads a trailing 12 months
+  // regardless of the selected range — a "1M" view of a yearly ratio would be a
+  // different (and misleading) number, not a zoomed-in one.
+  const savingsWindow = rangeWindow("1Y", now);
+
   // Independent reads fan out in parallel — one round-trip of concurrent queries.
-  const [nw, series, valued, snapshots, flowTxns, benchCloses, budget, summary, openAlerts, watch] =
-    await Promise.all([
-      computeNetWorth(now, BASE_CURRENCY),
-      // Windowed at the database, not in JS. `rangeDelta` re-derives the same
-      // `rangeWindow(range, now)` and filters to it internally, so it can never
-      // read a point outside `window` — passing a pre-windowed series is exactly
-      // equivalent to filtering the full one, minus the full-history query.
-      netWorthSeries(BASE_CURRENCY, { from: window.from, to: window.to }),
-      listValuedPositions(today),
-      listHoldingSnapshots({ from: window.from, to: window.to }),
-      listInvestmentFlows({ from: window.from, to: window.to }),
-      benchmarkCloseSeries(BENCHMARK_SYMBOL, { from: window.from, to: window.to }),
-      budgetVsActual(month, now),
-      spendingSummary({ from: monthBounds.from, to: monthBounds.to }),
-      listOpenAlerts(),
-      listWatchlist(),
-    ]);
+  const [
+    nw,
+    series,
+    valued,
+    snapshots,
+    flowTxns,
+    benchCloses,
+    budget,
+    summary,
+    openAlerts,
+    watch,
+    incomeInputs,
+  ] = await Promise.all([
+    computeNetWorth(now, BASE_CURRENCY),
+    // Windowed at the database, not in JS. `rangeDelta` re-derives the same
+    // `rangeWindow(range, now)` and filters to it internally, so it can never
+    // read a point outside `window` — passing a pre-windowed series is exactly
+    // equivalent to filtering the full one, minus the full-history query.
+    netWorthSeries(BASE_CURRENCY, { from: window.from, to: window.to }),
+    listValuedPositions(today),
+    listHoldingSnapshots({ from: window.from, to: window.to }),
+    listInvestmentFlows({ from: window.from, to: window.to }),
+    benchmarkCloseSeries(BENCHMARK_SYMBOL, { from: window.from, to: window.to }),
+    budgetVsActual(month, now),
+    spendingSummary({ from: monthBounds.from, to: monthBounds.to }),
+    listOpenAlerts(),
+    listWatchlist(),
+    savingsRateInputs(savingsWindow),
+  ]);
 
   const netWorth: NetWorthHero = {
     total: nw.total,
@@ -263,6 +287,7 @@ export async function loadDashboard(
     income: buildIncome(valued),
     alerts: buildAlerts(openAlerts),
     movers: buildMovers(watch),
+    savingsRate: buildSavingsRate(incomeInputs, savingsWindow),
   };
 }
 
@@ -450,4 +475,30 @@ function buildMovers(watch: Awaited<ReturnType<typeof listWatchlist>>): MoversCa
     movers.push(r);
   }
   return { status: "ok", movers };
+}
+
+/**
+ * Savings rate over a trailing year; empty until an income source exists.
+ *
+ * Delegates every figure to `savingsRate` (P14-07) — the same function the
+ * `/settings/income` preview calls, so the dashboard and the rule editor can
+ * never disagree about what a contribution is worth.
+ */
+function buildSavingsRate(
+  inputs: Awaited<ReturnType<typeof savingsRateInputs>>,
+  window: DashboardWindow,
+): SavingsRateCard {
+  // No paycheck defined is a genuinely empty card, not a 0% rate: 0% would read
+  // as "you save nothing", which is a claim we have no data to make.
+  if (inputs.sources.length === 0) return { status: "empty" };
+
+  const rate = savingsRate(inputs.sources, inputs.contributions, BASE_CURRENCY);
+  return {
+    status: "ok",
+    ratePct: rate.ratePct,
+    annualGross: rate.annualGross,
+    annualEmployee: rate.annualEmployee,
+    annualEmployer: rate.annualEmployer,
+    window,
+  };
 }

@@ -80,6 +80,11 @@ export interface InvestmentLotRow {
   readonly holdingId: string;
   readonly quantity: string;
   readonly costBasisTotal: string;
+  /**
+   * Lot provenance — 'manual' | 'plaid' | 'income'. Carried so the UI can say
+   * where a cost basis came from (P14-16); `resolveCostBasis` ignores it.
+   */
+  readonly source: string;
 }
 
 export interface BalanceOnlyAccount {
@@ -143,6 +148,7 @@ export async function listInvestmentLots(): Promise<InvestmentLotRow[]> {
       holdingId: holdingLots.holdingId,
       quantity: holdingLots.quantity,
       costBasisTotal: holdingLots.costBasisTotal,
+      source: holdingLots.source,
     })
     .from(holdingLots)
     .innerJoin(holdings, eq(holdingLots.holdingId, holdings.id))
@@ -421,6 +427,7 @@ export async function securityDetail(holdingId: string): Promise<SecurityDetail 
       holdingId: holdingLots.holdingId,
       quantity: holdingLots.quantity,
       costBasisTotal: holdingLots.costBasisTotal,
+      source: holdingLots.source,
     })
     .from(holdingLots)
     .where(eq(holdingLots.holdingId, holdingId));

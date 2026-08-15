@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { valueHolding } from "@/lib/holdings/value.ts";
+import { basisProvenance } from "@/lib/investments/basis-provenance.ts";
 import { formatQuantity } from "@/lib/investments/format.ts";
 import { gainLoss } from "@/lib/investments/gain-loss.ts";
 import { incomeByPeriod } from "@/lib/investments/income.ts";
@@ -23,6 +24,13 @@ interface PageProps {
 }
 
 const UUID_RE = /^[0-9a-f-]{36}$/i;
+
+/** Lot provenance labels — `income` is a payroll contribution (P14-16). */
+const LOT_SOURCE_LABEL: Record<string, string> = {
+  manual: "Manual",
+  plaid: "Synced",
+  income: "Contribution",
+};
 
 /** ISO date `monthsBack` months before today (history window for the charts). */
 function isoMonthsAgo(monthsBack: number): string {
@@ -76,6 +84,8 @@ export default async function SecurityDetailPage(props: PageProps): Promise<Reac
       : null;
 
   const coverage = detail.lots.length > 0 ? lotCoverage(holding, detail.lots) : null;
+  // P14-16 — say where the basis came from when a contribution rule funds it.
+  const provenance = basisProvenance(detail.lots);
 
   // Charts (Number() only at this display edge).
   const pricePoints = priceHistory.map((p) => ({ date: p.date, close: Number(p.value) }));
@@ -160,6 +170,25 @@ export default async function SecurityDetailPage(props: PageProps): Promise<Reac
         />
       </div>
 
+      {/* P14-16 — a 401k's basis now comes from the user's own contribution
+          rule rather than the institution. Say so, and say when the shares
+          behind it are a manual entry (ADR-031 §3). */}
+      {provenance.fromContributions && (
+        <p className="mt-3 text-xs text-zinc-500">
+          Cost basis tracked from payroll contributions.{" "}
+          <Link href="/settings/income" className="underline">
+            Income settings
+          </Link>
+          {provenance.hasBasisOnlyContributions && (
+            <>
+              {" "}
+              Some contributions could not be priced, so their basis is recorded without shares —
+              this position's quantity is your own entry.
+            </>
+          )}
+        </p>
+      )}
+
       <section className="mt-8">
         <h2 className="font-medium">Price history</h2>
         <p className="mt-0.5 text-xs text-zinc-400">Daily close, up to the last 24 months.</p>
@@ -193,6 +222,7 @@ export default async function SecurityDetailPage(props: PageProps): Promise<Reac
                 <tr>
                   <th className="py-2 pr-2 text-right">Quantity</th>
                   <th className="py-2 text-right">Cost basis</th>
+                  <th className="py-2 pl-4">Source</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
@@ -203,6 +233,9 @@ export default async function SecurityDetailPage(props: PageProps): Promise<Reac
                     </td>
                     <td className="py-1.5 text-right font-mono tabular-nums">
                       {Money.fromString(lot.costBasisTotal, currency).format()}
+                    </td>
+                    <td className="py-1.5 pl-4 text-zinc-500">
+                      {LOT_SOURCE_LABEL[lot.source] ?? lot.source}
                     </td>
                   </tr>
                 ))}

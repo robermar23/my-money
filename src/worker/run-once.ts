@@ -16,9 +16,12 @@
  *   - backfill-holding-snapshots
  *   - refresh-fundamentals-weekly
  *   - evaluate-price-targets
+ *   - materialize-contributions
+ *   - backfill-contributions
  */
 import { backfillHoldingSnapshots } from "../lib/investments/backfill-history.ts";
 import { backfillCategoriesProcessor } from "./jobs/backfill-categories.ts";
+import { backfillContributionsProcessor } from "./jobs/backfill-contributions.ts";
 import { backupDatabaseDailyProcessor } from "./jobs/backup-database-daily.ts";
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
 import { detectAnomaliesDailyProcessor } from "./jobs/detect-anomalies-daily.ts";
@@ -26,6 +29,7 @@ import { evaluatePriceTargetsProcessor } from "./jobs/evaluate-price-targets.ts"
 import { exportBeancountDailyProcessor } from "./jobs/export-beancount-daily.ts";
 import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
 import { heartbeatProcessor } from "./jobs/heartbeat.ts";
+import { materializeContributionsProcessor } from "./jobs/materialize-contributions.ts";
 import { processImportProcessor } from "./jobs/process-import.ts";
 import { recategorizeAllProcessor } from "./jobs/recategorize-all.ts";
 import { refreshFundamentalsWeeklyProcessor } from "./jobs/refresh-fundamentals-weekly.ts";
@@ -49,6 +53,17 @@ const PROCESSORS: Record<string, (job: never) => Promise<unknown>> = {
   }) as never,
   "refresh-fundamentals-weekly": refreshFundamentalsWeeklyProcessor as never,
   "evaluate-price-targets": (async (job: never) => evaluatePriceTargetsProcessor(job)) as never,
+  // P14-09/P14-11 — the nightly window, then the full historical walk. Both log
+  // only counts; no gross, contribution, or match figure is ever printed.
+  "materialize-contributions": (async (job: never) => {
+    console.info(
+      "[run-once] materialize-contributions:",
+      await materializeContributionsProcessor(job),
+    );
+  }) as never,
+  "backfill-contributions": (async (job: never) => {
+    console.info("[run-once] backfill-contributions:", await backfillContributionsProcessor(job));
+  }) as never,
 };
 
 if (!jobName || !PROCESSORS[jobName]) {

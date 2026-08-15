@@ -36,6 +36,8 @@ See [plans/features/FEATURE.md](plans/features/FEATURE.md) for the why, [plans/f
 
 **Phase 13 (the dashboard) — complete.** The landing page answers *"where do I stand?"* without a click: a net-worth hero with a signed change over the selected range, then a curated grid — **allocation**, **performance** (TWR vs. `^GSPC`), **spending vs. budget**, **forward income**, **open alerts**, and **watchlist movers** — each linking out to the page that owns it. One shared **`?range=`** toggle (1M / 3M / 6M / 1Y / YTD / ALL) re-drives the history and the return; state lives in the URL, so the view is shareable and back-button-correct. The layout is **curated, not customizable** (no drag-and-drop, no widget picker), every card degrades gracefully when its feature is unused, and a brand-new install shows one "Add your first account" prompt instead of eight empty cards. The dashboard **computes nothing of its own** — a single loader composes the same functions the deep pages call, so the numbers agree by construction, with **zero egress** and nothing logged. See [docs/DASHBOARD.md](docs/DASHBOARD.md) and [plans/features/PLAN13.md](plans/features/PLAN13.md) (ADR-029).
 
+**Phase 14 (income & retirement contributions) — complete.** A 401k shows what it's *worth*, but employer plans almost never report a **cost basis** — so gain/loss renders "—" forever. The fix is that for a payroll-funded account, cost basis is just **the sum of what you contributed**, and you already know that number because you chose it. Define your paycheck (cadence + gross per period) and a 401k rule (employee %/$ plus a single-tier employer match and cap) at **/settings/income**, preview the dollars before saving, and a nightly job at 01:45 turns each payday into a real `buy` + cost-basis lot — so gain/loss, TWR, XIRR, allocation, and snapshots all light up through the *existing* machinery, with a run-once backfill for the years already behind you. Positions with no public price still accrue **basis in dollars** rather than an invented share count. A **savings-rate card** lands on the dashboard (employee contributions ÷ projected annual gross, trailing 12 months, labeled an estimate), and a read-only contribution ledger makes the basis auditable from the account it funded. Deliberately **not payroll**: no net pay, no withholding, no tax math — and no payroll integration, because you define your income yourself. Gross pay never leaves the box and is never logged. See [docs/INCOME.md](docs/INCOME.md) and [plans/features/PLAN14.md](plans/features/PLAN14.md) (ADR-030 → ADR-031).
+
 ---
 
 ## Prerequisites
@@ -134,6 +136,38 @@ and the value projection are read-only/illustrative. my-money does **not** do
 tax-lot accounting, wash sales, or 1099/cap-gains reporting, and projections are
 not financial advice. See [docs/INVESTMENTS.md](docs/INVESTMENTS.md) for the full
 guide.
+
+## Income & 401k contributions (Phase 14)
+
+Employer plans rarely report a cost basis, which is why a 401k's gain/loss shows
+"—". But for a payroll-funded account the basis *is* the sum of what you
+contributed — so tell the app what that is.
+
+At **/settings/income**, define a paycheck (name, cadence, gross per period, and
+a real payday to set the rhythm), then attach a 401k rule: your contribution as a
+percent of gross or a fixed amount, the employer match (`% of gross`,
+`% of my contribution`, or a flat amount) with an optional cap, and which
+investment account — optionally which holding — it funds. The form previews the
+per-period and annual dollars before you save.
+
+A nightly job then materializes each payday into a real `buy` plus a cost-basis
+lot, so the 401k's gain/loss, return, and allocation all populate through the
+same machinery every other position uses. Already have years of history? Run the
+backfill once:
+
+```bash
+node --env-file=.env.local --import tsx src/worker/run-once.ts backfill-contributions
+```
+
+The dashboard gains a **savings-rate** card, and each funded account gets a
+read-only **Contributions** ledger so the basis is auditable from the account it
+built.
+
+This is deliberately **not payroll**: gross pay and contributions only — no net
+pay, no withholding, no tax math ("pre-tax" is a label), and no payroll provider
+integration. Income figures never leave the host and are never logged. See
+[docs/INCOME.md](docs/INCOME.md), including the double-counting caveat if the same
+holding is also Plaid-synced.
 
 ## Personal assets — vehicles, jewelry, collectibles (Phase 10)
 
@@ -338,8 +372,8 @@ No open known issues.
 In order of precedence when a question arises:
 
 1. [CLAUDE.md](CLAUDE.md) — guardrails (privacy, money precision, Plaid safety, repo conventions)
-2. [plans/features/IDEAS.md](plans/features/IDEAS.md) — locked ADRs 001–024 + the §11 Decision Log (build-from-scratch, web+Postgres, TS/Next/Drizzle, auth, charts, QFX parser, categorization, Plaid scope/encryption/exposure, investments, backups, alerts, beancount, account management, structured categories/analytics/budgets, investment depth II, personal assets + proof documents)
-3. [plans/features/PLAN0_1.md](plans/features/PLAN0_1.md) … [PLAN10.md](plans/features/PLAN10.md) — per-phase task breakdowns (Phase 0/1 through Phase 10)
+2. [plans/features/IDEAS.md](plans/features/IDEAS.md) — locked ADRs 001–031 + the §11 Decision Log (build-from-scratch, web+Postgres, TS/Next/Drizzle, auth, charts, QFX parser, categorization, Plaid scope/encryption/exposure, investments, backups, alerts, beancount, account management, structured categories/analytics/budgets, investment depth II, personal assets + proof documents, watchlist, search, dashboard, income & retirement contributions)
+3. [plans/features/PLAN0_1.md](plans/features/PLAN0_1.md) … [PLAN14.md](plans/features/PLAN14.md) — per-phase task breakdowns (Phase 0/1 through Phase 14)
 4. [plans/features/SKILLS.md](plans/features/SKILLS.md) — curated skills catalog mapped to phases
 5. [plans/features/FEATURE.md](plans/features/FEATURE.md) — original "what & why"
 
