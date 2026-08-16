@@ -43,6 +43,7 @@ If a figure looks wrong here, it is wrong on its deep page too — fix it there.
 | **Alerts** | Open-alert count + the three most recent titles | `listOpenAlerts` | `/alerts` |
 | **Watchlist movers** | Top two and bottom two *paper* movers | `listWatchlist` (Phase 11 `paperValuation`) | `/watchlist` |
 | **Savings rate** | Employee contributions ÷ projected annual gross, with the employer match beside it | `savingsRateInputs` → `savingsRate` (Phase 14, ADR-030/031) | `/settings/income` |
+| **Your plan** | The single most urgent open recommendation + your current waterfall rung | `loadPlan` → `runAdvice` (Phase 15, ADR-032) | `/plan` |
 
 Three of those carry a label that is not decoration:
 
@@ -110,6 +111,8 @@ card renders its degraded state without re-deriving "is this empty?" (ADR-029 §
 | No open alerts | Alerts shows the empty state — here that is good news |
 | No priced paper positions | Movers shows an empty state |
 | No income source defined | Savings rate says "Define your income…" — *not* 0%, which would claim you save nothing |
+| No transaction history | Your plan names the missing input and links to where to supply it — never a confident recommendation on absent data ([GUIDANCE.md](GUIDANCE.md)) |
+| Nothing urgent to act on | Your plan shows the calm state and your current rung — "you are on track" is guidance too, so the disclaimer stays |
 
 ---
 

@@ -37,6 +37,7 @@ View everything at **`/alerts`** (severity-colored; dismiss to resolve manually)
 | `stale_price` | info | a held symbol's newest price is older than N days (feed dying) | `ALERT_STALE_DAYS` (3) | symbol + latest price date |
 | `sync_failure` | warning | a Plaid sync run recorded an error in the last day | — | sync-run id + started date |
 | `backup_failure` | critical | the nightly backup job threw | — | per day; **cleared only by a successful backup**, never by this job |
+| `advice` | inherits the recommendation's (critical/warning only) | household guidance changes state — see [GUIDANCE.md](GUIDANCE.md) | `household_profile.high_interest_threshold_apr` and the other tunables | rule + subject + `severity\|status`, **deliberately excluding the amount** |
 
 Notes:
 - Thresholds are **strictly greater-than** — a transaction of exactly
@@ -48,6 +49,13 @@ Notes:
 - `backup_failure` is written **directly** by the backup job, not by a rule. The
   resolve sweep only touches rule-managed types, so a standing backup failure
   stays open until a backup actually succeeds.
+- `advice` is likewise **exempt from the resolve sweep**. A guidance rule can go
+  quiet for two very different reasons — the household fixed the problem, or an
+  input it depended on went missing — and auto-resolving would treat those
+  identically, announcing good news the app has no evidence for. Its dedup key
+  omits the dollar figure on purpose: folding in the amount would make every cent
+  of balance drift a fresh "material change," which is the nightly nag in
+  disguise. Titles carry no figures (ADR-015); they live in `detail`.
 
 ## Threshold configuration
 

@@ -187,6 +187,15 @@ rate %          = annual employee ÷ annual gross × 100
 never be one. A corrected paycheck or a re-run backfill fixes the number
 everywhere at once.
 
+**This is the app's only savings rate**, and Phase 15's guidance engine consumes
+it rather than recomputing one (ADR-034 §2). The guidance layer does derive an
+*observed net income* figure from the deposits that actually landed, but it is
+used only as the 50/30/20 denominator and as a reserve input, under a different
+name — never as a second savings rate. Pre-tax 401k dollars never appear as a
+deposit, so a net-based rate would visibly contradict this one, and two
+disagreeing rates read as a bug even when both are correct. See
+[GUIDANCE.md](GUIDANCE.md).
+
 The [dashboard card](DASHBOARD.md) reads a **trailing 12 months regardless of the
 selected `?range=`**. A savings rate is annual by definition: a one-month
 numerator over an annual gross is not a zoomed-in figure, it is a wrong one.
