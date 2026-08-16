@@ -1,5 +1,6 @@
 "use client";
 
+import { CATEGORY_NECESSITIES } from "@/db/schema/categories.ts";
 import { CATEGORY_KINDS } from "@/lib/schemas/category.ts";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -8,6 +9,7 @@ import {
   createCategoryAction,
   createGroupAction,
   mergeCategoryAction,
+  setCategoryClassificationAction,
   updateCategoryAction,
 } from "./category-actions.ts";
 
@@ -18,6 +20,14 @@ export interface ManagedCategory {
   readonly kind: string;
   readonly groupId: string | null;
   readonly groupName: string | null;
+  /**
+   * Phase 15 (P15-31). `null` = unclassified, and that is a real state the UI
+   * shows plainly rather than defaulting away — the guidance engine reports an
+   * unclassified share honestly, so the manager has to be able to display one.
+   */
+  readonly necessity: string | null;
+  /** Keep this income category out of the observed take-home baseline. */
+  readonly excludedFromBaseline: boolean;
 }
 
 export interface ManagedGroup {
@@ -77,6 +87,11 @@ export function CategoryManager({ categories, groups, filter }: Props): React.JS
         Add, rename, regroup, set income/expense/transfer, archive, or merge categories. Rules below
         resolve to these.
       </p>
+      <p className="mt-1 max-w-3xl text-sm text-zinc-500">
+        <span className="font-medium">Necessity</span> is a separate question from kind: kind
+        decides what counts as spend, necessity decides what you would still pay if money got tight.
+        It sizes the emergency-fund target and the needs/wants split.
+      </p>
 
       {error && (
         <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-red-700 text-xs dark:bg-red-950 dark:text-red-300">
@@ -95,6 +110,7 @@ export function CategoryManager({ categories, groups, filter }: Props): React.JS
             <th className="py-2">Name</th>
             <th className="py-2">Group</th>
             <th className="py-2">Kind</th>
+            <th className="py-2">Necessity</th>
             <th className="py-2 text-right">Actions</th>
           </tr>
         </thead>
@@ -111,7 +127,7 @@ export function CategoryManager({ categories, groups, filter }: Props): React.JS
           ))}
           {needle && visible.length === 0 && (
             <tr>
-              <td colSpan={4} className="py-3 text-sm text-zinc-500">
+              <td colSpan={5} className="py-3 text-sm text-zinc-500">
                 No categories match “{filter}”.
               </td>
             </tr>
@@ -300,6 +316,8 @@ function CategoryRow({
             ))}
           </select>
         </td>
+        {/* Necessity is set inline, not through this form — see NecessityCell. */}
+        <td className="py-1.5 text-xs text-zinc-400">—</td>
         <td className="py-1.5">
           <div className="flex justify-end gap-1.5">
             <button
@@ -328,6 +346,9 @@ function CategoryRow({
       <td className="py-1.5">{category.name}</td>
       <td className="py-1.5 text-zinc-600 dark:text-zinc-400">{category.groupName ?? "—"}</td>
       <td className="py-1.5 text-zinc-600 dark:text-zinc-400">{category.kind}</td>
+      <td className="py-1.5">
+        <NecessityCell category={category} disabled={disabled} onRun={onRun} />
+      </td>
       <td className="py-1.5">
         <div className="flex flex-wrap items-center justify-end gap-1.5">
           <select
@@ -371,5 +392,82 @@ function CategoryRow({
         </div>
       </td>
     </tr>
+  );
+}
+
+/**
+ * The inline necessity / baseline-exclusion control for one category row
+ * (P15-31).
+ *
+ * Which control appears is decided by `kind`, because the two axes are
+ * orthogonal but not simultaneously meaningful:
+ *
+ *   - **expense** → a necessity select. This is what sizes the emergency fund
+ *     and the needs/wants split.
+ *   - **income** → the `excluded_from_baseline` toggle. Observed take-home is
+ *     the sum of income categories (ADR-034 §1), and a one-off — a tax refund, a
+ *     reimbursement, the sale of a car — inflates it in a way that quietly
+ *     inflates every benchmark measured against it. Excluding it is the
+ *     auditable alternative to a hidden outlier filter.
+ *   - **transfer** → neither. Transfers are excluded from every total by
+ *     construction (ADR-018); classifying one would be classifying a number
+ *     nothing reads.
+ *
+ * "Unclassified" is a first-class option, not an absence: a user who
+ * mis-classified needs the way back, and the honest unclassified share depends
+ * on that state being reachable.
+ */
+function NecessityCell({
+  category,
+  disabled,
+  onRun,
+}: {
+  readonly category: ManagedCategory;
+  readonly disabled: boolean;
+  readonly onRun: (fn: () => Promise<{ error?: string }>) => void;
+}): React.JSX.Element {
+  if (category.kind === "income") {
+    return (
+      <label className="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400">
+        <input
+          type="checkbox"
+          checked={category.excludedFromBaseline}
+          disabled={disabled}
+          onChange={(e) =>
+            onRun(() =>
+              setCategoryClassificationAction(category.id, {
+                excludedFromBaseline: e.target.checked,
+              }),
+            )
+          }
+        />
+        Exclude from take-home
+      </label>
+    );
+  }
+
+  if (category.kind !== "expense") {
+    return <span className="text-xs text-zinc-400">n/a</span>;
+  }
+
+  return (
+    <select
+      aria-label={`Necessity for ${category.name}`}
+      value={category.necessity ?? ""}
+      disabled={disabled}
+      onChange={(e) =>
+        onRun(() => setCategoryClassificationAction(category.id, { necessity: e.target.value }))
+      }
+      className={`${inputClass} text-xs ${
+        category.necessity === null ? "text-amber-700 dark:text-amber-400" : ""
+      }`}
+    >
+      <option value="">Unclassified</option>
+      {CATEGORY_NECESSITIES.map((n) => (
+        <option key={n} value={n}>
+          {n}
+        </option>
+      ))}
+    </select>
   );
 }

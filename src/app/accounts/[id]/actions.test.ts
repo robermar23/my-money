@@ -1,11 +1,13 @@
 // @vitest-environment node
 import { db } from "@/db/client.ts";
+import type { NewAccount } from "@/db/schema/index.ts";
 import {
   accountSnapshots,
   accounts,
   assetDocuments,
   categories,
   categoryRules,
+  creditLines,
   holdingLots,
   holdings,
   liabilities,
@@ -43,6 +45,8 @@ const {
   updateAssetMetadataAction,
   uploadAssetDocumentAction,
   deleteAssetDocumentAction,
+  updateAccountTermsAction,
+  saveCreditLineTermsAction,
 } = await import("./actions.ts");
 
 async function seedHolding(): Promise<{ accountId: string; holdingId: string }> {
@@ -618,5 +622,185 @@ describe("deleteAssetDocumentAction (P10-09)", () => {
     const accountId = await seedAsset();
     const res = await deleteAssetDocumentAction(accountId, "not-a-uuid");
     expect(res.error).toBeTruthy();
+  });
+});
+
+/* ---------------------------------------------------------------------------
+ * P15-29 / P15-30 — the terms that make the guidance engine's columns real.
+ * --------------------------------------------------------------------------- */
+
+async function seedTypedAccount(type: NewAccount["type"]): Promise<string> {
+  await db.execute(sql`TRUNCATE accounts, credit_lines CASCADE`);
+  const [account] = await db
+    .insert(accounts)
+    .values({ name: "Test", institution: "Bank", type, currency: "USD" })
+    .returning({ id: accounts.id });
+  if (!account) throw new Error("seed account");
+  return account.id;
+}
+
+async function readTypedAccount(id: string) {
+  const [row] = await db.select().from(accounts).where(eq(accounts.id, id));
+  return row;
+}
+
+describe("updateAccountTermsAction (P15-29)", () => {
+  it("records a subtype and an APY", async () => {
+    const id = await seedTypedAccount("depository");
+
+    const res = await updateAccountTermsAction(
+      id,
+      {},
+      lotForm({ subtype: "savings", apy: "4.5", maturityDate: "", taxTreatment: "" }),
+    );
+
+    expect(res.ok).toBe(true);
+    const row = await readTypedAccount(id);
+    expect(row?.subtype).toBe("savings");
+    // Stored as a percentage at the column's scale (CLAUDE.md §Money: units are
+    // part of the value, and APY is a percent while APR is a fraction).
+    expect(row?.apy).toBe("4.5000");
+  });
+
+  it("clears a subtype back to null rather than defaulting it", async () => {
+    // An unset subtype must stay distinguishable from a deliberately-chosen one,
+    // so the engine can report `unclassified` instead of assuming checking.
+    const id = await seedTypedAccount("depository");
+    await updateAccountTermsAction(id, {}, lotForm({ subtype: "savings" }));
+
+    await updateAccountTermsAction(id, {}, lotForm({ subtype: "" }));
+
+    expect((await readTypedAccount(id))?.subtype).toBeNull();
+  });
+
+  it("stores a maturity date on a CD", async () => {
+    const id = await seedTypedAccount("depository");
+
+    await updateAccountTermsAction(
+      id,
+      {},
+      lotForm({ subtype: "cd", apy: "5", maturityDate: "2027-06-30" }),
+    );
+
+    expect((await readTypedAccount(id))?.maturityDate).toBe("2027-06-30");
+  });
+
+  it("refuses a maturity date on a non-CD without writing anything", async () => {
+    const id = await seedTypedAccount("depository");
+
+    const res = await updateAccountTermsAction(
+      id,
+      {},
+      lotForm({ subtype: "checking", maturityDate: "2027-06-30" }),
+    );
+
+    expect(res.error).toContain("CD");
+    expect((await readTypedAccount(id))?.subtype).toBeNull();
+  });
+
+  it("drops a stale maturity date when a CD is reclassified", async () => {
+    const id = await seedTypedAccount("depository");
+    await updateAccountTermsAction(id, {}, lotForm({ subtype: "cd", maturityDate: "2027-06-30" }));
+
+    await updateAccountTermsAction(id, {}, lotForm({ subtype: "savings" }));
+
+    const row = await readTypedAccount(id);
+    expect(row?.subtype).toBe("savings");
+    expect(row?.maturityDate).toBeNull();
+  });
+
+  it("rejects an APY entered as a fraction of 100 or more", async () => {
+    const id = await seedTypedAccount("depository");
+
+    const res = await updateAccountTermsAction(id, {}, lotForm({ apy: "450" }));
+
+    expect(res.error).toContain("percentage");
+    expect((await readTypedAccount(id))?.apy).toBeNull();
+  });
+
+  it("records a tax treatment on an investment account", async () => {
+    const id = await seedTypedAccount("investment");
+
+    await updateAccountTermsAction(id, {}, lotForm({ taxTreatment: "roth" }));
+
+    expect((await readTypedAccount(id))?.taxTreatment).toBe("roth");
+  });
+});
+
+describe("saveCreditLineTermsAction (P15-30)", () => {
+  async function readLine(accountId: string) {
+    const [row] = await db.select().from(creditLines).where(eq(creditLines.accountId, accountId));
+    return row;
+  }
+
+  it("creates terms on first save", async () => {
+    const id = await seedTypedAccount("credit_card");
+
+    const res = await saveCreditLineTermsAction(
+      id,
+      {},
+      lotForm({ apr: "0.2499", creditLimit: "5000.00", minimumPayment: "35.00" }),
+    );
+
+    expect(res.ok).toBe(true);
+    const row = await readLine(id);
+    expect(row?.apr).toBe("0.249900");
+    expect(row?.creditLimit).toBe("5000.00");
+  });
+
+  it("updates in place — a card has exactly one set of terms", async () => {
+    const id = await seedTypedAccount("credit_card");
+    await saveCreditLineTermsAction(id, {}, lotForm({ apr: "0.2499" }));
+
+    await saveCreditLineTermsAction(id, {}, lotForm({ apr: "0.1899" }));
+
+    expect(await db.select().from(creditLines)).toHaveLength(1);
+    expect((await readLine(id))?.apr).toBe("0.189900");
+  });
+
+  it("accepts a limit with no APR", async () => {
+    // The engine reports the missing APR as unknown_input; refusing the entry
+    // would cost the user working utilization figures for nothing.
+    const id = await seedTypedAccount("credit_card");
+
+    await saveCreditLineTermsAction(id, {}, lotForm({ creditLimit: "5000.00" }));
+
+    const row = await readLine(id);
+    expect(row?.creditLimit).toBe("5000.00");
+    expect(row?.apr).toBeNull();
+  });
+
+  it("rejects an APR typed as a percentage", async () => {
+    // 24.99 as a fraction is a 2499% card — the single most consequential
+    // data-entry error in this phase.
+    const id = await seedTypedAccount("credit_card");
+
+    const res = await saveCreditLineTermsAction(id, {}, lotForm({ apr: "24.99" }));
+
+    expect(res.error).toContain("0.2499");
+    expect(await db.select().from(creditLines)).toHaveLength(0);
+  });
+
+  it("refuses to attach revolving terms to anything but a card", async () => {
+    const id = await seedTypedAccount("loan");
+
+    const res = await saveCreditLineTermsAction(id, {}, lotForm({ apr: "0.065" }));
+
+    expect(res.error).toBeTruthy();
+    expect(await db.select().from(creditLines)).toHaveLength(0);
+  });
+
+  it("re-stamps updated_at on every save so the staleness note stays honest", async () => {
+    const id = await seedTypedAccount("credit_card");
+    await saveCreditLineTermsAction(id, {}, lotForm({ apr: "0.2499" }));
+    const first = (await readLine(id))?.updatedAt;
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await saveCreditLineTermsAction(id, {}, lotForm({ apr: "0.2499" }));
+
+    // The user is asserting "this is still right today", which is exactly what
+    // the displayed date has to mean for it to be worth showing.
+    const second = (await readLine(id))?.updatedAt;
+    expect(second?.getTime()).toBeGreaterThan(first?.getTime() ?? 0);
   });
 });

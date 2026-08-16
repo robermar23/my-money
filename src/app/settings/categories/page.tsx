@@ -1,11 +1,14 @@
 import { SearchInput } from "@/components/search-input.tsx";
 import { db } from "@/db/client.ts";
 import { categoryRules } from "@/db/schema/index.ts";
+import { essentialMonthlyBaseline } from "@/lib/advice/essential-expenses.ts";
+import { resolveRange } from "@/lib/analytics/range.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { listCategoriesWithGroups } from "@/lib/categories/queries.ts";
 import { seedDefaultCategoriesAndRulesIfEmpty } from "@/lib/categorization/seed.ts";
 import { asc } from "drizzle-orm";
 import Link from "next/link";
+import { BulkClassify } from "./bulk-classify.tsx";
 import { CategoryManager } from "./category-manager.tsx";
 import { DeleteRule, RecategorizeAllButton, ToggleRule } from "./rule-actions.tsx";
 import { NewRuleForm } from "./rule-form.tsx";
@@ -24,13 +27,23 @@ export default async function CategoriesSettingsPage(
   // Auto-seed the defaults the first time the user lands here (idempotent).
   await seedDefaultCategoriesAndRulesIfEmpty();
 
-  const [rules, categoryData] = await Promise.all([
+  // P15-31 — the unclassified-share nudge reads the SAME function the guidance
+  // baseline does (P15-09), deliberately. A second query computed here could
+  // drift, and the user would then classify categories until this page reported
+  // 0% while the plan still reported 18% — which is precisely the kind of
+  // self-contradiction that makes a whole feature untrustworthy.
+  const spendRange = resolveRange({ range: "12m" });
+
+  const [rules, categoryData, baseline] = await Promise.all([
     db
       .select()
       .from(categoryRules)
       .orderBy(asc(categoryRules.priority), asc(categoryRules.createdAt)),
     listCategoriesWithGroups(),
+    essentialMonthlyBaseline({ from: spendRange.from, to: spendRange.to }),
   ]);
+
+  const unclassifiedPct = Math.round(baseline.unclassifiedShare * 100);
 
   const categoryOptions = categoryData.categories.map((c) => ({
     id: c.id,
@@ -45,6 +58,8 @@ export default async function CategoriesSettingsPage(
     kind: c.kind,
     groupId: c.groupId,
     groupName: c.groupName,
+    necessity: c.necessity,
+    excludedFromBaseline: c.excludedFromBaseline,
   }));
 
   const managedGroups = categoryData.groups.map((g) => ({ id: g.id, name: g.name }));
@@ -81,6 +96,16 @@ export default async function CategoriesSettingsPage(
           className="max-w-sm"
         />
       </div>
+
+      {unclassifiedPct > 0 && (
+        <p className="mt-6 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-amber-800 text-sm dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+          <span className="font-medium">{unclassifiedPct}% of the last 12 months of spending</span>{" "}
+          isn't classified as essential or discretionary. Any emergency-fund target or needs/wants
+          split is low by roughly that much, and the app says so rather than guessing.
+        </p>
+      )}
+
+      <BulkClassify categories={managedCategories} />
 
       <CategoryManager categories={managedCategories} groups={managedGroups} filter={query} />
 

@@ -15,7 +15,9 @@ vi.mock("@/lib/auth/require-user.ts", () => ({
 }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
-const { createCategoryAction } = await import("./category-actions.ts");
+const { bulkClassifyAction, createCategoryAction, setCategoryClassificationAction } = await import(
+  "./category-actions.ts"
+);
 
 function form(fields: Record<string, string>): FormData {
   const fd = new FormData();
@@ -53,5 +55,119 @@ describe("createCategoryAction (P8-08 inline-create)", () => {
     const res = await createCategoryAction({}, form({ name: "  ", kind: "expense" }));
     expect(res.error).toBeTruthy();
     expect(await db.select().from(categories)).toHaveLength(0);
+  });
+});
+
+/**
+ * P15-31 — necessity classification. The share of spend left unclassified is
+ * what every baseline's honesty rests on, so both the single-row control and the
+ * bulk pass have to be able to SET a classification and to take one back.
+ */
+async function makeCategory(name: string, kind: string): Promise<string> {
+  const [row] = await db.insert(categories).values({ name, kind }).returning({ id: categories.id });
+  if (!row) throw new Error("seed category");
+  return row.id;
+}
+
+async function read(id: string) {
+  const [row] = await db.select().from(categories).where(eq(categories.id, id));
+  return row;
+}
+
+describe("setCategoryClassificationAction (P15-31)", () => {
+  it("sets a necessity on an expense category", async () => {
+    const id = await makeCategory("Rent", "expense");
+
+    const res = await setCategoryClassificationAction(id, { necessity: "essential" });
+
+    expect(res.ok).toBe(true);
+    expect((await read(id))?.necessity).toBe("essential");
+  });
+
+  it("clears a necessity back to unclassified", async () => {
+    // A user who mis-classified needs the way back, and the honest unclassified
+    // share depends on that state being reachable.
+    const id = await makeCategory("Rent", "expense");
+    await setCategoryClassificationAction(id, { necessity: "essential" });
+
+    await setCategoryClassificationAction(id, { necessity: "" });
+
+    expect((await read(id))?.necessity).toBeNull();
+  });
+
+  it("toggles baseline exclusion without touching necessity", async () => {
+    // The two axes are independent: a refund category excluded from take-home
+    // must not lose a necessity it was given, and vice versa.
+    const id = await makeCategory("Reimbursements", "income");
+    await setCategoryClassificationAction(id, { necessity: "essential" });
+
+    await setCategoryClassificationAction(id, { excludedFromBaseline: true });
+
+    const row = await read(id);
+    expect(row?.excludedFromBaseline).toBe(true);
+    expect(row?.necessity).toBe("essential");
+  });
+
+  it("rejects a necessity outside the vocabulary", async () => {
+    const id = await makeCategory("Rent", "expense");
+
+    const res = await setCategoryClassificationAction(id, { necessity: "important" });
+
+    expect(res.error).toBeTruthy();
+    expect((await read(id))?.necessity).toBeNull();
+  });
+
+  it("reports a missing category rather than silently succeeding", async () => {
+    const res = await setCategoryClassificationAction("11111111-1111-4111-8111-111111111111", {
+      necessity: "essential",
+    });
+
+    expect(res.error).toMatch(/not found/i);
+  });
+});
+
+describe("bulkClassifyAction (P15-31)", () => {
+  it("classifies a batch in one pass", async () => {
+    const rent = await makeCategory("Rent", "expense");
+    const dining = await makeCategory("Dining", "expense");
+
+    const res = await bulkClassifyAction([
+      { categoryId: rent, necessity: "essential" },
+      { categoryId: dining, necessity: "discretionary" },
+    ]);
+
+    expect(res.classified).toBe(2);
+    expect((await read(rent))?.necessity).toBe("essential");
+    expect((await read(dining))?.necessity).toBe("discretionary");
+  });
+
+  it("writes nothing when one assignment is invalid", async () => {
+    // Transactional: landing half the batch would leave an unclassified share
+    // the user believes they just fixed.
+    const rent = await makeCategory("Rent", "expense");
+    const dining = await makeCategory("Dining", "expense");
+
+    const res = await bulkClassifyAction([
+      { categoryId: rent, necessity: "essential" },
+      { categoryId: dining, necessity: "important" },
+    ]);
+
+    expect(res.error).toBeTruthy();
+    expect((await read(rent))?.necessity).toBeNull();
+  });
+
+  it("rejects the same category twice", async () => {
+    const rent = await makeCategory("Rent", "expense");
+
+    const res = await bulkClassifyAction([
+      { categoryId: rent, necessity: "essential" },
+      { categoryId: rent, necessity: "discretionary" },
+    ]);
+
+    expect(res.error).toMatch(/twice/i);
+  });
+
+  it("rejects an empty batch", async () => {
+    expect((await bulkClassifyAction([])).error).toBeTruthy();
   });
 });

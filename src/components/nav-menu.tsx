@@ -27,6 +27,7 @@ const LINKS = [
   { href: "/analysis", label: "Analysis" },
   { href: "/settings/categories", label: "Categories" },
   { href: "/settings/income", label: "Income" },
+  { href: "/settings/household", label: "Household" },
   { href: "/settings/connections", label: "Connections" },
   { href: "/alerts", label: "Alerts" },
 ] as const;
