@@ -287,3 +287,76 @@ for it**, and this file is where that decision is recorded.
   `pg_dump` like everything else. A regression test enforces both properties.
 
 Implemented under **ADR-030 → ADR-031** (IDEAS.md §11 Decision Log) via [PLAN14.md](PLAN14.md). See [docs/INCOME.md](../../docs/INCOME.md).
+
+### 2026-08-15 — Household money guidance: the app recommends, deterministically and locally (in scope)
+
+Source: [IDEAS2.md](IDEAS2.md) Round 9. The owner asked: "Given all of the sources of data
+available to the app, including now income and investment contributions, can it now
+'recommend' some things? Recommend budgets. Recommend how much to save, long term vs short
+term. How much to keep on hand and how much to keep in medium-term savings like CD's. Help
+the user manage their money, not investments. Help them based off of standard and well
+known best practices for managing family, household money. Perhaps the app needs to know
+extra info, like how many household members and age… Remember this apps data is all local."
+
+This is the **first round that asks the app to be prescriptive.** Everything through
+Round 8 was descriptive — "here is what happened, here is what it projects to." Guidance is
+lifted into scope on the same grounds ADR-018 lifted budgets and ADR-030 lifted income:
+**the owner explicitly asked**, and this file is where that is recorded. Two properties make
+it safe to say yes: it is a **deterministic rules engine, never a model** (CLAUDE.md
+§Privacy forbids sending financial data to a hosted LLM — so recommendations are pure
+functions that cite their heuristic and show their inputs), and it recommends **structures
+and amounts, never products.**
+
+Owner decisions from the clarifying round (2026-08-15):
+
+1. **The full waterfall, including debt payoff** — not a savings-only subset.
+2. **Prerequisite schema is in scope this phase** — without account subtypes the "how much
+   on hand vs. CDs" question is literally unanswerable.
+3. **Take-home is derived from observed income transactions**, not declared.
+4. **A household member list with ages** (birth *year*), not just counts.
+
+- **In scope (newly added):**
+  - **A local recommendation engine** (`src/lib/advice/`) — pure, I/O-free rules over a
+    single assembled snapshot, each returning recommendations that name the heuristic they
+    implement and list the inputs used, so the user can audit and correct them.
+  - **A savings waterfall** — starter buffer → **employer match** → high-interest debt →
+    full 3–6 month reserve → IRA/HSA → 401k to the statutory cap → taxable/medium-term,
+    each rung reporting done / in-progress / blocked / unknown-input.
+  - **Emergency-fund sizing** against **essential** monthly expenses (not total spend),
+    with the 3-vs-6-month multiplier informed by dependents and income concentration.
+  - **Cash tiering** — operating cash vs. reserve vs. medium-term, and a **CD/T-bill ladder
+    structure** suggested for genuinely excess cash. Structure and amounts only.
+  - **Debt payoff ordering** — avalanche vs. snowball, months-to-debt-free, total interest,
+    and credit utilization, from **manually entered** APR / limit / minimum payment.
+  - **Recommended budgets** — per-category targets from the trailing **median/p75** (not the
+    mean), applied through the existing `setBudget` under a preview → confirm flow.
+  - **A 50/30/20 needs/wants/savings diagnostic** against observed take-home, with a
+    user-tunable split (50/30/20 breaks in high-cost-of-living areas).
+  - **A household profile** — members with birth year and dependent flag, reserve-month
+    override, retirement target age, benchmark savings APY.
+  - **Delivery on three surfaces** — a `/plan` page (the full waterfall + rationale), one
+    dashboard card (the single most pressing item), and alerts **only on material change**.
+- **Reaffirmed OUT of scope (not relaxed):** any AI/LLM advisor over financial data
+  (§Privacy hard-no — guidance is deterministic or it does not ship); recommending a
+  **specific security, fund, institution, or product** (that is advice; we recommend
+  structures and amounts); tax computation of any kind — `accounts.tax_treatment` describes
+  the *container* for ordering and drives no math, reaffirming ADR-030's "`pretax` is a label
+  only"; Roth-vs-traditional conversion analysis, tax-loss harvesting, or withdrawal
+  sequencing; Monte Carlo or probabilistic retirement planning (ADR-022 — still rejected);
+  **user-authored goals with per-goal projections and funding rules** — waterfall rungs are
+  *derived state* the user cannot create, name, reorder, or fund, so **ADR-022 stands
+  unamended**; insurance adequacy, estate/will planning, and education/529 accounts;
+  enabling **Plaid Liabilities** (free on Plaid's Trial plan today, but a per-Item
+  subscription-fee product on any paid plan, and it would still not cover the manual
+  accounts the engine must serve — manual entry first, sync deferred); and fetching live
+  CD/HYSA market rates (a user-entered benchmark APY answers the same question with zero
+  egress). Crossing any of these needs a new FEATURE.md decision first.
+- **Privacy stance:** guidance introduces **no new egress class whatsoever** — the advice
+  engine makes **zero outbound HTTP** on every code path, and every benchmark constant is
+  checked into the repo rather than fetched. Household member names and birth years are new
+  PII: they stay in local Postgres, ride the nightly `age`-encrypted `pg_dump` (ADR-014),
+  are **deliberately excluded from the ⌘K search index** (ADR-027/028), and never appear in
+  the content-free notification email. No income, balance, or recommendation figure is ever
+  logged. A regression test enforces all of it.
+
+Implemented under **ADR-032 → ADR-034** (IDEAS.md §11 Decision Log) via [PLAN15.md](PLAN15.md). See [docs/GUIDANCE.md](../../docs/GUIDANCE.md).
