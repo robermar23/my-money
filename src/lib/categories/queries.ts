@@ -1,6 +1,7 @@
 import "server-only";
 
 import { db } from "@/db/client.ts";
+import type { CategoryNecessity } from "@/db/schema/categories.ts";
 import {
   type Category,
   type CategoryGroup,
@@ -50,6 +51,11 @@ export async function listCategoriesWithGroups(opts?: {
       groupId: categories.groupId,
       name: categories.name,
       kind: categories.kind,
+      // Phase 15: `necessity` is orthogonal to `kind` (see categories.ts) and
+      // feeds the essential-expense baseline; `excludedFromBaseline` keeps a
+      // category out of observed net income. Both are surfaced in the manager.
+      necessity: categories.necessity,
+      excludedFromBaseline: categories.excludedFromBaseline,
       color: categories.color,
       sortOrder: categories.sortOrder,
       archivedAt: categories.archivedAt,
@@ -126,6 +132,72 @@ export async function updateCategory(input: UpdateCategoryInput): Promise<Catego
     .where(eq(categories.id, input.id))
     .returning();
   return row ?? null;
+}
+
+/**
+ * Set one category's Phase 15 classification (P15-31, ADR-033 §2).
+ *
+ * Kept separate from {@link updateCategory} on purpose. That function edits what
+ * a category IS (its name, group, kind); this one edits what the guidance engine
+ * should DO with it. They are also reached from different controls — a rename is
+ * an explicit edit-and-save, while necessity is a one-click inline change — and
+ * folding them together would mean every inline classification round-tripped a
+ * name through a form that could fail its own uniqueness check.
+ *
+ * `necessity: null` is a supported value, not a no-op: it returns a category to
+ * unclassified, which a user who mis-classified needs, and which the honest
+ * unclassified-share figure depends on being reachable.
+ *
+ * @param id - Category UUID.
+ * @param patch.necessity - The classification, or `null` for unclassified.
+ * @param patch.excludedFromBaseline - Keep this category out of observed net
+ *   income (ADR-034 §1). Only meaningful on `kind='income'` rows.
+ * @returns The updated category, or null if the id didn't exist.
+ */
+export async function setCategoryClassification(
+  id: string,
+  patch: {
+    readonly necessity?: CategoryNecessity | null;
+    readonly excludedFromBaseline?: boolean;
+  },
+): Promise<Category | null> {
+  const values: Partial<typeof categories.$inferInsert> = { updatedAt: new Date() };
+  if (patch.necessity !== undefined) values.necessity = patch.necessity;
+  if (patch.excludedFromBaseline !== undefined) {
+    values.excludedFromBaseline = patch.excludedFromBaseline;
+  }
+
+  const [row] = await db.update(categories).set(values).where(eq(categories.id, id)).returning();
+  return row ?? null;
+}
+
+/**
+ * Apply a batch of classifications in one transaction (P15-31, the bulk pass).
+ *
+ * Transactional, unlike the budget-suggestion apply: those are independent
+ * per-category upserts where a partial result is still useful, whereas this is
+ * one editing session over a taxonomy the user reviewed as a whole. Landing half
+ * of it would leave an unclassified share the user believes they just fixed.
+ *
+ * @param assignments - `(categoryId, necessity)` pairs; `null` clears.
+ * @returns How many categories were updated.
+ */
+export async function bulkSetNecessity(
+  assignments: readonly {
+    readonly categoryId: string;
+    readonly necessity: CategoryNecessity | null;
+  }[],
+): Promise<number> {
+  if (assignments.length === 0) return 0;
+  await db.transaction(async (tx) => {
+    for (const assignment of assignments) {
+      await tx
+        .update(categories)
+        .set({ necessity: assignment.necessity, updatedAt: new Date() })
+        .where(eq(categories.id, assignment.categoryId));
+    }
+  });
+  return assignments.length;
 }
 
 /**

@@ -22,7 +22,9 @@ export type AlertType =
   | "stale_price"
   | "sync_failure"
   | "backup_failure"
-  | "price_target";
+  | "price_target"
+  /** Phase 15 (P15-36): a material change in household guidance. */
+  | "advice";
 
 export type AlertSeverity = "info" | "warning" | "critical";
 
@@ -44,8 +46,10 @@ export interface AlertThresholds {
 /**
  * The rule-managed types swept by the anomaly resolve-loop. Excludes the
  * externally/one-shot-written types: `backup_failure` (written by the backup job,
- * cleared only on a successful backup) and `price_target` (one-shot, written by
- * the price-target evaluator and never re-armed automatically — ADR-026).
+ * cleared only on a successful backup), `price_target` (one-shot, written by the
+ * price-target evaluator and never re-armed automatically — ADR-026), and
+ * `advice` (P15-36 — see `src/lib/advice/alerts.ts` on why a guidance alert must
+ * not auto-resolve merely because the rule stopped speaking).
  */
 export const RULE_ALERT_TYPES: readonly AlertType[] = [
   "large_transaction",

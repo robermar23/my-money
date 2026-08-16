@@ -1,0 +1,158 @@
+import "server-only";
+
+import { db } from "@/db/client.ts";
+import {
+  type HouseholdMember,
+  type HouseholdProfile,
+  householdMembers,
+  householdProfile,
+} from "@/db/schema/index.ts";
+import { asc, eq } from "drizzle-orm";
+
+/**
+ * Reads and writes for the household profile + members (Phase 15, P15-32).
+ *
+ * ── PRIVACY (CLAUDE.md §Privacy & Data Sovereignty) ────────────────────────
+ * These are the only rows in the database that describe PEOPLE rather than
+ * money, and three properties are binding rather than aspirational (see the
+ * [schema header](../../db/schema/household.ts)):
+ *
+ *   1. They never leave the box. Nothing in this module or its callers makes an
+ *      outbound request, and the advice engine that consumes them has an egress
+ *      budget of exactly zero.
+ *   2. They ride the nightly `age`-encrypted `pg_dump` (ADR-014) like every
+ *      other table — no separate handling, no separate key.
+ *   3. `label` is deliberately excluded from the ⌘K search index (ADR-033 §7).
+ *      There is no trigram index on it and no search query reads it.
+ *
+ * Nothing here is ever logged. A birth year and a household member's name are
+ * not debugging output.
+ *
+ * ── The singleton ──────────────────────────────────────────────────────────
+ * `household_profile` holds exactly one row, like `users`. The table has a UUID
+ * PK rather than a one-row constraint, so {@link saveHouseholdProfile} enforces
+ * the invariant: update the existing row if there is one, insert otherwise, in a
+ * transaction so two concurrent saves cannot produce two profiles.
+ *
+ * Every profile column is NULLABLE and NULL is MEANINGFUL: it means "use the
+ * checked-in default from `src/lib/advice/constants.ts`". That keeps the
+ * defaults reviewable and testable in code, and keeps the database from pinning
+ * a stale default from install day. This module therefore writes `null` for a
+ * cleared field and never substitutes a default for one.
+ */
+
+export interface Household {
+  readonly profile: HouseholdProfile | null;
+  readonly members: readonly HouseholdMember[];
+}
+
+/** The overridable profile fields, as `numeric`/integer values or `null`. */
+export interface HouseholdProfilePatch {
+  readonly reserveMonthsOverride: number | null;
+  readonly retirementTargetAge: number | null;
+  readonly benchmarkSavingsApy: string | null;
+  readonly needsPct: string | null;
+  readonly wantsPct: string | null;
+  readonly savingsPct: string | null;
+  readonly highInterestThresholdApr: string | null;
+}
+
+/** One member's editable fields. */
+export interface HouseholdMemberPatch {
+  readonly label: string;
+  readonly birthYear: number | null;
+  readonly isDependent: boolean;
+}
+
+/**
+ * Load the household profile and its members.
+ *
+ * @returns The singleton profile (`null` when never saved) and the members,
+ *   oldest first so the list is stable across edits.
+ */
+export async function loadHousehold(): Promise<Household> {
+  const [profiles, members] = await Promise.all([
+    db.select().from(householdProfile).limit(1),
+    db.select().from(householdMembers).orderBy(asc(householdMembers.createdAt)),
+  ]);
+  return { profile: profiles[0] ?? null, members };
+}
+
+/**
+ * Save the singleton profile, creating it on first use (P15-32).
+ *
+ * Writes the whole patch every time, including `null`s. A partial patch would
+ * make "clear this override" unreachable — and clearing an override back to the
+ * default is a normal thing to want, not an edge case.
+ *
+ * @param patch - Every overridable field; `null` clears back to the default.
+ * @returns The saved profile row.
+ */
+export async function saveHouseholdProfile(
+  patch: HouseholdProfilePatch,
+): Promise<HouseholdProfile> {
+  return db.transaction(async (tx) => {
+    const [existing] = await tx.select({ id: householdProfile.id }).from(householdProfile).limit(1);
+
+    if (existing) {
+      const [row] = await tx
+        .update(householdProfile)
+        .set({ ...patch, updatedAt: new Date() })
+        .where(eq(householdProfile.id, existing.id))
+        .returning();
+      if (!row) throw new Error("saveHouseholdProfile: update returned no row");
+      return row;
+    }
+
+    const [row] = await tx.insert(householdProfile).values(patch).returning();
+    if (!row) throw new Error("saveHouseholdProfile: insert returned no row");
+    return row;
+  });
+}
+
+/**
+ * Add a household member.
+ *
+ * @param patch - Label, optional birth year, dependent flag.
+ * @returns The inserted member.
+ */
+export async function createHouseholdMember(patch: HouseholdMemberPatch): Promise<HouseholdMember> {
+  const [row] = await db.insert(householdMembers).values(patch).returning();
+  if (!row) throw new Error("createHouseholdMember: insert returned no row");
+  return row;
+}
+
+/**
+ * Edit a household member.
+ *
+ * @param id - Member UUID.
+ * @param patch - The full editable field set.
+ * @returns The updated member, or null when the id didn't exist.
+ */
+export async function updateHouseholdMember(
+  id: string,
+  patch: HouseholdMemberPatch,
+): Promise<HouseholdMember | null> {
+  const [row] = await db
+    .update(householdMembers)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(eq(householdMembers.id, id))
+    .returning();
+  return row ?? null;
+}
+
+/**
+ * Remove a household member.
+ *
+ * A hard delete, unlike accounts and categories, which archive. Those carry
+ * history that other rows point at; a member row has no children, no FK
+ * referencing it, and no historical meaning — it is a fact about today that
+ * feeds the reserve multiplier. Keeping a soft-deleted person's name and birth
+ * year in the database forever would be storing PII for no purpose, which is the
+ * opposite of this project's posture.
+ *
+ * @param id - Member UUID.
+ */
+export async function deleteHouseholdMember(id: string): Promise<void> {
+  await db.delete(householdMembers).where(eq(householdMembers.id, id));
+}

@@ -1,6 +1,7 @@
 import { relations, sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
+  boolean,
   check,
   index,
   integer,
@@ -38,6 +39,30 @@ import {
  * Names are unique case-insensitively (a partial-free unique index on
  * `lower(name)`) so the backfill's name-match is unambiguous and the picker
  * never shows "Coffee" twice.
+ *
+ * Phase 15 (PLAN15 P15-02, ADR-033 §2) added `necessity` and
+ * `excluded_from_baseline`.
+ *
+ * `necessity` is ORTHOGONAL to `kind`, not a replacement for it. `kind` answers
+ * "does this count as spend, income, or neither" and is what keeps transfers out
+ * of every total; `necessity` answers "would you still pay this if money got
+ * tight". Both axes are live at once: a `kind='expense'` row is
+ * `necessity='essential'` (rent) or `'discretionary'` (dining out) or
+ * `'savings'` (an automatic transfer to a brokerage that isn't a `transfer`
+ * category). Nothing about `kind` changes, and no analytics query that reads
+ * `kind` today needs to learn about `necessity`.
+ *
+ * It exists because an emergency fund sizes against ESSENTIAL monthly expenses,
+ * not total spend — sizing 6 months of reserve against a month that included a
+ * vacation is how a household ends up with a target it will never hit. NULL =
+ * unclassified, and the engine reports the unclassified share honestly rather
+ * than assuming (ADR-032 consequence 1).
+ *
+ * `excluded_from_baseline` keeps a category out of the observed-net-income
+ * baseline (ADR-034 §1). Take-home is derived from what actually landed in
+ * `kind='income'` categories, so a "Reimbursements" or "Refunds" category would
+ * otherwise inflate take-home and every benchmark measured against it. The user
+ * excludes it explicitly — we do not heuristically guess at outliers.
  */
 export const categoryGroups = pgTable(
   "category_groups",
@@ -70,6 +95,18 @@ export const categories = pgTable(
     name: text("name").notNull(),
     /** 'income' | 'expense' | 'transfer' — drives analytics (see file header). */
     kind: text("kind").notNull().default("expense"),
+    /**
+     * 'essential' | 'discretionary' | 'savings'. NULL = unclassified (Phase 15).
+     * Orthogonal to `kind` — see the file header. Deliberately NOT defaulted:
+     * an unclassified category must stay visibly unclassified so the essential-
+     * expense baseline can report how much of the spend it could not see.
+     */
+    necessity: text("necessity"),
+    /**
+     * Keeps this category out of the observed-net-income baseline (ADR-034 §1).
+     * Only meaningful on `kind='income'` rows; harmless elsewhere.
+     */
+    excludedFromBaseline: boolean("excluded_from_baseline").notNull().default(false),
     /** Optional hex color for charts/legends; null = auto-assigned at render. */
     color: text("color"),
     sortOrder: integer("sort_order").notNull().default(100),
@@ -92,6 +129,11 @@ export const categories = pgTable(
       "categories_kind_check",
       sql`${table.kind} IN ('income', 'expense', 'transfer')`,
     ),
+    // NULL-tolerant (Phase 15): unclassified is a legal, meaningful state.
+    necessityCheck: check(
+      "categories_necessity_check",
+      sql`${table.necessity} IS NULL OR ${table.necessity} IN ('essential', 'discretionary', 'savings')`,
+    ),
   }),
 );
 
@@ -113,3 +155,10 @@ export type NewCategory = typeof categories.$inferInsert;
 
 /** The closed set of category kinds (ADR-018). */
 export type CategoryKind = "income" | "expense" | "transfer";
+
+/**
+ * The closed set of necessity classifications (Phase 15, ADR-033 §2 — mirrors
+ * the CHECK above). Orthogonal to `CategoryKind`; see the file header.
+ */
+export const CATEGORY_NECESSITIES = ["essential", "discretionary", "savings"] as const;
+export type CategoryNecessity = (typeof CATEGORY_NECESSITIES)[number];

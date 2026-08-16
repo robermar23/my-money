@@ -3,11 +3,14 @@
 import { requireUser } from "@/lib/auth/require-user.ts";
 import {
   archiveCategory,
+  bulkSetNecessity,
   createCategory,
   createGroup,
   mergeCategory,
+  setCategoryClassification,
   updateCategory,
 } from "@/lib/categories/queries.ts";
+import { bulkClassifySchema, categoryClassificationSchema } from "@/lib/schemas/advice.ts";
 import {
   createCategorySchema,
   createGroupSchema,
@@ -41,6 +44,20 @@ function isUniqueViolation(err: unknown): boolean {
 function revalidateCategorySurfaces(): void {
   revalidatePath("/settings/categories");
   revalidatePath("/analysis");
+}
+
+/**
+ * Revalidate the guidance surfaces too.
+ *
+ * A classification change moves the essential-expense baseline, which moves the
+ * emergency-fund target and the needs/wants diagnostic. Separate from
+ * {@link revalidateCategorySurfaces} because only classification does this —
+ * renaming a category does not change a single number on `/plan`.
+ */
+function revalidateGuidanceSurfaces(): void {
+  revalidateCategorySurfaces();
+  revalidatePath("/plan");
+  revalidatePath("/");
 }
 
 export async function createCategoryAction(
@@ -120,6 +137,79 @@ export async function mergeCategoryAction(
   await mergeCategory(parsed.data.fromId, parsed.data.toId);
   revalidateCategorySurfaces();
   return { ok: true };
+}
+
+/**
+ * Set one category's necessity and/or baseline exclusion (PLAN15 P15-31).
+ *
+ * `necessity: ""` clears the classification back to unclassified — a real
+ * outcome, not a validation failure. Both fields are independently optional so
+ * the inline necessity control and the income-only exclusion toggle can share
+ * one action without either clobbering the other's column.
+ *
+ * @param categoryId - The category UUID.
+ * @param patch.necessity - `'essential' | 'discretionary' | 'savings' | ''`.
+ * @param patch.excludedFromBaseline - Keep out of observed net income.
+ * @returns CategoryActionResult with `ok` on success, or `error`.
+ */
+export async function setCategoryClassificationAction(
+  categoryId: string,
+  patch: { necessity?: string; excludedFromBaseline?: boolean },
+): Promise<CategoryActionResult> {
+  await requireUser();
+  const parsed = categoryClassificationSchema.safeParse({ categoryId, ...patch });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  const updated = await setCategoryClassification(parsed.data.categoryId, {
+    ...(patch.necessity !== undefined
+      ? { necessity: parsed.data.necessity ? parsed.data.necessity : null }
+      : {}),
+    ...(parsed.data.excludedFromBaseline !== undefined
+      ? { excludedFromBaseline: parsed.data.excludedFromBaseline }
+      : {}),
+  });
+  if (!updated) return { error: "Category not found" };
+
+  revalidateGuidanceSurfaces();
+  return { ok: true };
+}
+
+export interface BulkClassifyResult extends CategoryActionResult {
+  /** How many categories were classified. */
+  classified?: number;
+}
+
+/**
+ * Apply a batch of necessity classifications in one pass (PLAN15 P15-31).
+ *
+ * The bulk pass exists because the honesty of every baseline depends on the
+ * unclassified share being small, and classifying thirty categories one click at
+ * a time is the kind of chore that does not get finished. Zod rejects an empty
+ * confirmation and a category listed twice.
+ *
+ * @param assignments - `(categoryId, necessity)` pairs; `''` clears.
+ * @returns The number classified, or an error.
+ */
+export async function bulkClassifyAction(
+  assignments: readonly { categoryId: string; necessity: string }[],
+): Promise<BulkClassifyResult> {
+  await requireUser();
+  const parsed = bulkClassifySchema.safeParse({ assignments });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  const classified = await bulkSetNecessity(
+    parsed.data.assignments.map((a) => ({
+      categoryId: a.categoryId,
+      necessity: a.necessity ? a.necessity : null,
+    })),
+  );
+
+  revalidateGuidanceSurfaces();
+  return { ok: true, classified };
 }
 
 export async function createGroupAction(

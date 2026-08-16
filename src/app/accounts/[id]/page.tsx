@@ -1,6 +1,7 @@
 import {
   getAccount,
   getAssetDocuments,
+  getCreditLine,
   getLatestSnapshot,
   getLiability,
   listHoldings,
@@ -25,10 +26,12 @@ import Decimal from "decimal.js";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AccountAdmin } from "./account-admin.tsx";
+import { AccountTermsForm } from "./account-terms-form.tsx";
 import { AssetDocumentForm } from "./asset-document-form.tsx";
 import { AssetValueChart } from "./asset-value-chart.tsx";
 import { AssetValueForm } from "./asset-value-form.tsx";
 import { BalanceForm } from "./balance-form.tsx";
+import { CreditLineForm } from "./credit-line-form.tsx";
 import { DeleteAssetDocumentButton } from "./delete-asset-document-button.tsx";
 import { DeleteHoldingButton } from "./delete-holding-button.tsx";
 import { HoldingForm } from "./holding-form.tsx";
@@ -133,6 +136,7 @@ export default async function AccountDetailPage(
     accountHoldings,
     accountLots,
     liability,
+    creditLine,
     txnResult,
     categoryData,
     contributions,
@@ -142,6 +146,9 @@ export default async function AccountDetailPage(
     listHoldings(accountId),
     listLots(accountId),
     getLiability(accountId),
+    // P15-30 — revolving terms. Only a card can have them (the action is gated
+    // to `credit_card`), so nothing else pays for this read.
+    account.type === "credit_card" ? getCreditLine(accountId) : Promise.resolve(undefined),
     showTransactions
       ? listTransactions({ accountId, filters, page })
       : Promise.resolve({ rows: [], totalCount: 0, page: 1, pageSize: 50, totalPages: 1 }),
@@ -249,6 +256,11 @@ export default async function AccountDetailPage(
   const showMortgageForm = account.type === "loan";
   const showPropertyForm = account.type === "property";
   const isAsset = account.type === "personal_asset";
+  // P15-29 — the terms form only has something to offer for the types whose
+  // columns it edits: cash subtype/APY/maturity, or an investment's container.
+  const showTermsForm =
+    account.type === "depository" || account.type === "investment" || account.type === "crypto_ira";
+  const showCreditLineForm = account.type === "credit_card";
 
   // Personal-asset detail data (P10-12/P10-13): proof documents (metadata only)
   // and a simple display gain/loss = latest value − acquisition cost.
@@ -336,6 +348,56 @@ export default async function AccountDetailPage(
 
       {(account.type === "depository" || account.type === "credit_card") && (
         <ReconciliationBanner accountId={account.id} currency={account.currency} />
+      )}
+
+      {/* P15-29 — the details the guidance engine reads. Optional by design:
+          without them it reports what is missing rather than guessing. */}
+      {showTermsForm && (
+        <section className="mt-8 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+          <h2 className="font-medium">Account details</h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            Optional. These tell the household guidance how to treat this account — how much cash is
+            spending money versus reserve, and which savings container this is. Leave anything blank
+            you don't want to record.
+          </p>
+          <div className="mt-4">
+            <AccountTermsForm
+              accountId={account.id}
+              accountType={account.type}
+              subtype={account.subtype}
+              apy={account.apy}
+              maturityDate={account.maturityDate}
+              taxTreatment={account.taxTreatment}
+            />
+          </div>
+        </section>
+      )}
+
+      {/* P15-30 — manual revolving terms (ADR-033 §6: Plaid Liabilities is
+          deliberately not enabled). The entry date is shown by the form. */}
+      {showCreditLineForm && (
+        <section className="mt-8 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+          <h2 className="font-medium">Card terms</h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            Optional. The APR, limit and minimum payment drive utilization and debt-payoff guidance.
+            Enter what you know — anything left blank is reported as missing rather than assumed.
+          </p>
+          <CreditLineForm
+            accountId={account.id}
+            existing={
+              creditLine
+                ? {
+                    apr: creditLine.apr,
+                    creditLimit: creditLine.creditLimit,
+                    minimumPayment: creditLine.minimumPayment,
+                    minimumPaymentPercent: creditLine.minimumPaymentPercent,
+                    notes: creditLine.notes,
+                    updatedAt: creditLine.updatedAt.toISOString(),
+                  }
+                : null
+            }
+          />
+        </section>
       )}
 
       {/* Conditional entry forms by account type */}

@@ -6,6 +6,7 @@ import {
   accounts,
   assetDocuments,
   categories,
+  creditLines,
   holdingLots,
   holdings,
   liabilities,
@@ -27,6 +28,7 @@ import {
   upsertHoldingSchema,
   upsertLotSchema,
 } from "@/lib/schemas/account.ts";
+import { accountTermsSchema, creditLineTermsSchema } from "@/lib/schemas/advice.ts";
 import { toAccountId } from "@/lib/types/ids.ts";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -131,6 +133,140 @@ export async function updateAccountAction(
       note: "Type and currency were kept — clear this account's data to change them.",
     };
   }
+  return { ok: true };
+}
+
+/** Form values arrive as strings; `""` is the wire form of "not recorded". */
+function orNull(value: string | undefined): string | null {
+  return value !== undefined && value.trim().length > 0 ? value.trim() : null;
+}
+
+/**
+ * Set the Phase 15 account terms: subtype, APY, CD maturity, tax treatment
+ * (PLAN15 P15-29, ADR-033 §1).
+ *
+ * These four columns are what make cash tiering possible at all — every cash
+ * account is `type='depository'`, so without a subtype checking, savings, a
+ * money-market and a CD are indistinguishable and "how much should I keep on
+ * hand versus in medium-term savings" is unanswerable in principle.
+ *
+ * **Blank clears the column back to NULL, and that is a supported outcome.** An
+ * unset subtype must stay distinguishable from a deliberately-chosen one so the
+ * engine can report `unclassified` honestly instead of silently treating an
+ * un-triaged account as checking (ADR-032 consequence 1). Nothing here ever
+ * writes a default.
+ *
+ * Unlike `updateAccountAction` there is no `accountHasData` guard: none of these
+ * four columns affects valuation or aggregation, so editing them on an account
+ * with years of history is safe.
+ *
+ * @param accountIdRaw - The account UUID from the route.
+ * @param _prev - Previous action state (unused; required by useActionState).
+ * @param formData - Fields: subtype, apy, maturityDate, taxTreatment.
+ * @returns ActionResult with `ok` on success, or `error`.
+ */
+export async function updateAccountTermsAction(
+  accountIdRaw: string,
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const { accountId } = await loadAccount(accountIdRaw);
+  const parsed = accountTermsSchema.safeParse({
+    subtype: formData.get("subtype") ?? "",
+    apy: formData.get("apy") ?? "",
+    maturityDate: formData.get("maturityDate") ?? "",
+    taxTreatment: formData.get("taxTreatment") ?? "",
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  const subtype = orNull(parsed.data.subtype);
+  await db
+    .update(accounts)
+    .set({
+      subtype,
+      apy: orNull(parsed.data.apy),
+      // The schema already rejects a maturity date on a non-CD; this makes the
+      // reverse transition clean too — reclassifying a matured CD as savings
+      // drops the date rather than leaving a stale one behind the form.
+      maturityDate: subtype === "cd" ? orNull(parsed.data.maturityDate) : null,
+      taxTreatment: orNull(parsed.data.taxTreatment),
+      updatedAt: new Date(),
+    })
+    .where(eq(accounts.id, accountId));
+
+  revalidatePath(`/accounts/${accountIdRaw}`);
+  revalidatePath("/accounts");
+  revalidatePath("/plan");
+  return { ok: true };
+}
+
+/**
+ * Save the revolving terms of a credit card (PLAN15 P15-30, ADR-033 §3/§6).
+ *
+ * Terms are MANUAL-FIRST: Plaid's `/liabilities/get` is deliberately not
+ * enabled, so these three rarely-changing numbers are typed once. UPSERT on the
+ * UNIQUE `account_id`, mirroring `createOrUpdateMortgageAction` — a card has
+ * exactly zero or one set of terms.
+ *
+ * Gated to `credit_card`: revolving terms on a mortgage would be read by the
+ * payoff engine as a second, contradictory description of the same debt.
+ *
+ * Every field may be blank. A household that knows its limit but not its APR
+ * should be able to record the limit and have utilization work, while the payoff
+ * rung reports `unknown_input` — better than either refusing the entry or
+ * inventing a rate.
+ *
+ * `updated_at` is the staleness mitigation (ADR-033 consequence 2) and is meant
+ * to be shown next to the figures, which is why every save stamps it even when
+ * the values are unchanged: what the user is asserting is "these are still
+ * right today".
+ *
+ * @param accountIdRaw - The card's account UUID from the route.
+ * @param _prev - Previous action state (unused; required by useActionState).
+ * @param formData - Fields: apr, creditLimit, minimumPayment,
+ *   minimumPaymentPercent, notes.
+ * @returns ActionResult with `ok` on success, or `error`.
+ */
+export async function saveCreditLineTermsAction(
+  accountIdRaw: string,
+  _prev: ActionResult,
+  formData: FormData,
+): Promise<ActionResult> {
+  const { accountId, account } = await loadAccount(accountIdRaw);
+  if (account.type !== "credit_card") {
+    return { error: "This action only applies to credit-card accounts" };
+  }
+  const parsed = creditLineTermsSchema.safeParse({
+    apr: formData.get("apr") ?? "",
+    creditLimit: formData.get("creditLimit") ?? "",
+    minimumPayment: formData.get("minimumPayment") ?? "",
+    minimumPaymentPercent: formData.get("minimumPaymentPercent") ?? "",
+    notes: formData.get("notes") ?? "",
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  const values = {
+    apr: orNull(parsed.data.apr),
+    creditLimit: orNull(parsed.data.creditLimit),
+    minimumPayment: orNull(parsed.data.minimumPayment),
+    minimumPaymentPercent: orNull(parsed.data.minimumPaymentPercent),
+    notes: orNull(parsed.data.notes),
+  };
+
+  await db
+    .insert(creditLines)
+    .values({ accountId, ...values })
+    .onConflictDoUpdate({
+      target: creditLines.accountId,
+      set: { ...values, updatedAt: new Date() },
+    });
+
+  revalidatePath(`/accounts/${accountIdRaw}`);
+  revalidatePath("/plan");
   return { ok: true };
 }
 

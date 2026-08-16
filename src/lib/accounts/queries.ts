@@ -5,12 +5,14 @@ import {
   type Account,
   type AccountSnapshot,
   type AssetDocument,
+  type CreditLine,
   type Holding,
   type HoldingLot,
   type Liability,
   accountSnapshots,
   accounts,
   assetDocuments,
+  creditLines,
   holdingLots,
   holdings,
   liabilities,
@@ -91,6 +93,22 @@ export async function listLots(id: AccountId): Promise<HoldingLot[]> {
 
 export async function getLiability(id: AccountId): Promise<Liability | undefined> {
   const [row] = await db.select().from(liabilities).where(eq(liabilities.accountId, id)).limit(1);
+  return row;
+}
+
+/**
+ * The revolving terms of a credit-card account (Phase 15, P15-30).
+ *
+ * The exact shape of `getLiability` above, for the revolving twin of that table:
+ * `credit_lines.account_id` is UNIQUE, so an account has zero or one row.
+ * `undefined` means terms have never been entered — which the engine reports as
+ * `unknown_input` rather than as a 0% card (ADR-032 consequence 1).
+ *
+ * @param id - The account UUID.
+ * @returns The terms row, or undefined when none has been entered.
+ */
+export async function getCreditLine(id: AccountId): Promise<CreditLine | undefined> {
+  const [row] = await db.select().from(creditLines).where(eq(creditLines.accountId, id)).limit(1);
   return row;
 }
 

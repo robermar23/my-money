@@ -11,6 +11,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { assetDocuments } from "./asset-documents.ts";
+import { creditLines } from "./credit-lines.ts";
 import { accountTypeEnum } from "./enums.ts";
 import { holdings } from "./holdings.ts";
 import { liabilities } from "./liabilities.ts";
@@ -34,6 +35,29 @@ import { accountSnapshots } from "./snapshots.ts";
  * `type='personal_asset'` rows populate them (vehicles/boats/jewelry/etc.);
  * every other account type leaves all four NULL. Following the nullable-Plaid-
  * column precedent: additive, no impact on existing rows.
+ *
+ * Phase 15 (PLAN15 P15-01, ADR-033 §1) added four more NULLABLE columns, same
+ * precedent again. `type` alone cannot answer Round 9's "how much on hand vs.
+ * how much in medium-term savings like CD's" — every cash account is
+ * `type='depository'`, so checking, savings, money-market and a CD are
+ * indistinguishable. `subtype` is what makes cash tiering possible at all.
+ *
+ * NULL is meaningful on all four and is NEVER backfilled with a default: an
+ * unset subtype must stay distinguishable from a deliberately-chosen one, so
+ * the advice engine can report `unclassified` honestly instead of silently
+ * treating an un-triaged account as checking.
+ *
+ * UNITS (read before doing arithmetic — CLAUDE.md §Money):
+ *   - `apy` is a PERCENTAGE, e.g. "4.5000" = 4.5% (same convention as
+ *     `retirement_contributions.match_cap_percent`).
+ *   - APRs elsewhere (`liabilities.annual_rate`, `credit_lines.apr`) are
+ *     decimal FRACTIONS, e.g. "0.065000" = 6.5%. The precisions differ on
+ *     purpose so the two are hard to confuse: percent ⇒ numeric(7,4),
+ *     fraction ⇒ numeric(8,6).
+ *
+ * `tax_treatment` describes the CONTAINER so the savings waterfall can ORDER it
+ * (ADR-034 §4). It drives no tax math whatsoever — reaffirming ADR-030's
+ * "`pretax` is a label only" (CLAUDE.md §Domain Scope: no tax engine, ever).
  */
 export const accounts = pgTable(
   "accounts",
@@ -66,6 +90,21 @@ export const accounts = pgTable(
     acquiredAt: date("acquired_at", { mode: "string" }),
     /** What the user paid. Drives a simple display gain/loss (not a tax figure). */
     acquisitionCost: numeric("acquisition_cost", { precision: 18, scale: 2 }),
+    /**
+     * Cash-account subtype (Phase 15). NULL = unclassified — the advice engine
+     * reports that account's balance as `unclassified` rather than guessing.
+     * Only meaningful for `type='depository'`. text+CHECK per ADR-033.
+     */
+    subtype: text("subtype"),
+    /** Annual percentage yield as a PERCENTAGE ("4.5000" = 4.5%). See header. */
+    apy: numeric("apy", { precision: 7, scale: 4 }),
+    /** CD maturity. Only meaningful when `subtype='cd'`; NULL otherwise. */
+    maturityDate: date("maturity_date", { mode: "string" }),
+    /**
+     * Tax container for waterfall ORDERING only — drives no math (see header).
+     * NULL = unclassified.
+     */
+    taxTreatment: text("tax_treatment"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },
@@ -74,6 +113,22 @@ export const accounts = pgTable(
     assetCategoryCheck: check(
       "accounts_asset_category_check",
       sql`${table.assetCategory} IS NULL OR ${table.assetCategory} IN ('vehicle', 'watercraft', 'jewelry', 'collectible', 'other')`,
+    ),
+    // NULL-tolerant, exactly like assetCategoryCheck above: an unclassified
+    // account is legal, a misspelled subtype is not (ADR-033 §1).
+    subtypeCheck: check(
+      "accounts_subtype_check",
+      sql`${table.subtype} IS NULL OR ${table.subtype} IN ('checking', 'savings', 'money_market', 'cd', 'cash_management')`,
+    ),
+    taxTreatmentCheck: check(
+      "accounts_tax_treatment_check",
+      sql`${table.taxTreatment} IS NULL OR ${table.taxTreatment} IN ('taxable', 'tax_deferred', 'roth', 'hsa')`,
+    ),
+    // APY is a percentage (see header). The 0–100 bound catches the most likely
+    // data-entry error — entering a fraction (0.045) or a wildly wrong figure.
+    apyRangeCheck: check(
+      "accounts_apy_range_check",
+      sql`${table.apy} IS NULL OR (${table.apy} >= 0 AND ${table.apy} <= 100)`,
     ),
     // Trigram GIN indexes (Phase 12, ADR-028): fuzzy search on account name +
     // institution for the per-list filter and the ⌘K palette.
@@ -93,6 +148,12 @@ export const accountsRelations = relations(accounts, ({ many, one }) => ({
     fields: [accounts.id],
     references: [liabilities.accountId],
   }),
+  // The revolving twin of `liability` (Phase 15). A `credit_card` account has
+  // zero or one; every other account type has none.
+  creditLine: one(creditLines, {
+    fields: [accounts.id],
+    references: [creditLines.accountId],
+  }),
   plaidItem: one(plaidItems, {
     fields: [accounts.plaidItemId],
     references: [plaidItems.id],
@@ -101,3 +162,26 @@ export const accountsRelations = relations(accounts, ({ many, one }) => ({
 
 export type Account = typeof accounts.$inferSelect;
 export type NewAccount = typeof accounts.$inferInsert;
+
+/**
+ * Cash-account subtypes (Phase 15, ADR-033 §1 — mirrors the CHECK above).
+ *
+ * Ordered loosely by liquidity, which is also the order the cash-tiering rule
+ * reads them in: `checking`/`cash_management` are operating cash, `savings`/
+ * `money_market` are reserve, `cd` is medium-term.
+ */
+export const ACCOUNT_SUBTYPES = [
+  "checking",
+  "savings",
+  "money_market",
+  "cd",
+  "cash_management",
+] as const;
+export type AccountSubtype = (typeof ACCOUNT_SUBTYPES)[number];
+
+/**
+ * Tax containers, for waterfall ORDERING only (mirrors the CHECK above).
+ * These drive no tax computation — see the file header.
+ */
+export const ACCOUNT_TAX_TREATMENTS = ["taxable", "tax_deferred", "roth", "hsa"] as const;
+export type AccountTaxTreatment = (typeof ACCOUNT_TAX_TREATMENTS)[number];

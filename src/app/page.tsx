@@ -1,3 +1,4 @@
+import { AdviceCard } from "@/components/dashboard/advice-card.tsx";
 import { AlertsCard } from "@/components/dashboard/alerts-card.tsx";
 import { AllocationCard } from "@/components/dashboard/allocation-card.tsx";
 import { FirstRunDashboard } from "@/components/dashboard/first-run.tsx";
@@ -129,6 +130,9 @@ async function DashboardBody({
           currency={data.baseCurrency}
           className={SPAN_WIDE}
         />
+        {/* Guidance (P15-35) leads the numeric row: it is the only card that
+            says what to DO, and the rest describe what IS. */}
+        <AdviceCard data={data.advice} currency={data.baseCurrency} className={SPAN_STANDARD} />
         <SpendCard data={data.spending} className={SPAN_STANDARD} />
         <IncomeCard data={data.income} className={SPAN_STANDARD} />
         <AlertsCard data={data.alerts} className={SPAN_STANDARD} />

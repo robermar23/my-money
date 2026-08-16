@@ -67,3 +67,13 @@ what can and should we add to the dashboard to make it more informative given al
 However, from a user's perspective, the "cost basis" would be the amount of income they invest in their 401k every paycheck.
 
 Can the user not have the ability to define their "income" in an intentional way and have the 401k amount or percentage defined so it is included in investment calculations?
+
+## Round 9
+
+Given all of the sources of data available to the app, including now income and investment contributions, can it now "recommend" some things?
+
+Recommend budgets.  Recommend how much to save, long term vs short term.  How much to keep on hand and how much to keep in medium-term savings like CD's.
+
+Help the user manage their money, not investments.  Help them based off of standard and well known best practices for managing family, household money.
+
+Perhaps the app needs to know extra info, like how many house hold members and age....whatever is need. Rembmber this apps data is all local

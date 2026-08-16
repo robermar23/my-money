@@ -1,10 +1,12 @@
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { type BudgetLine, budgetVsActual } from "@/lib/budgets/queries.ts";
+import { previewBudgetSuggestions } from "@/lib/budgets/suggestions.ts";
 import { MONTH_RE } from "@/lib/schemas/budget.ts";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { BudgetMonthNav } from "./budget-month-nav.tsx";
 import { BudgetRow } from "./budget-row.tsx";
+import { SuggestionsPanel } from "./suggestions-panel.tsx";
 
 export const metadata: Metadata = { title: "Budgets" };
 
@@ -51,7 +53,9 @@ export default async function BudgetsPage(props: PageProps): Promise<React.JSX.E
   const search = (await props.searchParams) ?? {};
   const month = search.month && MONTH_RE.test(search.month) ? search.month : currentMonth();
 
-  const data = await budgetVsActual(month);
+  // Both reads are independent, so they overlap rather than queue. The preview
+  // writes nothing — it is what the suggestion WOULD do (P15-27).
+  const [data, preview] = await Promise.all([budgetVsActual(month), previewBudgetSuggestions()]);
   const groups = groupLines(data.lines);
   const rollupByGroup = new Map(data.groups.map((g) => [g.groupId ?? "", g]));
 
@@ -88,6 +92,8 @@ export default async function BudgetsPage(props: PageProps): Promise<React.JSX.E
           )}
         </div>
       </div>
+
+      <SuggestionsPanel preview={preview} currency={CURRENCY} />
 
       {groups.length === 0 ? (
         <p className="mt-8 text-sm text-zinc-500">

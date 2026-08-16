@@ -39,7 +39,12 @@ BUILDER    ?= my-money-builder
 # `income_sources` cascades to retirement_contributions → income_contributions
 # (Phase 14). Listed explicitly because nothing else reaches it: a contribution
 # rule hangs off an account, but the paycheck that defines it does not.
-DOMAIN_TABLES := users, accounts, holdings, securities, plaid_items, plaid_sync_runs, webhook_log, account_snapshots, liabilities, prices, alerts, income_sources
+# Same reason for the three Phase-15 tables: `credit_lines` DOES cascade from
+# accounts, but `household_profile`, `household_members` and
+# `recommendation_dismissals` have no FK at all — deliberately (see
+# src/db/schema/household.ts). Without them here a "clean slate" would silently
+# keep the previous household's members and every dismissed recommendation.
+DOMAIN_TABLES := users, accounts, holdings, securities, plaid_items, plaid_sync_runs, webhook_log, account_snapshots, liabilities, prices, alerts, income_sources, household_profile, household_members, recommendation_dismissals
 
 # ---------------------------------------------------------------------------
 # Help (cross-platform; plain @echo lines so cmd.exe + bash both render OK)

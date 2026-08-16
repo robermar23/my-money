@@ -134,6 +134,20 @@
       "when": 1786313218348,
       "tag": "0018_gray_sleepwalker",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786853723693,
+      "tag": "0019_strange_meteorite",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786910293458,
+      "tag": "0020_melted_omega_sentinel",
+      "breakpoints": true
     }
   ]
 }

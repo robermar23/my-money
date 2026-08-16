@@ -50,3 +50,32 @@ export const deleteBudgetSchema = z.object({
 });
 
 export type DeleteBudgetInput = z.infer<typeof deleteBudgetSchema>;
+
+/**
+ * The confirmed half of the preview → confirm flow (P15-27).
+ *
+ * Deliberately a list of explicit `(categoryId, amount)` pairs rather than a
+ * "yes, apply the preview" flag. The user may have unticked rows or edited an
+ * amount, and re-deriving the list on the server would silently discard those
+ * edits — the same reason a QFX import confirms the rows it previewed rather
+ * than re-parsing the file (CLAUDE.md §Importers).
+ *
+ * `min(1)` matters: an empty confirmation is a no-op the UI should not have
+ * submitted, and accepting it silently would make "apply" appear to succeed
+ * while writing nothing. The cap is a bound on a bulk write, not a real limit —
+ * no household has 200 expense categories.
+ */
+export const applyBudgetSuggestionsSchema = z.object({
+  targets: z
+    .array(setBudgetSchema)
+    .min(1, "Select at least one budget to apply")
+    .max(200, "Too many budgets in one apply")
+    // Two targets for one category would make the written amount depend on
+    // upsert order — reject rather than silently pick the last one.
+    .refine(
+      (targets) => new Set(targets.map((t) => t.categoryId)).size === targets.length,
+      "The same category appears twice",
+    ),
+});
+
+export type ApplyBudgetSuggestionsInput = z.infer<typeof applyBudgetSuggestionsSchema>;

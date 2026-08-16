@@ -17,7 +17,14 @@ import {
  * over data already in Postgres, plus directly by the backup job on failure, and
  * by the `evaluate-price-targets` job for one-shot watchlist price targets
  * (Phase 11, ADR-026 — type `price_target`, which like `backup_failure` is NOT a
- * resolve-swept rule type).
+ * resolve-swept rule type), and by the daily `evaluate-advice` job for material
+ * changes in household guidance (Phase 15, P15-36 — type `advice`, the third
+ * non-swept type).
+ *
+ * `advice` rows carry the guidance figures in `detail` and a deliberately
+ * figure-free `title`: a recommendation's own title routinely contains a dollar
+ * amount ("Build your emergency fund to $18,000.00"), and ADR-015 keeps amounts
+ * out of the title column entirely. See `src/lib/advice/alerts.ts`.
  * Surfaced at `/alerts` (the primary, zero-third-party channel) and, if SMTP is
  * configured, nudged via a **notification-only** email that carries NO financial
  * data (P6-14) — the structured figures live in `detail` and are shown only in
@@ -66,7 +73,7 @@ export const alerts = pgTable(
       .where(sql`${table.resolvedAt} IS NULL`),
     typeCheck: check(
       "alerts_type_check",
-      sql`${table.type} IN ('large_transaction', 'balance_drop', 'item_login_required', 'stale_snapshot', 'stale_price', 'sync_failure', 'backup_failure', 'price_target')`,
+      sql`${table.type} IN ('large_transaction', 'balance_drop', 'item_login_required', 'stale_snapshot', 'stale_price', 'sync_failure', 'backup_failure', 'price_target', 'advice')`,
     ),
     severityCheck: check(
       "alerts_severity_check",
