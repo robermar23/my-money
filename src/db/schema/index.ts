@@ -30,3 +30,6 @@ export * from "./price-targets.ts";
 export * from "./income-sources.ts";
 export * from "./retirement-contributions.ts";
 export * from "./income-contributions.ts";
+export * from "./credit-lines.ts";
+export * from "./household.ts";
+export * from "./recommendation-dismissals.ts";

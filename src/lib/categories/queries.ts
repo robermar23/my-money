@@ -50,6 +50,11 @@ export async function listCategoriesWithGroups(opts?: {
       groupId: categories.groupId,
       name: categories.name,
       kind: categories.kind,
+      // Phase 15: `necessity` is orthogonal to `kind` (see categories.ts) and
+      // feeds the essential-expense baseline; `excludedFromBaseline` keeps a
+      // category out of observed net income. Both are surfaced in the manager.
+      necessity: categories.necessity,
+      excludedFromBaseline: categories.excludedFromBaseline,
       color: categories.color,
       sortOrder: categories.sortOrder,
       archivedAt: categories.archivedAt,
