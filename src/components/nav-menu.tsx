@@ -25,6 +25,7 @@ const LINKS = [
   { href: "/investments", label: "Investments" },
   { href: "/watchlist", label: "Watchlist" },
   { href: "/analysis", label: "Analysis" },
+  { href: "/plan", label: "Plan" },
   { href: "/settings/categories", label: "Categories" },
   { href: "/settings/income", label: "Income" },
   { href: "/settings/household", label: "Household" },

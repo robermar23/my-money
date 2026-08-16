@@ -299,3 +299,33 @@ export const householdMemberSchema = z
   });
 
 export type HouseholdMemberInput = z.infer<typeof householdMemberSchema>;
+
+/** How long a snooze may run. A year is "not this year"; beyond that, dismiss. */
+const SNOOZE_MAX_DAYS = 365;
+
+/**
+ * Dismiss or snooze one recommendation (P15-34).
+ *
+ * `subjectKey` is `''` for a whole-rule dismissal — empty string rather than
+ * `null` because it is half of a UNIQUE index and Postgres NULLs are never equal
+ * (see [recommendation-dismissals.ts](../../db/schema/recommendation-dismissals.ts)).
+ * It is NOT validated as a UUID: most subjects are account or category ids, but
+ * some rules key on a composite string, and rejecting those here would silently
+ * make them un-dismissable.
+ *
+ * `snoozeDays` blank means "dismiss indefinitely". The bound exists because a
+ * snooze longer than a year is a dismissal with extra steps, and an unbounded
+ * one would let a stray keystroke silence a rule until 4023.
+ */
+export const dismissRecommendationSchema = z
+  .object({
+    ruleId: z.string().trim().min(1, "Missing rule"),
+    subjectKey: z.string().trim().max(200).optional().or(z.literal("")),
+    snoozeDays: optionalNumeric,
+  })
+  .refine((v) => intInRange(v.snoozeDays, 1, SNOOZE_MAX_DAYS), {
+    path: ["snoozeDays"],
+    message: `Snooze must be between 1 and ${SNOOZE_MAX_DAYS} days`,
+  });
+
+export type DismissRecommendationInput = z.infer<typeof dismissRecommendationSchema>;

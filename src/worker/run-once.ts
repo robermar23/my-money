@@ -16,6 +16,7 @@
  *   - backfill-holding-snapshots
  *   - refresh-fundamentals-weekly
  *   - evaluate-price-targets
+ *   - evaluate-advice
  *   - materialize-contributions
  *   - backfill-contributions
  */
@@ -25,6 +26,7 @@ import { backfillContributionsProcessor } from "./jobs/backfill-contributions.ts
 import { backupDatabaseDailyProcessor } from "./jobs/backup-database-daily.ts";
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
 import { detectAnomaliesDailyProcessor } from "./jobs/detect-anomalies-daily.ts";
+import { evaluateAdviceProcessor } from "./jobs/evaluate-advice.ts";
 import { evaluatePriceTargetsProcessor } from "./jobs/evaluate-price-targets.ts";
 import { exportBeancountDailyProcessor } from "./jobs/export-beancount-daily.ts";
 import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
@@ -53,6 +55,10 @@ const PROCESSORS: Record<string, (job: never) => Promise<unknown>> = {
   }) as never,
   "refresh-fundamentals-weekly": refreshFundamentalsWeeklyProcessor as never,
   "evaluate-price-targets": (async (job: never) => evaluatePriceTargetsProcessor(job)) as never,
+  // P15-36 — logs counts only. A recommendation's figures never reach a log line.
+  "evaluate-advice": (async (job: never) => {
+    console.info("[run-once] evaluate-advice:", await evaluateAdviceProcessor(job));
+  }) as never,
   // P14-09/P14-11 — the nightly window, then the full historical walk. Both log
   // only counts; no gross, contribution, or match figure is ever printed.
   "materialize-contributions": (async (job: never) => {

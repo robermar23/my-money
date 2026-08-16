@@ -1,6 +1,8 @@
 // @vitest-environment node
 
 import type { Holding } from "@/db/schema/holdings.ts";
+import type { PlanData } from "@/lib/advice/plan.ts";
+import type { Recommendation, RungState } from "@/lib/advice/types.ts";
 import type { SpendingSummary } from "@/lib/analytics/spending.ts";
 import type { BudgetLine, BudgetVsActual } from "@/lib/budgets/queries.ts";
 import type {
@@ -46,6 +48,7 @@ const q = vi.hoisted(() => ({
   listOpenAlerts: vi.fn(),
   listWatchlist: vi.fn(),
   savingsRateInputs: vi.fn(),
+  loadPlan: vi.fn(),
 }));
 
 // Only the *reads* are replaced. The pure modules the loader composes —
@@ -68,6 +71,9 @@ vi.mock("@/lib/watchlist/queries.ts", () => ({ listWatchlist: q.listWatchlist })
 // P14-17: only the income *read* is replaced — `savingsRate` itself stays real,
 // so the card's arithmetic is the same code the settings preview runs.
 vi.mock("@/lib/income/queries.ts", () => ({ savingsRateInputs: q.savingsRateInputs }));
+// P15-35: the whole guidance composition is one read from the loader's point of
+// view. `focusRung` stays REAL — the card must name the rung the engine named.
+vi.mock("@/lib/advice/plan.ts", () => ({ loadPlan: q.loadPlan }));
 // `monthRange` is pure and drives the spending window — keep the real one.
 vi.mock("@/lib/budgets/queries.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/budgets/queries.ts")>()),
@@ -211,6 +217,54 @@ function watchRow(over: {
   };
 }
 
+/** A `loadPlan` result: no history, no recommendations, unless overridden. */
+function plan(
+  over: {
+    readonly recommendations?: readonly Recommendation[];
+    readonly waterfall?: readonly RungState[];
+    readonly readiness?: Partial<PlanData["readiness"]>;
+  } = {},
+): PlanData {
+  return {
+    advice: {
+      recommendations: over.recommendations ?? [],
+      suppressed: [],
+      waterfall: over.waterfall ?? [],
+      gated: [],
+      generatedAt: "2026-06-15",
+    },
+    readiness: {
+      historyMonths: 0,
+      hasHistory: false,
+      missing: [],
+      ...over.readiness,
+    },
+    window: { from: "2025-07-01", to: "2026-06-15" },
+    currency: USD,
+  };
+}
+
+/** A recommendation with the fields the card actually renders. */
+function recommendation(over: Partial<Recommendation> = {}): Recommendation {
+  return {
+    id: "emergency_fund:",
+    ruleId: "emergency_fund",
+    subjectKey: "",
+    severity: "critical",
+    status: "action",
+    title: "Build your emergency fund",
+    rationale: "You hold under a month of essentials.",
+    heuristic: "3-6 months of essential expenses",
+    benchmark: "18000.00",
+    currentValue: "1200.00",
+    suggestedValue: "18000.00",
+    impact: "16800.00",
+    inputsUsed: [],
+    confidence: "high",
+    ...over,
+  };
+}
+
 /** The brand-new-install baseline: every read returns "nothing here yet". */
 function emptyBook(): void {
   const nw: NetWorthBreakdown = { asOf: NOW, total: Money.zero(USD), items: [] };
@@ -225,6 +279,7 @@ function emptyBook(): void {
   q.listOpenAlerts.mockResolvedValue([]);
   q.listWatchlist.mockResolvedValue([] as WatchlistRow[]);
   q.savingsRateInputs.mockResolvedValue({ sources: [], contributions: [] });
+  q.loadPlan.mockResolvedValue(plan());
 }
 
 beforeEach(() => {
@@ -694,5 +749,105 @@ describe("loadDashboard — savings-rate card", () => {
     const card = (await loadDashboard("1Y", NOW)).savingsRate;
     if (card?.status !== "ok") throw new Error("expected an ok savings-rate card");
     expect(card.ratePct).toBe("0");
+  });
+});
+
+// ── Guidance card (P15-35) ───────────────────────────────────────────────────
+
+describe("loadDashboard — advice card", () => {
+  /** A rung, for the "next dollar goes to" line. */
+  function rung(over: Partial<RungState> = {}): RungState {
+    return {
+      rung: "starter_buffer",
+      order: 0,
+      label: "Starter buffer",
+      status: "in_progress",
+      reason: "You hold $200 against a $1,000 starter buffer.",
+      target: "1000.00",
+      current: "200.00",
+      gap: "800.00",
+      blocking: true,
+      inputsUsed: [],
+      ...over,
+    };
+  }
+
+  it("is empty with a fix link when there is no history at all", async () => {
+    const card = (await loadDashboard("1Y", NOW)).advice;
+    if (card?.status !== "empty") throw new Error("expected an empty advice card");
+    expect(card.reason).toContain("recorded transactions");
+    expect(card.href).toBe("/transactions");
+  });
+
+  it("surfaces the engine's first recommendation, not its own pick", async () => {
+    // The card must be the same item as the top row of /plan. The loader takes
+    // [0] off an already-sorted list rather than re-ranking, so a second, subtly
+    // different comparator can never put a different item on the dashboard.
+    const top = recommendation({ id: "high_interest_debt:card", severity: "critical" });
+    const next = recommendation({ id: "cash_drag:", severity: "info", impact: "9999999.00" });
+    q.loadPlan.mockResolvedValue(
+      plan({ recommendations: [top, next], readiness: { hasHistory: true, historyMonths: 14 } }),
+    );
+
+    const card = (await loadDashboard("1Y", NOW)).advice;
+    if (card?.status !== "ok") throw new Error("expected an ok advice card");
+    expect(card.top.id).toBe("high_interest_debt:card");
+    expect(card.total).toBe(2);
+  });
+
+  it("names the current waterfall rung", async () => {
+    q.loadPlan.mockResolvedValue(
+      plan({
+        recommendations: [recommendation()],
+        waterfall: [rung(), rung({ rung: "employer_match", order: 1, status: "blocked" })],
+        readiness: { hasHistory: true, historyMonths: 14 },
+      }),
+    );
+
+    const card = (await loadDashboard("1Y", NOW)).advice;
+    if (card?.status !== "ok") throw new Error("expected an ok advice card");
+    expect(card.focus?.label).toBe("Starter buffer");
+  });
+
+  it("reports the calm state when everything the engine returned is good news", async () => {
+    q.loadPlan.mockResolvedValue(
+      plan({
+        recommendations: [recommendation({ status: "ok", severity: "info" })],
+        waterfall: [rung({ status: "done" })],
+        readiness: { hasHistory: true, historyMonths: 14 },
+      }),
+    );
+
+    const card = (await loadDashboard("1Y", NOW)).advice;
+    if (card?.status !== "clear") throw new Error("expected a clear advice card");
+    // Every blocking rung done → no focus, which the card renders as finished.
+    expect(card.focus).toBeNull();
+  });
+
+  it("names the most consequential missing input when there is nothing to say", async () => {
+    // "No data" would read as a broken feature; the readiness report already
+    // worked out which gap matters most, so the card borrows it (P15-37).
+    q.loadPlan.mockResolvedValue(
+      plan({
+        readiness: {
+          hasHistory: true,
+          historyMonths: 4,
+          missing: [
+            {
+              id: "category-necessity",
+              label: "Spending classification",
+              detail: "38% of your spending has no necessity set.",
+              href: "/settings/categories",
+              linkLabel: "Classify categories",
+            },
+          ],
+        },
+      }),
+    );
+
+    const card = (await loadDashboard("1Y", NOW)).advice;
+    if (card?.status !== "empty") throw new Error("expected an empty advice card");
+    expect(card.reason).toContain("38%");
+    expect(card.href).toBe("/settings/categories");
   });
 });

@@ -1,5 +1,8 @@
 import "server-only";
 
+import { loadPlan } from "@/lib/advice/plan.ts";
+import { focusRung } from "@/lib/advice/rules/waterfall.ts";
+import type { Recommendation, RungState } from "@/lib/advice/types.ts";
 import { listOpenAlerts } from "@/lib/alerts/queries.ts";
 import { spendingSummary } from "@/lib/analytics/spending.ts";
 import { budgetVsActual, monthRange } from "@/lib/budgets/queries.ts";
@@ -191,6 +194,32 @@ export type SavingsRateCard =
   /** No income source defined yet. */
   | { readonly status: "empty" };
 
+/**
+ * Household-guidance card data (Phase 15, P15-35, ADR-032).
+ *
+ * **One** recommendation, not a list. The dashboard's job is to say what is worth
+ * looking at; the ranked list lives on `/plan`, and a card that reproduced five
+ * of them would be a second, competing guidance surface with its own drift.
+ *
+ * It comes from the same `loadPlan()` composition `/plan` calls, so the card and
+ * the page can never name a different top priority — the two would be read side
+ * by side, and disagreeing would discredit both.
+ */
+export type AdviceCard =
+  | {
+      readonly status: "ok";
+      /** The single highest-severity open recommendation. */
+      readonly top: Recommendation;
+      /** The rung the household is working on, or `null` when all are done. */
+      readonly focus: RungState | null;
+      /** How many open recommendations there are in total, for the "+N more". */
+      readonly total: number;
+    }
+  /** Recommendations exist but nothing is open — the calm, good-news state. */
+  | { readonly status: "clear"; readonly focus: RungState | null }
+  /** Not enough recorded to say anything; `reason` names the missing input. */
+  | { readonly status: "empty"; readonly reason: string; readonly href: string };
+
 /** Everything the curated dashboard renders, one field per card. */
 export interface DashboardData {
   readonly range: DashboardRange;
@@ -211,6 +240,12 @@ export interface DashboardData {
    * card arrive a phase later without a breaking type change.
    */
   readonly savingsRate?: SavingsRateCard;
+  /**
+   * Household guidance (P15-35). Optional for the same reason `savingsRate` is:
+   * it lets the loader's contract absorb a new card without breaking every
+   * existing caller and test on the day it lands.
+   */
+  readonly advice?: AdviceCard;
 }
 
 // ── Composition ──────────────────────────────────────────────────────────────
@@ -249,6 +284,7 @@ export async function loadDashboard(
     openAlerts,
     watch,
     incomeInputs,
+    plan,
   ] = await Promise.all([
     computeNetWorth(now, BASE_CURRENCY),
     // Windowed at the database, not in JS. `rangeDelta` re-derives the same
@@ -265,6 +301,10 @@ export async function loadDashboard(
     listOpenAlerts(),
     listWatchlist(),
     savingsRateInputs(savingsWindow),
+    // The guidance snapshot is the heaviest read in this fan-out, but it runs
+    // alongside the others rather than after them, and reusing `loadPlan` is
+    // what guarantees the card agrees with `/plan` (P15-35).
+    loadPlan({ today }, now),
   ]);
 
   const netWorth: NetWorthHero = {
@@ -288,6 +328,7 @@ export async function loadDashboard(
     alerts: buildAlerts(openAlerts),
     movers: buildMovers(watch),
     savingsRate: buildSavingsRate(incomeInputs, savingsWindow),
+    advice: buildAdvice(plan),
   };
 }
 
@@ -437,6 +478,48 @@ function buildIncome(valued: Valued): IncomeCard {
       annualIncome: r.annualIncome,
     })),
   };
+}
+
+/**
+ * The single most urgent recommendation plus the current waterfall rung (P15-35).
+ *
+ * "Most urgent" is not re-derived here: `runAdvice` already sorted by severity,
+ * then actionability, then impact, so the top of the list *is* the answer. The
+ * card taking `[0]` rather than running its own comparator is what keeps it
+ * identical to the first row on `/plan`.
+ *
+ * The empty state names the missing input rather than saying "no data" — the
+ * readiness report already worked out which gap matters most, and its first
+ * entry is the one worth putting on the dashboard (P15-37).
+ */
+function buildAdvice(plan: Awaited<ReturnType<typeof loadPlan>>): AdviceCard {
+  const focus = focusRung(plan.advice.waterfall);
+
+  // No transactions at all is genuinely empty; so is a book too thin for any
+  // rule to run. Both point at the same fix, and neither is an error.
+  if (!plan.readiness.hasHistory || plan.advice.recommendations.length === 0) {
+    const gap = plan.readiness.missing[0];
+    if (!plan.readiness.hasHistory) {
+      return {
+        status: "empty",
+        reason: "Guidance needs some recorded transactions before it can say anything.",
+        href: "/transactions",
+      };
+    }
+    if (plan.advice.recommendations.length === 0 && gap) {
+      return { status: "empty", reason: gap.detail, href: gap.href };
+    }
+    return { status: "clear", focus };
+  }
+
+  const top = plan.advice.recommendations[0];
+  // Everything the engine returned is `ok` — nothing to act on, which is worth
+  // saying plainly rather than rendering an empty card.
+  if (!top || plan.advice.recommendations.every((r) => r.status === "ok")) {
+    return { status: "clear", focus };
+  }
+
+  return { status: "ok", top, focus, total: plan.advice.recommendations.length };
 }
 
 /** Open-alert count + the 3 most recent titles (content-free per ADR-015). */

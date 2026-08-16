@@ -6,6 +6,7 @@ import {
   computeSnapshotsDailyQueue,
   detectAnomaliesDailyQueue,
   enqueuePlaidSyncsDailyQueue,
+  evaluateAdviceQueue,
   evaluatePriceTargetsQueue,
   exportBeancountDailyQueue,
   fetchPricesDailyQueue,
@@ -23,6 +24,7 @@ import { backupDatabaseDailyProcessor } from "./jobs/backup-database-daily.ts";
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
 import { detectAnomaliesDailyProcessor } from "./jobs/detect-anomalies-daily.ts";
 import { enqueuePlaidSyncsDailyProcessor } from "./jobs/enqueue-plaid-syncs-daily.ts";
+import { evaluateAdviceProcessor } from "./jobs/evaluate-advice.ts";
 import { evaluatePriceTargetsProcessor } from "./jobs/evaluate-price-targets.ts";
 import { exportBeancountDailyProcessor } from "./jobs/export-beancount-daily.ts";
 import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
@@ -56,7 +58,15 @@ heartbeatWorker.on("failed", (job, err) => {
 
 const computeSnapshotsWorker = new Worker(
   QUEUE_NAMES.COMPUTE_SNAPSHOTS_DAILY,
-  computeSnapshotsDailyProcessor,
+  async (job) => {
+    await computeSnapshotsDailyProcessor(job);
+    // P15-36 — chain the guidance evaluation off the balances we just wrote.
+    // The waterfall reads `account_snapshots`, so a cron that fired before this
+    // job would evaluate against yesterday's numbers and could fire an alert
+    // that is already wrong. Enqueued here (not inside the processor) so the
+    // snapshot processor stays offline-testable.
+    await evaluateAdviceQueue.add("evaluate-advice", {});
+  },
   { connection: redisConnection, concurrency: 1 },
 );
 computeSnapshotsWorker.on("failed", (job, err) => {
@@ -92,6 +102,19 @@ const evaluatePriceTargetsWorker = new Worker(
 );
 evaluatePriceTargetsWorker.on("failed", (job, err) => {
   console.error(`[worker] evaluate-price-targets job ${job?.id} failed:`, err);
+});
+
+// Phase 15 (P15-36): daily guidance evaluation. No cron — it rides the 02:00
+// snapshot job above, so it always reads fresh balances.
+const evaluateAdviceWorker = new Worker(
+  QUEUE_NAMES.EVALUATE_ADVICE,
+  async (job) => {
+    await evaluateAdviceProcessor(job);
+  },
+  { connection: redisConnection, concurrency: 1 },
+);
+evaluateAdviceWorker.on("failed", (job, err) => {
+  console.error(`[worker] evaluate-advice job ${job?.id} failed:`, err);
 });
 
 const processImportWorker = new Worker(QUEUE_NAMES.PROCESS_IMPORT, processImportProcessor, {
@@ -353,6 +376,7 @@ async function shutdown(_signal: string): Promise<void> {
   await refreshFundamentalsWeeklyWorker.close();
   await backfillWatchlistSymbolWorker.close();
   await evaluatePriceTargetsWorker.close();
+  await evaluateAdviceWorker.close();
   await materializeContributionsWorker.close();
   await heartbeatQueue.close();
   await computeSnapshotsDailyQueue.close();
@@ -368,6 +392,7 @@ async function shutdown(_signal: string): Promise<void> {
   await refreshFundamentalsWeeklyQueue.close();
   await backfillWatchlistSymbolQueue.close();
   await evaluatePriceTargetsQueue.close();
+  await evaluateAdviceQueue.close();
   await materializeContributionsQueue.close();
   await redisConnection.quit();
   process.exit(0);
