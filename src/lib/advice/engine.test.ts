@@ -75,7 +75,7 @@ function rec(partial: Partial<Recommendation> & { id: string }): Recommendation 
 }
 
 describe("ADVICE_RULES", () => {
-  it("registers every Batch 3 rule exactly once", () => {
+  it("registers every rule exactly once", () => {
     const ids = ADVICE_RULES.map((r) => r.id);
 
     expect(ids).toEqual([
@@ -85,6 +85,8 @@ describe("ADVICE_RULES", () => {
       "credit_utilization",
       "contribution_pacing",
       "cash_drag",
+      "budget_coverage",
+      "needs_wants_split",
       "waterfall",
     ]);
     expect(new Set(ids).size).toBe(ids.length);
@@ -104,10 +106,13 @@ describe("runAdvice — history gating (ADR-034 §7)", () => {
     const result = runAdvice(household({ historyMonths: 2 }), [], NOW);
 
     // A two-month-old install must not confidently size an emergency fund from
-    // two months of spending. Rules that read only recorded terms still run.
+    // two months of spending, suggest a budget from it, or state a 50/30/20
+    // proportion. Rules that read only recorded terms still run.
     expect(result.gated.map((g) => g.ruleId).sort()).toEqual([
+      "budget_coverage",
       "cash_drag",
       "emergency_fund",
+      "needs_wants_split",
       "waterfall",
     ]);
     expect(result.recommendations.some((r) => r.ruleId === "emergency_fund")).toBe(false);

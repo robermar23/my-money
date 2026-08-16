@@ -233,3 +233,42 @@ export const INCOME_CONCENTRATION_THRESHOLD = 0.8;
  * with the caveat attached (ADR-032 consequence 1).
  */
 export const UNCLASSIFIED_CONFIDENCE_LIMIT = 0.2;
+
+/**
+ * Typical monthly spend below which an unbudgeted category is not worth
+ * mentioning, as a money string (P15-25).
+ *
+ * A budgeting feature that lists every $12/month category as a gap produces a
+ * screen of noise the user learns to scroll past, and the two categories that
+ * actually matter are lost inside it. The threshold is about attention, not
+ * about the money.
+ */
+export const BUDGET_MATERIAL_MONTHLY = "50.00";
+
+/**
+ * Consecutive months over target before a budget counts as diverged (P15-25).
+ *
+ * One month over is a month; three in a row is a budget that does not describe
+ * how this household lives, and the honest fix is usually to raise the target
+ * rather than to try harder.
+ */
+export const BUDGET_DIVERGENCE_MONTHS = 3;
+
+/**
+ * How far over target a month must land to count toward that streak, as a
+ * fraction of the target (P15-25).
+ *
+ * Being $3 over a $400 grocery budget is hitting it. Fifteen percent is the
+ * point at which the target and the behaviour are telling different stories.
+ */
+export const BUDGET_DIVERGENCE_TOLERANCE = 0.15;
+
+/**
+ * Percentage points of slack around each 50/30/20 target before the split
+ * diagnostic says anything (P15-26).
+ *
+ * The 50/30/20 split is a rule of thumb, not an accounting identity, and
+ * reporting "your needs are 51.2% against a 50% target" would give a rounding
+ * artifact the same weight as a real structural problem.
+ */
+export const SPLIT_TOLERANCE_POINTS = 5;

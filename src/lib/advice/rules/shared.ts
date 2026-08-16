@@ -79,6 +79,43 @@ export function worseConfidence(a: Confidence, b: Confidence): Confidence {
 }
 
 /**
+ * Whether a `YYYY-MM` month has fully elapsed as of `today`.
+ *
+ * @param month - `YYYY-MM`.
+ * @param today - Reference date, `YYYY-MM-DD`.
+ * @returns True once the month's last day is on or before `today`.
+ */
+export function isMonthComplete(month: string, today: string): boolean {
+  const year = Number(month.slice(0, 4));
+  const monthNumber = Number(month.slice(5, 7));
+  // Day 0 of the next month is the last day of this one (UTC, no TZ drift).
+  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  return `${month}-${String(lastDay).padStart(2, "0")}` <= today;
+}
+
+/**
+ * Drop the in-progress month (and any future month) from a monthly series.
+ *
+ * Every rule that reasons about *months* rather than about a running total needs
+ * this. On the 8th of the month the month-to-date figure is a fifth of a month,
+ * and comparing it to a monthly budget says the household is comfortably under
+ * — which is true and useless, and which silently breaks any "N months running"
+ * streak the moment a new month starts. The budgets page shows the partial month
+ * deliberately, because a user watching their month unfold wants it; a rule
+ * making a claim about typical months must not count it.
+ *
+ * @param months - Ascending series keyed by `YYYY-MM`.
+ * @param today - Reference date, `YYYY-MM-DD`.
+ * @returns Only the months that have fully elapsed.
+ */
+export function completeMonths<T extends { readonly month: string }>(
+  months: readonly T[],
+  today: string,
+): readonly T[] {
+  return months.filter((entry) => isMonthComplete(entry.month, today));
+}
+
+/**
  * Fraction of the calendar year elapsed at `today`, in (0, 1].
  *
  * Both year-to-date rules annualize with this: the employer-match gap and the

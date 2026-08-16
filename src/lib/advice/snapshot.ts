@@ -2,8 +2,10 @@ import "server-only";
 
 import { db } from "@/db/client.ts";
 import type { AccountSubtype, AccountTaxTreatment } from "@/db/schema/accounts.ts";
+import type { CategoryKind, CategoryNecessity } from "@/db/schema/categories.ts";
 import {
   accounts,
+  categories,
   categoryBudgets,
   creditLines,
   householdMembers,
@@ -14,6 +16,7 @@ import {
   transactions,
 } from "@/db/schema/index.ts";
 import type { EmployeeContributionBasis, EmployerMatchBasis } from "@/db/schema/index.ts";
+import { type MonthlyTotals, spendByMonth } from "@/lib/analytics/spending.ts";
 import { Money } from "@/lib/money/money.ts";
 import { and, asc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { type CashAccountInput, type CashTiers, classifyCashTiers } from "./cash-tiers.ts";
@@ -142,6 +145,23 @@ export interface AdviceHouseholdMember {
   readonly isDependent: boolean;
 }
 
+/**
+ * A spend category as the budget rules see it (Batch 4).
+ *
+ * Only the columns the rules read: the name they render, the `kind` that keeps
+ * transfers out of every total (ADR-018), and the two Phase-15 columns. Archived
+ * categories are excluded by the query — a category the user retired should not
+ * generate a "you have no budget for this" nag forever.
+ */
+export interface AdviceCategory {
+  readonly categoryId: string;
+  readonly name: string;
+  readonly kind: CategoryKind;
+  /** `null` = unclassified. Never defaulted — see [categories.ts](../../db/schema/categories.ts). */
+  readonly necessity: CategoryNecessity | null;
+  readonly excludedFromBaseline: boolean;
+}
+
 /** Investable balances bucketed by tax container (ADR-034 §4 ordering input). */
 export interface AdviceHoldingsTotals {
   readonly total: string;
@@ -189,6 +209,19 @@ export interface AdviceInput {
   };
   /** Stored monthly targets, for the budget-coverage rule (P15-25). */
   readonly budgets: readonly { readonly categoryId: string; readonly amount: string }[];
+  /** Active categories, for the budget rules to name and classify (Batch 4). */
+  readonly categories: readonly AdviceCategory[];
+  /**
+   * Gap-free ascending monthly spend across the window, broken out by category —
+   * the same {@link spendByMonth} series the analysis pages render (Batch 4).
+   *
+   * Reused rather than re-aggregated on purpose: a budget suggestion computed
+   * from a second, subtly different spend query would disagree with the number
+   * on the budgets page, and a user comparing the two would be right to distrust
+   * both. `essentials.monthly` is the *necessity* split of the same underlying
+   * transactions; this is the *category* split.
+   */
+  readonly monthlySpend: readonly MonthlyTotals[];
   readonly holdings: AdviceHoldingsTotals;
 }
 
@@ -234,87 +267,109 @@ export async function loadFinancialSnapshot(
   const contributionYear = Number(today.slice(0, 4));
 
   // ── Pass 1: accounts, and everything that does not depend on them ────────
-  const [accountRows, profileRow, memberRows, budgetRows, ruleRows, ytdRows, earliest] =
-    await Promise.all([
-      db
-        .select({
-          accountId: accounts.id,
-          name: accounts.name,
-          institution: accounts.institution,
-          type: accounts.type,
-          subtype: accounts.subtype,
-          apy: accounts.apy,
-          maturityDate: accounts.maturityDate,
-          taxTreatment: accounts.taxTreatment,
-        })
-        .from(accounts)
-        // Closed accounts hold no live balance and belong to no tier.
-        .where(isNull(accounts.closedAt))
-        .orderBy(asc(accounts.name)),
-      db.select().from(householdProfile).limit(1),
-      db
-        .select({
-          id: householdMembers.id,
-          label: householdMembers.label,
-          birthYear: householdMembers.birthYear,
-          isDependent: householdMembers.isDependent,
-        })
-        .from(householdMembers)
-        .orderBy(asc(householdMembers.createdAt)),
-      db
-        .select({ categoryId: categoryBudgets.categoryId, amount: categoryBudgets.amount })
-        .from(categoryBudgets),
-      db
-        .select({
-          ruleId: retirementContributions.id,
-          incomeSourceId: retirementContributions.incomeSourceId,
-          accountId: retirementContributions.accountId,
-          accountName: accounts.name,
-          taxTreatment: accounts.taxTreatment,
-          employeeBasis: retirementContributions.employeeBasis,
-          employeeValue: retirementContributions.employeeValue,
-          pretax: retirementContributions.pretax,
-          matchBasis: retirementContributions.matchBasis,
-          matchValue: retirementContributions.matchValue,
-          matchCapPercent: retirementContributions.matchCapPercent,
-          active: retirementContributions.active,
-        })
-        .from(retirementContributions)
-        .innerJoin(accounts, eq(accounts.id, retirementContributions.accountId))
-        .orderBy(asc(retirementContributions.createdAt)),
-      // YTD is keyed on `pay_date`, not `created_at`: a backfilled contribution
-      // belongs to the year it was PAID, which is the year a statutory limit
-      // applies to (P15-21).
-      db
-        .select({
-          ruleId: incomeContributions.retirementContributionId,
-          accountId: retirementContributions.accountId,
-          taxTreatment: accounts.taxTreatment,
-          employee: sql<string>`sum(${incomeContributions.employeeAmount})`,
-          employer: sql<string>`sum(${incomeContributions.employerAmount})`,
-          gross: sql<string>`sum(${incomeContributions.grossAmount})`,
-          periods: sql<number>`count(*)::int`,
-          lastPayDate: sql<string>`max(${incomeContributions.payDate})`,
-        })
-        .from(incomeContributions)
-        .innerJoin(
-          retirementContributions,
-          eq(retirementContributions.id, incomeContributions.retirementContributionId),
-        )
-        .innerJoin(accounts, eq(accounts.id, retirementContributions.accountId))
-        .where(
-          and(
-            gte(incomeContributions.payDate, `${contributionYear}-01-01`),
-            lte(incomeContributions.payDate, `${contributionYear}-12-31`),
-          ),
-        )
-        .groupBy(
-          incomeContributions.retirementContributionId,
-          retirementContributions.accountId,
-          accounts.taxTreatment,
+  const [
+    accountRows,
+    profileRow,
+    memberRows,
+    budgetRows,
+    categoryRows,
+    monthlySpend,
+    ruleRows,
+    ytdRows,
+    earliest,
+  ] = await Promise.all([
+    db
+      .select({
+        accountId: accounts.id,
+        name: accounts.name,
+        institution: accounts.institution,
+        type: accounts.type,
+        subtype: accounts.subtype,
+        apy: accounts.apy,
+        maturityDate: accounts.maturityDate,
+        taxTreatment: accounts.taxTreatment,
+      })
+      .from(accounts)
+      // Closed accounts hold no live balance and belong to no tier.
+      .where(isNull(accounts.closedAt))
+      .orderBy(asc(accounts.name)),
+    db.select().from(householdProfile).limit(1),
+    db
+      .select({
+        id: householdMembers.id,
+        label: householdMembers.label,
+        birthYear: householdMembers.birthYear,
+        isDependent: householdMembers.isDependent,
+      })
+      .from(householdMembers)
+      .orderBy(asc(householdMembers.createdAt)),
+    db
+      .select({ categoryId: categoryBudgets.categoryId, amount: categoryBudgets.amount })
+      .from(categoryBudgets),
+    db
+      .select({
+        categoryId: categories.id,
+        name: categories.name,
+        kind: categories.kind,
+        necessity: categories.necessity,
+        excludedFromBaseline: categories.excludedFromBaseline,
+      })
+      .from(categories)
+      // Archived categories keep their history but generate no advice.
+      .where(isNull(categories.archivedAt))
+      .orderBy(asc(categories.name)),
+    spendByMonth(window),
+    db
+      .select({
+        ruleId: retirementContributions.id,
+        incomeSourceId: retirementContributions.incomeSourceId,
+        accountId: retirementContributions.accountId,
+        accountName: accounts.name,
+        taxTreatment: accounts.taxTreatment,
+        employeeBasis: retirementContributions.employeeBasis,
+        employeeValue: retirementContributions.employeeValue,
+        pretax: retirementContributions.pretax,
+        matchBasis: retirementContributions.matchBasis,
+        matchValue: retirementContributions.matchValue,
+        matchCapPercent: retirementContributions.matchCapPercent,
+        active: retirementContributions.active,
+      })
+      .from(retirementContributions)
+      .innerJoin(accounts, eq(accounts.id, retirementContributions.accountId))
+      .orderBy(asc(retirementContributions.createdAt)),
+    // YTD is keyed on `pay_date`, not `created_at`: a backfilled contribution
+    // belongs to the year it was PAID, which is the year a statutory limit
+    // applies to (P15-21).
+    db
+      .select({
+        ruleId: incomeContributions.retirementContributionId,
+        accountId: retirementContributions.accountId,
+        taxTreatment: accounts.taxTreatment,
+        employee: sql<string>`sum(${incomeContributions.employeeAmount})`,
+        employer: sql<string>`sum(${incomeContributions.employerAmount})`,
+        gross: sql<string>`sum(${incomeContributions.grossAmount})`,
+        periods: sql<number>`count(*)::int`,
+        lastPayDate: sql<string>`max(${incomeContributions.payDate})`,
+      })
+      .from(incomeContributions)
+      .innerJoin(
+        retirementContributions,
+        eq(retirementContributions.id, incomeContributions.retirementContributionId),
+      )
+      .innerJoin(accounts, eq(accounts.id, retirementContributions.accountId))
+      .where(
+        and(
+          gte(incomeContributions.payDate, `${contributionYear}-01-01`),
+          lte(incomeContributions.payDate, `${contributionYear}-12-31`),
         ),
-      db.select({ earliest: sql<string | null>`min(${transactions.postedAt})` }).from(transactions),
-    ]);
+      )
+      .groupBy(
+        incomeContributions.retirementContributionId,
+        retirementContributions.accountId,
+        accounts.taxTreatment,
+      ),
+    db.select({ earliest: sql<string | null>`min(${transactions.postedAt})` }).from(transactions),
+  ]);
 
   // ── Pass 2: balances, then the debt/cash/baseline chain ──────────────────
   const balanceRows = await latestBalances(accountRows.map((a) => a.accountId));
@@ -425,6 +480,12 @@ export async function loadFinancialSnapshot(
       members: memberRows,
     },
     budgets: budgetRows,
+    categories: categoryRows.map((c) => ({
+      ...c,
+      kind: c.kind as CategoryKind,
+      necessity: c.necessity as CategoryNecessity | null,
+    })),
+    monthlySpend,
     holdings: holdingsTotals(accountRows, balanceByAccount),
   };
 }

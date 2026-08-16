@@ -1,10 +1,13 @@
 import type { AccountSubtype } from "@/db/schema/accounts.ts";
+import type { MonthlyTotals } from "@/lib/analytics/spending.ts";
+import { Money } from "@/lib/money/money.ts";
 import { type CashAccountInput, type CashTiers, classifyCashTiers } from "./cash-tiers.ts";
 import type { DebtTerm, MinimumDebtService } from "./debt-terms.ts";
-import type { EssentialBaseline } from "./essential-expenses.ts";
+import type { EssentialBaseline, EssentialMonth } from "./essential-expenses.ts";
 import type { ObservedNetIncome } from "./net-income.ts";
 import type {
   AdviceAccount,
+  AdviceCategory,
   AdviceContributionRule,
   AdviceHoldingsTotals,
   AdviceHouseholdMember,
@@ -141,6 +144,95 @@ export function makeYtd(
   };
 }
 
+/** An {@link AdviceCategory} with sensible defaults. */
+export function makeCategory(
+  partial: Partial<AdviceCategory> & { categoryId: string },
+): AdviceCategory {
+  return {
+    name: "Test category",
+    kind: "expense",
+    necessity: null,
+    excludedFromBaseline: false,
+    ...partial,
+  };
+}
+
+/** One month of the spend series, before the derived totals are filled in. */
+export interface FixtureSpendMonth {
+  /** `YYYY-MM`. */
+  readonly month: string;
+  /** Expense magnitude per category id. Omitted categories are zero. */
+  readonly byCategory?: Record<string, string>;
+  /** Income magnitude for the month. Defaults to `"0.00"`. */
+  readonly income?: string;
+}
+
+/**
+ * Build a {@link MonthlyTotals} series with `expense` and `net` derived rather
+ * than stated.
+ *
+ * Same reasoning as {@link makeCash} running the real classifier: a fixture that
+ * hand-writes a total which disagrees with its own per-category breakdown lets a
+ * rule pass against a shape `spendByMonth` can never produce.
+ *
+ * @param months - Ascending months with their per-category expense.
+ * @returns The gap-free series in `spendByMonth`'s shape.
+ */
+export function makeMonthlySpend(months: readonly FixtureSpendMonth[]): MonthlyTotals[] {
+  return months.map((m) => {
+    const byCategory = m.byCategory ?? {};
+    const expense = Money.sum(
+      Object.values(byCategory).map((v) => Money.fromString(v, "USD")),
+      "USD",
+    );
+    const income = Money.fromString(m.income ?? "0", "USD");
+    return {
+      month: m.month,
+      byCategory,
+      income: income.toString(),
+      expense: expense.toString(),
+      net: income.sub(expense).toString(),
+    };
+  });
+}
+
+/** One month of the necessity split, before `total` is filled in. */
+export interface FixtureEssentialMonth {
+  /** `YYYY-MM`. */
+  readonly month: string;
+  readonly essential?: string;
+  readonly discretionary?: string;
+  readonly savings?: string;
+  readonly unclassified?: string;
+}
+
+/**
+ * Build an {@link EssentialMonth} series with `total` derived from the buckets.
+ *
+ * @param months - Ascending months with whichever buckets the test cares about.
+ * @returns The series in `computeEssentialBaseline`'s shape.
+ */
+export function makeEssentialMonths(
+  months: readonly FixtureEssentialMonth[],
+): readonly EssentialMonth[] {
+  return months.map((m) => {
+    const buckets = {
+      essential: m.essential ?? "0.00",
+      discretionary: m.discretionary ?? "0.00",
+      savings: m.savings ?? "0.00",
+      unclassified: m.unclassified ?? "0.00",
+    };
+    return {
+      month: m.month,
+      ...buckets,
+      total: Money.sum(
+        Object.values(buckets).map((v) => Money.fromString(v, "USD")),
+        "USD",
+      ).toString(),
+    };
+  });
+}
+
 /** An {@link AdviceHouseholdProfile} — every override null unless set. */
 export function makeProfile(partial: Partial<AdviceHouseholdProfile> = {}): AdviceHouseholdProfile {
   return {
@@ -187,6 +279,8 @@ export interface AdviceInputOverrides {
     readonly members?: readonly AdviceHouseholdMember[];
   };
   readonly budgets?: readonly { readonly categoryId: string; readonly amount: string }[];
+  readonly categories?: readonly AdviceCategory[];
+  readonly monthlySpend?: readonly MonthlyTotals[];
   readonly holdings?: Partial<AdviceHoldingsTotals>;
 }
 
@@ -254,6 +348,8 @@ export function makeAdviceInput(overrides: AdviceInputOverrides = {}): AdviceInp
       members: overrides.household?.members ?? [],
     },
     budgets: overrides.budgets ?? [],
+    categories: overrides.categories ?? [],
+    monthlySpend: overrides.monthlySpend ?? [],
     holdings,
   };
 }
