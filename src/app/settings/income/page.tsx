@@ -32,6 +32,9 @@ export default async function IncomeSettingsPage(): Promise<React.JSX.Element> {
     holdingViews.filter((holding) => holding.hasPlaidLots).map((holding) => holding.id),
   );
 
+  // ISO strings compare lexicographically, so no date parsing is needed.
+  const today = new Date().toISOString().slice(0, 10);
+
   const sourceViews: SourceView[] = sources.map((source) => ({
     id: source.id,
     name: source.name,
@@ -44,6 +47,8 @@ export default async function IncomeSettingsPage(): Promise<React.JSX.Element> {
     endDate: source.endDate ?? "",
     notes: source.notes ?? "",
     active: source.active,
+    ended: source.endDate !== null && source.endDate < today,
+    startsInFuture: source.startDate > today,
     rule: source.rule
       ? {
           id: source.rule.id,

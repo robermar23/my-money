@@ -20,54 +20,75 @@
  *   - materialize-contributions
  *   - backfill-contributions
  */
-import { backfillHoldingSnapshots } from "../lib/investments/backfill-history.ts";
-import { backfillCategoriesProcessor } from "./jobs/backfill-categories.ts";
-import { backfillContributionsProcessor } from "./jobs/backfill-contributions.ts";
-import { backupDatabaseDailyProcessor } from "./jobs/backup-database-daily.ts";
-import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
-import { detectAnomaliesDailyProcessor } from "./jobs/detect-anomalies-daily.ts";
-import { evaluateAdviceProcessor } from "./jobs/evaluate-advice.ts";
-import { evaluatePriceTargetsProcessor } from "./jobs/evaluate-price-targets.ts";
-import { exportBeancountDailyProcessor } from "./jobs/export-beancount-daily.ts";
-import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
-import { heartbeatProcessor } from "./jobs/heartbeat.ts";
-import { materializeContributionsProcessor } from "./jobs/materialize-contributions.ts";
-import { processImportProcessor } from "./jobs/process-import.ts";
-import { recategorizeAllProcessor } from "./jobs/recategorize-all.ts";
-import { refreshFundamentalsWeeklyProcessor } from "./jobs/refresh-fundamentals-weekly.ts";
+// Every processor below is imported dynamically, which leaves this file with no
+// static imports — and a script with neither imports nor exports is a CommonJS
+// script to TypeScript, where top-level `await` is an error. This marks it ESM.
+export {};
 
 const jobName = process.argv[2];
 
+/**
+ * Job name → a thunk that imports its module and runs it.
+ *
+ * Every entry is a DYNAMIC import on purpose. Statically importing all fifteen
+ * processors meant one job's module graph could abort a run of an unrelated job:
+ * `backfill-history.ts` carries Next's `server-only` marker, which resolves only
+ * under `scripts/loaders/register.mjs`, so invoking this script without that
+ * loader crashed on module load before any job name was even read. Lazy imports
+ * pull in exactly the one graph the caller asked for, and a broken job stays
+ * broken alone.
+ */
 const PROCESSORS: Record<string, (job: never) => Promise<unknown>> = {
-  "compute-snapshots-daily": computeSnapshotsDailyProcessor as never,
-  "fetch-prices-daily": (async (job: never) => fetchPricesDailyProcessor(job)) as never,
-  heartbeat: heartbeatProcessor as never,
-  "process-import": processImportProcessor as never,
-  "recategorize-all": recategorizeAllProcessor as never,
-  "backup-database-daily": backupDatabaseDailyProcessor as never,
-  "export-beancount-daily": exportBeancountDailyProcessor as never,
-  "detect-anomalies-daily": detectAnomaliesDailyProcessor as never,
-  "backfill-categories": backfillCategoriesProcessor as never,
+  "compute-snapshots-daily": (async (job: never) =>
+    (await import("./jobs/compute-snapshots-daily.ts")).computeSnapshotsDailyProcessor(
+      job,
+    )) as never,
+  "fetch-prices-daily": (async (job: never) =>
+    (await import("./jobs/fetch-prices-daily.ts")).fetchPricesDailyProcessor(job)) as never,
+  heartbeat: (async (job: never) =>
+    (await import("./jobs/heartbeat.ts")).heartbeatProcessor(job)) as never,
+  "process-import": (async (job: never) =>
+    (await import("./jobs/process-import.ts")).processImportProcessor(job)) as never,
+  "recategorize-all": (async (job: never) =>
+    (await import("./jobs/recategorize-all.ts")).recategorizeAllProcessor(job)) as never,
+  "backup-database-daily": (async (job: never) =>
+    (await import("./jobs/backup-database-daily.ts")).backupDatabaseDailyProcessor(job)) as never,
+  "export-beancount-daily": (async (job: never) =>
+    (await import("./jobs/export-beancount-daily.ts")).exportBeancountDailyProcessor(job)) as never,
+  "detect-anomalies-daily": (async (job: never) =>
+    (await import("./jobs/detect-anomalies-daily.ts")).detectAnomaliesDailyProcessor(job)) as never,
+  "backfill-categories": (async (job: never) =>
+    (await import("./jobs/backfill-categories.ts")).backfillCategoriesProcessor(job)) as never,
   // Not a BullMQ job — a one-shot lib fn; ignore the fake job arg.
   "backfill-holding-snapshots": (async () => {
-    const result = await backfillHoldingSnapshots();
-    console.info("[run-once] backfill-holding-snapshots:", result);
+    const { backfillHoldingSnapshots } = await import("../lib/investments/backfill-history.ts");
+    console.info("[run-once] backfill-holding-snapshots:", await backfillHoldingSnapshots());
   }) as never,
-  "refresh-fundamentals-weekly": refreshFundamentalsWeeklyProcessor as never,
-  "evaluate-price-targets": (async (job: never) => evaluatePriceTargetsProcessor(job)) as never,
+  "refresh-fundamentals-weekly": (async (job: never) =>
+    (await import("./jobs/refresh-fundamentals-weekly.ts")).refreshFundamentalsWeeklyProcessor(
+      job,
+    )) as never,
+  "evaluate-price-targets": (async (job: never) =>
+    (await import("./jobs/evaluate-price-targets.ts")).evaluatePriceTargetsProcessor(job)) as never,
   // P15-36 — logs counts only. A recommendation's figures never reach a log line.
   "evaluate-advice": (async (job: never) => {
+    const { evaluateAdviceProcessor } = await import("./jobs/evaluate-advice.ts");
     console.info("[run-once] evaluate-advice:", await evaluateAdviceProcessor(job));
   }) as never,
-  // P14-09/P14-11 — the nightly window, then the full historical walk. Both log
-  // only counts; no gross, contribution, or match figure is ever printed.
+  // P14-09/P14-11 — the nightly window, then the full historical walk (which
+  // also includes paused sources). Both log only counts; no gross, contribution,
+  // or match figure is ever printed.
   "materialize-contributions": (async (job: never) => {
+    const { materializeContributionsProcessor } = await import(
+      "./jobs/materialize-contributions.ts"
+    );
     console.info(
       "[run-once] materialize-contributions:",
       await materializeContributionsProcessor(job),
     );
   }) as never,
   "backfill-contributions": (async (job: never) => {
+    const { backfillContributionsProcessor } = await import("./jobs/backfill-contributions.ts");
     console.info("[run-once] backfill-contributions:", await backfillContributionsProcessor(job));
   }) as never,
 };

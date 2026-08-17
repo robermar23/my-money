@@ -15,9 +15,18 @@ import {
  * today and materializes every pay date in between.
  *
  * Deliberately a thin wrapper: it is the SAME code path as the nightly run,
- * only with a wider window. Anything else risks the backfill and the nightly
- * job disagreeing about what a contribution is — the exact bug that would make
- * historical basis differ from ongoing basis.
+ * only with a wider window and paused rules included. Anything else risks the
+ * backfill and the nightly job disagreeing about what a contribution is — the
+ * exact bug that would make historical basis differ from ongoing basis.
+ *
+ * **Paused sources are included on purpose.** ADR-030 prescribes end-dating the
+ * old source and starting a new one when the paycheck changes, and the user
+ * pauses the old one — but `active` only ever meant "keep creating
+ * contributions going forward". A retired paycheck's history is real money that
+ * really funded the 401k, and skipping it leaves the account's cost basis (and
+ * the savings rate) understated by however long the old job lasted. `end_date`
+ * is what keeps a finished source from materializing into the present; the
+ * planner still enforces it.
  *
  * Safe to run repeatedly. Idempotency is the UNIQUE `(rule, pay_date)` key, so
  * a second pass writes nothing; it can also run while the nightly job is
@@ -55,5 +64,9 @@ export async function backfillContributionsProcessor(
   _job?: Job,
   options: MaterializeContributionsOptions = {},
 ): Promise<MaterializeContributionsResult> {
-  return materializeContributions({ ...options, from: options.from ?? EPOCH_FLOOR });
+  return materializeContributions({
+    includeInactive: true,
+    ...options,
+    from: options.from ?? EPOCH_FLOOR,
+  });
 }

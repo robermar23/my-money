@@ -71,9 +71,11 @@ export interface MaterializeContributionsResult {
 
 export interface MaterializeContributionsOptions {
   /**
-   * Inclusive window start. Defaults to {@link DAILY_LOOKBACK_DAYS} before
-   * `to`. The backfill (P14-11) passes an epoch floor; the planner clamps to
-   * each source's own `start_date` regardless.
+   * Inclusive window start. Defaults per rule: a rule that has never
+   * materialized anything reaches back to its source's `start_date`, everything
+   * else to {@link DAILY_LOOKBACK_DAYS} before `to`. The backfill (P14-11)
+   * passes an epoch floor; the planner clamps to each source's own `start_date`
+   * regardless.
    */
   readonly from?: string;
   /** Inclusive window end. Defaults to today. */
@@ -82,13 +84,27 @@ export interface MaterializeContributionsOptions {
   readonly priceLookup?: PriceLookup;
   /** Injected for tests so "today" is deterministic. */
   readonly now?: () => Date;
+  /**
+   * Also materialize paused rules and paused sources. Default false.
+   *
+   * Only the backfill sets this. See `planContributions`' own note: `active`
+   * gates the FUTURE, `end_date` bounds the past, and a paused source with a
+   * past `end_date` still has a real contribution history worth reconstructing.
+   */
+  readonly includeInactive?: boolean;
 }
 
 /**
- * How far back a nightly run looks. Comfortably clears a monthly cadence plus a
- * fortnight of missed runs (a NAS that was off), so an ordinary outage
- * self-heals without anyone running the backfill. Re-covering already-written
- * dates costs one indexed lookup each — the UNIQUE key absorbs them.
+ * How far back a nightly run looks for a rule that already has history.
+ * Comfortably clears a monthly cadence plus a fortnight of missed runs (a NAS
+ * that was off), so an ordinary outage self-heals without anyone running the
+ * backfill. Re-covering already-written dates costs one indexed lookup each —
+ * the UNIQUE key absorbs them.
+ *
+ * A rule with NO history is not subject to this floor: see
+ * {@link ruleWindowStart}. A paycheck defined today routinely describes months
+ * of contributions that already happened, and a 45-day floor would silently
+ * truncate them to the last three biweekly paydays.
  */
 const DAILY_LOOKBACK_DAYS = 45;
 
@@ -131,6 +147,10 @@ interface ActiveRule {
   readonly anchorDate: string;
   readonly startDate: string;
   readonly endDate: string | null;
+  /** The rule's own pause flag — carried through so the planner gates on truth. */
+  readonly ruleActive: boolean;
+  /** The paycheck's pause flag. */
+  readonly sourceActive: boolean;
   /** NULL when the rule designates no holding ⇒ basis-only. */
   readonly symbol: string | null;
   /** The holding's own provenance — 'plaid' means the sync owns its quantity. */
@@ -139,10 +159,18 @@ interface ActiveRule {
 }
 
 /**
- * Active rules whose income source is also active. Inactive on either side
- * pauses materialization without losing the rule or its history.
+ * Rules to consider this run.
+ *
+ * By default: active rules whose income source is also active — inactive on
+ * either side pauses materialization without losing the rule or its history.
+ * With `includeInactive` (the backfill), paused rules come along too, so a
+ * retired paycheck's history can be reconstructed. `end_date` still bounds them
+ * in the planner, so a finished source cannot leak contributions into today.
+ *
+ * @param includeInactive - Include paused rules/sources. Default false.
+ * @returns The rules to plan against, joined to their paycheck and position.
  */
-async function loadActiveRules(): Promise<ActiveRule[]> {
+async function loadActiveRules(includeInactive = false): Promise<ActiveRule[]> {
   const rows = await db
     .select({
       ruleId: retirementContributions.id,
@@ -159,6 +187,8 @@ async function loadActiveRules(): Promise<ActiveRule[]> {
       anchorDate: incomeSources.anchorDate,
       startDate: incomeSources.startDate,
       endDate: incomeSources.endDate,
+      ruleActive: retirementContributions.active,
+      sourceActive: incomeSources.active,
       symbol: holdings.symbol,
       holdingSource: holdings.source,
       securityId: holdings.securityId,
@@ -166,7 +196,11 @@ async function loadActiveRules(): Promise<ActiveRule[]> {
     .from(retirementContributions)
     .innerJoin(incomeSources, eq(retirementContributions.incomeSourceId, incomeSources.id))
     .leftJoin(holdings, eq(retirementContributions.holdingId, holdings.id))
-    .where(and(eq(retirementContributions.active, true), eq(incomeSources.active, true)));
+    .where(
+      includeInactive
+        ? undefined
+        : and(eq(retirementContributions.active, true), eq(incomeSources.active, true)),
+    );
 
   return rows.map((r) => ({
     ...r,
@@ -182,6 +216,39 @@ async function loadActiveRules(): Promise<ActiveRule[]> {
     ),
     cadence: assertOneOf(r.cadence, INCOME_CADENCES, "income_sources.cadence"),
   }));
+}
+
+/**
+ * Rule ids that already have at least one materialized contribution.
+ *
+ * One grouped query rather than a count per rule: the single user has a handful
+ * of rules, but this is also the cheapest correct shape.
+ *
+ * @returns The set of rule ids with existing history.
+ */
+async function rulesWithHistory(): Promise<Set<string>> {
+  const rows = await db
+    .selectDistinct({ ruleId: incomeContributions.retirementContributionId })
+    .from(incomeContributions);
+  return new Set(rows.map((r) => r.ruleId));
+}
+
+/**
+ * Where a rule's window starts when the caller named no explicit `from`.
+ *
+ * A rule that has never materialized anything gets its source's `start_date` —
+ * a newly-defined paycheck usually describes contributions that already
+ * happened, and clamping it to the 45-day lookback would silently drop every
+ * one of them (the bug this fixes). A rule with history gets the short lookback,
+ * because everything older is already on the books and re-planning it is waste.
+ *
+ * @param rule - The rule being planned.
+ * @param hasHistory - Whether the rule has any materialized contribution.
+ * @param defaultFrom - The nightly lookback floor.
+ * @returns The inclusive ISO window start for this rule.
+ */
+function ruleWindowStart(rule: ActiveRule, hasHistory: boolean, defaultFrom: string): string {
+  return hasHistory ? defaultFrom : rule.startDate;
 }
 
 /** Pay dates already materialized for a rule inside the window. */
@@ -340,15 +407,22 @@ export async function materializeContributions(
 ): Promise<MaterializeContributionsResult> {
   const now = (options.now ?? (() => new Date()))();
   const to = options.to ?? isoDate(now);
-  const from = options.from ?? daysBefore(to, DAILY_LOOKBACK_DAYS);
+  const defaultFrom = daysBefore(to, DAILY_LOOKBACK_DAYS);
   const priceLookup: PriceLookup = options.priceLookup ?? latestCloseOnOrBefore;
+  const includeInactive = options.includeInactive ?? false;
 
-  const rules = await loadActiveRules();
+  const [rules, withHistory] = await Promise.all([
+    loadActiveRules(includeInactive),
+    // Only needed to widen the window for first-run rules; an explicit `from`
+    // (the backfill) already reaches further back than this could.
+    options.from === undefined ? rulesWithHistory() : Promise.resolve(new Set<string>()),
+  ]);
   let created = 0;
   let priceable = 0;
   let basisOnly = 0;
 
   for (const rule of rules) {
+    const from = options.from ?? ruleWindowStart(rule, withHistory.has(rule.ruleId), defaultFrom);
     const planned = await planContributions({
       rule: {
         employeeBasis: rule.employeeBasis,
@@ -356,7 +430,7 @@ export async function materializeContributions(
         matchBasis: rule.matchBasis,
         matchValue: rule.matchValue,
         matchCapPercent: rule.matchCapPercent,
-        active: true, // the query already filtered to active rules + sources
+        active: rule.ruleActive,
         symbol: rule.symbol,
       },
       source: {
@@ -366,11 +440,12 @@ export async function materializeContributions(
         anchorDate: rule.anchorDate,
         startDate: rule.startDate,
         endDate: rule.endDate,
-        active: true,
+        active: rule.sourceActive,
       },
       window: { from, to },
       existingPayDates: await existingPayDates(rule.ruleId, from, to),
       priceLookup,
+      includeInactive,
     });
 
     for (const contribution of planned) {
@@ -384,19 +459,36 @@ export async function materializeContributions(
   return { rules: rules.length, created, priceable, basisOnly };
 }
 
+/** Job payload. The nightly scheduler sends `{}`; the UI can request a backfill. */
+export interface MaterializeContributionsJobData {
+  /**
+   * Run the full historical walk instead of the nightly window — every pay date
+   * from each source's start, paused sources included. Set by the
+   * "Backfill history" action on `/settings/income`.
+   */
+  readonly backfill?: boolean;
+}
+
 /**
  * BullMQ processor. Runs nightly at 01:45 — after `fetch-prices-daily` (01:30)
  * so a same-day contribution prices off a same-day close, and before
  * `compute-snapshots-daily` (02:00) so the lots and quantities written here are
  * valued the same night.
  *
- * @param _job - The BullMQ job (unused; the window comes from the clock).
+ * A job carrying `{ backfill: true }` delegates to the same full historical walk
+ * the run-once entry point uses, so the UI button and the CLI cannot drift.
+ *
+ * @param job - The BullMQ job; `data.backfill` selects the historical walk.
  * @param options - Test seams; production passes nothing.
  * @returns Counts of rules considered and contributions written.
  */
 export async function materializeContributionsProcessor(
-  _job: Job,
+  job: Job<MaterializeContributionsJobData> | undefined,
   options: MaterializeContributionsOptions = {},
 ): Promise<MaterializeContributionsResult> {
+  if (job?.data?.backfill === true) {
+    const { backfillContributionsProcessor } = await import("./backfill-contributions.ts");
+    return backfillContributionsProcessor(job, options);
+  }
   return materializeContributions(options);
 }

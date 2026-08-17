@@ -249,4 +249,26 @@ describe("planContributions — inactive and no-op rules", () => {
     await plan({ rule: rule({ active: false }), priceLookup: lookup });
     expect(lookup).not.toHaveBeenCalled();
   });
+
+  it("plans a paused rule and source when includeInactive is set", async () => {
+    // `active` gates the FUTURE; it is not a claim the past didn't happen. The
+    // backfill sets this so a retired paycheck's history can be reconstructed.
+    const planned = await plan({
+      rule: rule({ active: false }),
+      source: source({ active: false }),
+      includeInactive: true,
+    });
+    expect(planned.length).toBeGreaterThan(0);
+  });
+
+  it("still honours end_date when includeInactive is set", async () => {
+    // Including paused sources must not let a finished paycheck materialize
+    // into the present — `end_date`, not `active`, is what bounds it.
+    const planned = await plan({
+      rule: rule({ active: false }),
+      source: source({ active: false, endDate: "2026-01-02" }),
+      includeInactive: true,
+    });
+    expect(planned.map((p) => p.payDate)).toEqual(["2026-01-02"]);
+  });
 });

@@ -62,5 +62,15 @@ export interface SourceView {
   readonly endDate: string;
   readonly notes: string;
   readonly active: boolean;
+  /**
+   * `end_date` is set and already in the past — this paycheck is finished, so
+   * the nightly job will never materialize another contribution for it.
+   *
+   * Computed on the SERVER rather than from `new Date()` in the client island:
+   * the two clocks can straddle midnight, and a "today" that differs between the
+   * server render and hydration is a React text mismatch.
+   */
+  readonly ended: boolean;
+  readonly startsInFuture: boolean;
   readonly rule: RuleView | null;
 }

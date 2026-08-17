@@ -13,6 +13,7 @@ import { aggregateLots } from "@/lib/investments/lots.ts";
 import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 import { backfillContributionsProcessor } from "./backfill-contributions.ts";
+import { materializeContributions } from "./materialize-contributions.ts";
 
 /**
  * P14-11 — the run-once historical backfill.
@@ -36,7 +37,9 @@ async function reset(): Promise<void> {
 }
 
 /** A biweekly $3,000 paycheck contributing 6% + a 3% match → $270 a period. */
-async function seedTwoYearPaycheck(): Promise<{ holdingId: string }> {
+async function seedTwoYearPaycheck(
+  sourceOverrides: Partial<typeof incomeSources.$inferInsert> = {},
+): Promise<{ holdingId: string }> {
   const [a] = await db
     .insert(accounts)
     .values({ name: "401k", institution: "Fidelity", type: "investment", currency: "USD" })
@@ -63,6 +66,7 @@ async function seedTwoYearPaycheck(): Promise<{ holdingId: string }> {
       grossPerPeriod: "3000.00",
       anchorDate: START,
       startDate: START,
+      ...sourceOverrides,
     })
     .returning({ id: incomeSources.id });
   if (!s) throw new Error("seed source failed");
@@ -128,5 +132,44 @@ describe("backfillContributions", () => {
     expect(aggregateLots(lots, "USD").totalCostBasis.toString()).toBe("14040.00");
     const zeroQty = lots.filter((l) => Number(l.quantity) === 0);
     expect(zeroQty).toHaveLength(26);
+  });
+
+  it("reconstructs a retired paycheck that has been paused", async () => {
+    // The reported bug. ADR-030 prescribes end-dating the old source and
+    // starting a new one at a job change, and the user pauses the old one — but
+    // `active` only ever meant "keep creating contributions going forward".
+    // Skipping the paused source left two years of real cost basis off the 401k
+    // and cratered the savings rate, with nothing anywhere reporting a problem.
+    await seedTwoYearPaycheck({ active: false, endDate: "2025-12-31" });
+
+    const result = await backfillContributionsProcessor(undefined, { now: NOW });
+
+    expect(result.created).toBe(52);
+    expect(await db.select().from(incomeContributions)).toHaveLength(52);
+  });
+
+  it("honours end_date rather than active when bounding a paused source", async () => {
+    // The safety half of the above: including paused sources must not let a
+    // finished paycheck leak contributions into the present. `end_date` is what
+    // stops it, and it still does.
+    await seedTwoYearPaycheck({ active: false, endDate: "2024-12-31" });
+
+    await backfillContributionsProcessor(undefined, { now: NOW });
+
+    const payDates = (await db.select().from(incomeContributions)).map((r) => r.payDate).sort();
+    expect(payDates).toHaveLength(26); // 2024 only
+    // ISO dates sort lexicographically, so the last one is the latest.
+    expect(payDates.at(-1) ?? "").toBe("2024-12-20");
+  });
+
+  it("leaves paused sources alone on a nightly run", async () => {
+    // `includeInactive` belongs to the backfill only. If the nightly job picked
+    // up paused sources it would keep growing a paycheck the user explicitly
+    // stopped — the opposite bug.
+    await seedTwoYearPaycheck({ active: false });
+
+    const result = await materializeContributions({ from: "2024-01-01", now: NOW });
+
+    expect(result.created).toBe(0);
   });
 });
