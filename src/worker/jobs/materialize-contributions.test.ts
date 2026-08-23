@@ -392,11 +392,51 @@ describe("materializeContributions — default window", () => {
     const sourceId = await seedSource({ cadence: "monthly", anchorDate: "2026-03-01" });
     await seedRule(sourceId, accountId, holdingId);
 
+    // Give the rule history first, so the short lookback — not the first-run
+    // reach-back below — is what governs this run.
+    await materializeContributions({ from: "2026-01-01", to: "2026-01-31" });
+
     const result = await materializeContributions({ now: () => new Date("2026-04-15T09:00:00Z") });
 
     // 45 days back from 2026-04-15 reaches 2026-03-01: both monthly pay dates.
+    // 2026-02-01 stays unmaterialized — it predates the lookback, and that is
+    // the backfill's job, not the nightly run's.
     const payDates = (await db.select().from(incomeContributions)).map((c) => c.payDate).sort();
-    expect(payDates).toEqual(["2026-03-01", "2026-04-01"]);
+    expect(payDates).toEqual(["2026-01-01", "2026-03-01", "2026-04-01"]);
     expect(result.created).toBe(2);
+  });
+
+  it("reaches back to the start date on a rule's first run", async () => {
+    // The bug this guards: a paycheck defined today usually describes months of
+    // contributions that already happened. Clamping the first run to the 45-day
+    // lookback silently truncated them, leaving the 401k's cost basis — and the
+    // savings rate — understated with no error anywhere.
+    const accountId = await seedAccount();
+    const holdingId = await seedHolding(accountId);
+    const sourceId = await seedSource({ cadence: "monthly", anchorDate: "2026-03-01" });
+    await seedRule(sourceId, accountId, holdingId);
+
+    const result = await materializeContributions({ now: () => new Date("2026-04-15T09:00:00Z") });
+
+    const payDates = (await db.select().from(incomeContributions)).map((c) => c.payDate).sort();
+    expect(payDates).toEqual(["2026-01-01", "2026-02-01", "2026-03-01", "2026-04-01"]);
+    expect(result.created).toBe(4);
+  });
+
+  it("still skips a paused source on its first run", async () => {
+    // The reach-back widens the WINDOW; it must not weaken the active gate.
+    const accountId = await seedAccount();
+    const holdingId = await seedHolding(accountId);
+    const sourceId = await seedSource({
+      cadence: "monthly",
+      anchorDate: "2026-03-01",
+      active: false,
+    });
+    await seedRule(sourceId, accountId, holdingId);
+
+    const result = await materializeContributions({ now: () => new Date("2026-04-15T09:00:00Z") });
+
+    expect(result.created).toBe(0);
+    expect(await db.select().from(incomeContributions)).toHaveLength(0);
   });
 });

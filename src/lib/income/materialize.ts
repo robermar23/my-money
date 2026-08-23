@@ -107,6 +107,20 @@ export interface PlanContributionsInput {
   /** Pay dates already in `income_contributions` for this rule. */
   readonly existingPayDates: Iterable<string>;
   readonly priceLookup: PriceLookup;
+  /**
+   * Plan for paused rules/sources too. Default false.
+   *
+   * `active` answers "keep creating contributions going forward?" — it is NOT a
+   * claim that the past didn't happen. Conflating the two is what makes the
+   * plan's own prescribed job-change workflow (end-date the old source, start a
+   * new one) silently lose the old job's entire contribution history.
+   *
+   * The nightly job leaves this false: a paused source must not accrue new
+   * contributions. The backfill sets it true, because reconstructing history for
+   * a finished paycheck is exactly its job. `end_date` — not `active` — is what
+   * stops a retired source from materializing into the present.
+   */
+  readonly includeInactive?: boolean;
 }
 
 /** Quantity scale of `holding_lots.quantity` — NUMERIC(28,8). */
@@ -134,7 +148,8 @@ function toPositiveDecimal(close: string | null): Decimal | null {
  * The effective window is the caller's window intersected with the source's own
  * life: nothing before `start_date`, nothing after `end_date`. An inactive rule
  * or source plans nothing at all — deactivating is how the user pauses
- * materialization without losing the rule or its history.
+ * materialization — unless `includeInactive` is set, which is how the backfill
+ * reconstructs a retired paycheck's history.
  *
  * Zero-dollar pay dates are skipped. A 0% rule would otherwise write an empty
  * ledger row every payday forever, adding noise to the audit trail and nothing
@@ -148,7 +163,7 @@ export async function planContributions(
   input: PlanContributionsInput,
 ): Promise<PlannedContribution[]> {
   const { rule, source, window, existingPayDates, priceLookup } = input;
-  if (!rule.active || !source.active) return [];
+  if (!(input.includeInactive ?? false) && (!rule.active || !source.active)) return [];
 
   // Intersect the requested window with the source's life. String comparison is
   // safe and exact on zero-padded ISO dates.

@@ -12,6 +12,7 @@ import { countMaterializedContributions } from "@/lib/income/queries.ts";
 import { savingsRate } from "@/lib/income/savings-rate.ts";
 import { periodsPerYear } from "@/lib/income/schedule.ts";
 import { Money } from "@/lib/money/money.ts";
+import { QUEUE_NAMES, materializeContributionsQueue } from "@/lib/queue/queues.ts";
 import {
   contributionPreviewSchema,
   contributionRuleSchema,
@@ -293,6 +294,44 @@ export async function deleteContributionRuleAction(id: string): Promise<IncomeAc
   }
 
   await db.delete(retirementContributions).where(eq(retirementContributions.id, id));
+  revalidatePath(SETTINGS_PATH);
+  return { ok: true };
+}
+
+/* ----------------------------------------------------------------- backfill */
+
+/**
+ * Enqueue the historical contribution backfill.
+ *
+ * Defining a paycheck almost always describes contributions that ALREADY
+ * happened — a start date months or years back. The nightly job now reaches
+ * back to `start_date` for a rule with no history, but two cases still need an
+ * explicit run: a source that was paused before its history was ever
+ * materialized, and a start date edited further into the past after the fact.
+ * This is the button for those.
+ *
+ * Rule 1 at the top of this file still holds: the action does not materialize
+ * anything itself. It asks the worker — the sole writer — to do it, and the
+ * UNIQUE `(rule, pay_date)` key makes a redundant click a no-op.
+ *
+ * The jobId is bucketed per-minute so a flurry of clicks collapses into one run
+ * (BullMQ dedupes by jobId), mirroring `refreshPricesAction`.
+ *
+ * @returns `ok`, or a user-facing `error` when the queue is unreachable.
+ */
+export async function backfillContributionsAction(): Promise<IncomeActionResult> {
+  await requireUser();
+  const minuteBucket = Math.floor(Date.now() / 60_000);
+  try {
+    await materializeContributionsQueue.add(
+      QUEUE_NAMES.MATERIALIZE_CONTRIBUTIONS,
+      { backfill: true },
+      { jobId: `backfill-contributions-manual-${minuteBucket}` },
+    );
+  } catch {
+    // The error object can carry a connection string; never surface or log it.
+    return { error: "Could not reach the background worker. Is it running?" };
+  }
   revalidatePath(SETTINGS_PATH);
   return { ok: true };
 }

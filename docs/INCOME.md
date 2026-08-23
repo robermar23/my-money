@@ -129,10 +129,10 @@ either way and money-weighted return stays correct.
 
 ## The jobs
 
-| Job | When | Window |
-|---|---|---|
-| [`materialize-contributions`](../src/worker/jobs/materialize-contributions.ts) | Nightly **01:45** | Trailing 45 days |
-| [`backfill-contributions`](../src/worker/jobs/backfill-contributions.ts) | Run-once, on demand | Each source's `start_date` → today |
+| Job | When | Window | Paused sources |
+|---|---|---|---|
+| [`materialize-contributions`](../src/worker/jobs/materialize-contributions.ts) | Nightly **01:45** | Trailing 45 days, or the source's `start_date` for a rule with no history yet | Skipped |
+| [`backfill-contributions`](../src/worker/jobs/backfill-contributions.ts) | On demand — "Backfill history" on `/settings/income`, or run-once | Each source's `start_date` → today | **Included** |
 
 **01:45 is not arbitrary.** It sits after `fetch-prices-daily` (01:30) so a
 same-day contribution prices off a same-day close, and before
@@ -143,19 +143,52 @@ valued tonight. No change to the snapshot job was needed.
 catches up on its own without anyone running the backfill; re-covering dates that
 already exist costs one indexed lookup each, which the UNIQUE key absorbs.
 
+**A rule that has never materialized anything is exempt from that floor** and
+reaches back to its source's `start_date` instead. A paycheck you define today
+usually describes contributions that already happened; clamping the first run to
+45 days silently truncated them to the last three biweekly paydays, understating
+the 401k's cost basis and the savings rate with no error anywhere.
+
 **The backfill is a thin wrapper over the same code path** with a wider window —
 deliberately, so historical basis and ongoing basis can never disagree about what
 a contribution is. It is honest about prices: dates predating our price history
 record dollars only, dates with a close buy real shares, and one backfill
 typically spans both.
 
+**The backfill includes paused sources; the nightly job does not.** `active`
+means "keep creating contributions going forward" — it is not a claim that the
+past didn't happen. Since a job change is modelled by end-dating the old source
+and starting a new one (ADR-030), and you will usually pause the old one too,
+skipping it would leave however many years it ran off the 401k's basis entirely.
+`end_date` — not `active` — is what stops a retired paycheck from materializing
+into the present, and the planner still enforces it.
+
 ```bash
-# Materialize every historical pay date from each source's start.
+# Materialize every historical pay date from each source's start, paused ones
+# included. Same thing the "Backfill history" button enqueues.
 node --env-file=.env.local --import tsx src/worker/run-once.ts backfill-contributions
 
 # Or force tonight's window immediately.
 node --env-file=.env.local --import tsx src/worker/run-once.ts materialize-contributions
 ```
+
+> **Running these in Docker:** the worker image needs two flags the service's own
+> `command` supplies but a bare `docker compose run` drops — `--import tsx` for
+> TypeScript and `--import ./scripts/loaders/register.mjs` to stub Next's
+> `server-only` marker, which is not an installed package. Without the stub you
+> get `ERR_MODULE_NOT_FOUND: Cannot find package 'server-only'`.
+>
+> ```bash
+> docker compose -f docker/compose.yaml --profile prod run --rm worker \
+>   node --experimental-strip-types --import tsx \
+>   --import ./scripts/loaders/register.mjs \
+>   src/worker/run-once.ts backfill-contributions
+> ```
+
+**Overlapping sources double-count.** If the old source's `end_date` equals the
+new one's `start_date`, that shared payday materializes twice — once per rule,
+and the UNIQUE key cannot catch it because the key is per-rule. End the old
+source the day *before* the new one starts.
 
 Both print counts — rules considered, contributions created, priceable vs.
 basis-only. **Never a dollar figure**; that is a typed property of the result, not

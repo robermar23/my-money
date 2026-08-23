@@ -4,6 +4,7 @@ import { INCOME_CADENCE_OPTIONS } from "@/lib/schemas/income.ts";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
+  backfillContributionsAction,
   createIncomeSourceAction,
   deleteContributionRuleAction,
   deleteIncomeSourceAction,
@@ -64,9 +65,13 @@ export function IncomeManager({ sources, accounts, holdings }: Props): React.JSX
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [addingSource, setAddingSource] = useState(sources.length === 0);
+  // The backfill is asynchronous — the action only enqueues. Say so, rather than
+  // letting a silent refresh imply the work already finished.
+  const [queued, setQueued] = useState<string | null>(null);
 
   function run(fn: () => Promise<{ error?: string }>, onDone?: () => void): void {
     setError(null);
+    setQueued(null);
     startTransition(async () => {
       const result = await fn();
       if (result.error) {
@@ -123,13 +128,43 @@ export function IncomeManager({ sources, accounts, holdings }: Props): React.JSX
           />
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={() => setAddingSource(true)}
-          className="mt-6 rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"
-        >
-          Add income source
-        </button>
+        <div className="mt-6 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setAddingSource(true)}
+            className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"
+          >
+            Add income source
+          </button>
+          {sources.length > 0 && (
+            <button
+              type="button"
+              disabled={pending}
+              onClick={() =>
+                run(backfillContributionsAction, () =>
+                  setQueued("Backfill queued. Contributions appear once the worker finishes."),
+                )
+              }
+              className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-zinc-700"
+            >
+              Backfill history
+            </button>
+          )}
+        </div>
+      )}
+
+      {queued && (
+        <p className="mt-3 text-sm text-zinc-500" aria-live="polite">
+          {queued}
+        </p>
+      )}
+
+      {sources.length > 0 && (
+        <p className="mt-3 text-xs text-zinc-500">
+          Backfill walks every paycheck — <strong>including paused ones</strong> — from its start
+          date to today and creates any contribution that is missing. Existing contributions are
+          left alone, so it is safe to run more than once.
+        </p>
       )}
     </section>
   );
@@ -218,6 +253,7 @@ function SourceCard({
         {source.rule && !editingRule ? (
           <RuleSummary
             rule={source.rule}
+            source={source}
             pending={pending}
             onEdit={() => setEditingRule(true)}
             onRun={onRun}
@@ -259,14 +295,40 @@ function SourceCard({
   );
 }
 
+/**
+ * Why a rule has materialized nothing yet, in the user's terms.
+ *
+ * The old copy always claimed the nightly job would pick it up "from the next
+ * payday". For a paused source, or one whose end date has passed, that is simply
+ * false — the nightly job skips paused rules and never revisits a finished
+ * paycheck, so the message promised a run that was never coming. Each branch
+ * below names the actual state and the action that resolves it.
+ */
+function emptyLedgerNote(rule: RuleView, source: SourceView): string {
+  if (!source.active || !rule.active) {
+    return source.ended
+      ? "Nothing materialized yet. Paused, and this paycheck has ended — the nightly job will never pick it up. Use “Backfill history” to reconstruct what it contributed."
+      : "Nothing materialized yet. Paused, so no contributions are being created. Resume it, or use “Backfill history” to reconstruct past paydays.";
+  }
+  if (source.ended) {
+    return "Nothing materialized yet, and this paycheck has ended. Use “Backfill history” to reconstruct what it contributed.";
+  }
+  if (source.startsInFuture) {
+    return "Nothing materialized yet — the nightly job creates contributions from the first payday.";
+  }
+  return "Nothing materialized yet — the nightly job will pick up paydays back to the start date. Use “Backfill history” to do it now.";
+}
+
 /** The saved rule, rendered read-only with its materialization tally. */
 function RuleSummary({
   rule,
+  source,
   pending,
   onEdit,
   onRun,
 }: {
   readonly rule: RuleView;
+  readonly source: SourceView;
   readonly pending: boolean;
   readonly onEdit: () => void;
   readonly onRun: (fn: () => Promise<{ error?: string }>) => void;
@@ -293,7 +355,7 @@ function RuleSummary({
         <p className="mt-1 text-sm text-zinc-500">With {match}.</p>
         <p className="mt-1 text-xs text-zinc-500">
           {rule.materializedCount === 0
-            ? "Nothing materialized yet — the nightly job creates contributions from the next payday."
+            ? emptyLedgerNote(rule, source)
             : `${rule.materializedCount} contribution${
                 rule.materializedCount === 1 ? "" : "s"
               } materialized through ${rule.lastPayDate} · ${rule.totalEmployeeDisplay} mine + ${
