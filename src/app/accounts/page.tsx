@@ -86,9 +86,6 @@ export default async function AccountsPage(props: AccountsPageProps): Promise<Re
               {showClosed ? "Hide closed" : `Show closed (${closedCount})`}
             </Link>
           )}
-          <Link href="/investments" className="text-sm text-zinc-500 hover:underline">
-            Investments →
-          </Link>
           <Link
             href="/accounts/new"
             className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"

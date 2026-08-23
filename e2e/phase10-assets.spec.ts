@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import postgres from "postgres";
+import { navigateDirect, navigateVia } from "./helpers/nav.ts";
 
 /**
  * Phase 10 manual flow (P10-18): bootstrap → create a `personal_asset` (vehicle,
@@ -44,7 +45,7 @@ test.describe("phase 10: personal assets → net worth + proof documents", () =>
     await expect(page).toHaveURL("/");
 
     // ── 2. Create a personal asset (vehicle, with acquisition cost) ──────────
-    await page.getByRole("link", { name: "Accounts" }).first().click();
+    await navigateVia(page, "Accounts", "All accounts");
     await page.getByRole("link", { name: /add account/i }).click();
     await expect(page).toHaveURL(/\/accounts\/new$/);
 
@@ -74,13 +75,13 @@ test.describe("phase 10: personal assets → net worth + proof documents", () =>
     await expect(page.locator("table")).toContainText("$35,000.00");
 
     // ── 4. Net worth on the dashboard includes the valued asset ─────────────
-    await page.getByRole("link", { name: "Dashboard" }).click();
+    await navigateDirect(page, "Dashboard");
     await expect(page).toHaveURL("/");
     await expect(page.locator("table")).toContainText("2021 Tacoma");
     await expect(page.locator("table")).toContainText("$35,000.00");
 
     // ── 5. Upload a proof document, then download it (attachment) ────────────
-    await page.getByRole("link", { name: "Accounts" }).first().click();
+    await navigateVia(page, "Accounts", "All accounts");
     await page.getByRole("link", { name: "2021 Tacoma" }).click();
     await expect(page.getByRole("heading", { name: /proof of authenticity/i })).toBeVisible();
 
@@ -91,8 +92,12 @@ test.describe("phase 10: personal assets → net worth + proof documents", () =>
     });
     await page.getByLabel("Description").fill("Vehicle title");
     await page.getByRole("button", { name: /upload document/i }).click();
-    await expect(page.getByText(/uploaded/i)).toBeVisible();
-    await expect(page.locator("table")).toContainText("title.pdf");
+    // Exact match on the confirmation copy — a bare /uploaded/i also matches the
+    // documents table's "Uploaded" column header.
+    await expect(page.getByText("Uploaded.", { exact: true })).toBeVisible();
+    // The account detail page renders two tables (documents, then balance
+    // history); the uploaded file lands in the first.
+    await expect(page.locator("table").first()).toContainText("title.pdf");
 
     // The download link serves the file as an attachment (never inline).
     const downloadPromise = page.waitForEvent("download");

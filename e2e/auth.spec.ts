@@ -19,9 +19,10 @@ test.describe("auth: single-password login", () => {
     await page.getByLabel("Password").fill("hunter2");
     await page.getByRole("button", { name: /set password/i }).click();
 
-    // Lands on the authenticated dashboard.
+    // Lands on the authenticated dashboard. With no accounts yet it renders the
+    // first-run state, not the net-worth hero (P13-16, ADR-029 §5).
     await expect(page).toHaveURL("/");
-    await expect(page.getByRole("heading", { name: /net worth/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /welcome/i })).toBeVisible();
   });
 
   test("after bootstrap, /login shows the verify form (not the set-password form)", async ({

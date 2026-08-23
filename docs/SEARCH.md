@@ -31,12 +31,22 @@ typing and results stream in, grouped by entity:
 
 | Group | Matches on | Cap | Selecting navigates to |
 |---|---|---|---|
+| **Pages** | nav label, group label, description — **locally, no query** | 6 | the destination itself |
 | Accounts | `name`, `institution` | 5 | `/accounts/{id}` |
 | Categories | `name` | 5 | `/analysis/category/{id}` |
 | Securities | `symbol`, `name`, `ticker_symbol` | 5 | `/investments/security/{id}` |
 | Watchlist | `symbol`, `label` | 5 | `/watchlist/{id}` |
 | Transactions | `name` (payee), `memo` — **across all accounts** | 8 | the owning account |
 
+- **Pages come first and arrive instantly (ADR-035).** Every destination in the
+  [nav manifest](../src/lib/nav/manifest.ts) is matched in-process by
+  [`searchPages`](../src/lib/search/pages.ts) — no database query, no `pg_trgm`,
+  no round-trip — so the Pages group paints on the keystroke, before the
+  debounced record search resolves. This is the escape hatch that makes the
+  two-level grouped nav safe: a page three clicks deep in a dropdown is still
+  one keystroke away. A test guarantees it — the coverage guard in
+  [`resolve.test.ts`](../src/lib/nav/resolve.test.ts) fails when a `page.tsx`
+  exists with no manifest entry.
 - **Keyboard:** ↑/↓ move the selection, **Enter** jumps, **Esc** (or a backdrop
   click) closes. Focus is trapped in the dialog while it's open.
 - Input is **debounced 250 ms** and each keystroke **aborts** the in-flight
@@ -183,7 +193,8 @@ measure, don't guess) — revisit only if a populated-`memo` corpus at six figur
 measures slow, where a combined expression index or a `name || ' ' || memo`
 generated column would be the next lever.
 
-The palette runs its five group queries in parallel (`Promise.all`) and each is
+Pages cost nothing — they are an in-memory filter over ~16 manifest entries, so
+they never touch Postgres. The palette runs its five *record* group queries in parallel (`Promise.all`) and each is
 `LIMIT`-capped, so a keystroke is a handful of small lookups regardless.
 
 **Write-cost trade-off (ADR-028):** trigram GIN indexes add cost on insert.
@@ -197,6 +208,8 @@ job off the request path — so it's acceptable.
 - [`src/lib/search/term.ts`](../src/lib/search/term.ts) — sanitize/escape (pure).
 - [`src/lib/search/predicates.ts`](../src/lib/search/predicates.ts) — parameterized trigram `sql` builders.
 - [`src/lib/search/global.ts`](../src/lib/search/global.ts) — `globalSearch` (the palette's grouped, capped, ranked queries).
+- [`src/lib/search/pages.ts`](../src/lib/search/pages.ts) — `searchPages` (the local, query-free Pages group).
+- [`src/lib/nav/manifest.ts`](../src/lib/nav/manifest.ts) — the nav manifest the Pages group is drawn from (ADR-035).
 - [`src/lib/schemas/search.ts`](../src/lib/schemas/search.ts) — `transactionFilterSchema` (Zod, with `from≤to` / `min≤max` refinements).
 - [`src/lib/transactions/queries.ts`](../src/lib/transactions/queries.ts) — `listTransactions` / `buildTransactionWhere` (the shared filter query).
 - [`src/app/api/search/route.ts`](../src/app/api/search/route.ts) — the internal `GET /api/search` handler.

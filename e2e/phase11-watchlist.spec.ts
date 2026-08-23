@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
 import { expect, test } from "@playwright/test";
 import postgres from "postgres";
+import { navigateDirect, navigateVia } from "./helpers/nav.ts";
 
 /**
  * Phase 11 critical flow (P11-24): bootstrap → add a watchlist item with a
@@ -48,7 +49,7 @@ test.describe("phase 11: watchlist → pretend gain/loss → price-target alert"
     await expect(page).toHaveURL("/");
 
     // ── 2. Add a watchlist item with a pretend buy ──────────────────────────
-    await page.getByRole("link", { name: "Watchlist" }).first().click();
+    await navigateVia(page, "Investing", "Watchlist");
     await expect(page).toHaveURL(/\/watchlist$/);
     await page
       .getByRole("link", { name: /add symbol/i })
@@ -86,8 +87,7 @@ test.describe("phase 11: watchlist → pretend gain/loss → price-target alert"
     await expect(page.locator("table")).toContainText("$550.00");
 
     // Net worth on the dashboard is untouched — a watch row never counts.
-    // `exact` avoids colliding with the "← Dashboard" back-link on /watchlist.
-    await page.getByRole("link", { name: "Dashboard", exact: true }).click();
+    await navigateDirect(page, "Dashboard");
     await expect(page).toHaveURL("/");
     await expect(page.locator("body")).not.toContainText("$2,050.00");
 

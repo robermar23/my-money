@@ -156,17 +156,7 @@ export default async function AnalysisPage(props: PageProps): Promise<React.JSX.
 
   return (
     <main className="mx-auto max-w-5xl p-6">
-      <div className="flex items-center justify-between">
-        <h1 className="font-semibold text-2xl tracking-tight">Analysis</h1>
-        <div className="flex items-center gap-4 text-sm">
-          <Link href="/analysis/budgets" className="text-zinc-500 hover:underline">
-            Budgets →
-          </Link>
-          <Link href="/analysis/review" className="text-zinc-500 hover:underline">
-            Review uncategorized →
-          </Link>
-        </div>
-      </div>
+      <h1 className="font-semibold text-2xl tracking-tight">Analysis</h1>
       <p className="mt-1 text-sm text-zinc-500">{range.label}</p>
 
       <div className="mt-4">

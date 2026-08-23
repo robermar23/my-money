@@ -1,5 +1,6 @@
-import { expect, test } from "@playwright/test";
+import { type Page, expect, test } from "@playwright/test";
 import postgres from "postgres";
+import { navigateDirect, navigateVia } from "./helpers/nav.ts";
 
 /**
  * Phase 1 critical flow: bootstrap → create checking account → enter balance
@@ -34,13 +35,20 @@ test.describe("phase 1: manual entry → net worth on dashboard", () => {
     await page.getByLabel("Password").fill("hunter2");
     await page.getByRole("button", { name: /set password/i }).click();
     await expect(page).toHaveURL("/");
-    await expect(page.getByRole("heading", { name: /net worth/i })).toBeVisible();
 
-    // Initially zero — no snapshots yet.
-    await expect(page.getByText("$0.00")).toBeVisible();
+    // A brand-new install has no accounts, so the dashboard collapses to the
+    // first-run instruction rather than seven empty cards (P13-16, ADR-029 §5).
+    // The net-worth hero is asserted at step 5, once there is a net worth.
+    await expect(page.getByRole("heading", { name: /welcome/i })).toBeVisible();
+    await expect(page.getByRole("link", { name: /add an account/i })).toBeVisible();
+
+    // ── 1b. The grouped nav (NAV-12, ADR-035) ───────────────────────────────
+    // Not a fourth critical flow — CLAUDE.md caps Playwright at three — but the
+    // chrome every one of them navigates through, asserted where it is cheapest.
+    await assertGroupedNav(page);
 
     // ── 2. Create a depository (checking) account ───────────────────────────
-    await page.getByRole("link", { name: "Accounts" }).first().click();
+    await navigateVia(page, "Accounts", "All accounts");
     await expect(page).toHaveURL(/\/accounts$/);
 
     await page.getByRole("link", { name: /add account/i }).click();
@@ -57,7 +65,7 @@ test.describe("phase 1: manual entry → net worth on dashboard", () => {
     await expect(page.getByText(/saved/i)).toBeVisible();
 
     // Back to the accounts list; new account shows with the formatted balance.
-    await page.getByRole("link", { name: "Accounts" }).first().click();
+    await navigateVia(page, "Accounts", "All accounts");
     await expect(page.locator("table")).toContainText("M&T Checking");
     await expect(page.locator("table")).toContainText("$5,000.00");
 
@@ -84,10 +92,98 @@ test.describe("phase 1: manual entry → net worth on dashboard", () => {
     await expect(page.getByText(/computed from amortization/i)).toBeVisible();
 
     // ── 5. Dashboard shows the combined net worth ───────────────────────────
-    await page.getByRole("link", { name: "Dashboard" }).click();
+    await navigateDirect(page, "Dashboard");
     await expect(page).toHaveURL("/");
+    await expect(page.getByRole("heading", { name: /net worth/i })).toBeVisible();
     await expect(page.locator("table")).toContainText("M&T Checking");
     await expect(page.locator("table")).toContainText("Sunwest Mortgage");
     await expect(page.getByText("$5,000.00")).toBeVisible();
   });
 });
+
+/**
+ * Assert the grouped top bar's structure and keyboard contract (NAV-12).
+ *
+ * Covers PLAN_NAV §8 criteria 1 (fits at 1,024 px without wrapping), 4 (`Esc`
+ * closes and restores focus to the trigger), 5 (`aria-current="page"` on the
+ * active link) and 6 (a deep route lights its parent group).
+ */
+async function assertGroupedNav(page: Page): Promise<void> {
+  const nav = page.locator("header");
+
+  // Narrow to the width the flat 12-link bar used to overflow at.
+  const original = page.viewportSize();
+  await page.setViewportSize({ width: 1024, height: 800 });
+
+  // Five group entries: Dashboard is a plain link (single-item group), the
+  // other four are disclosure triggers.
+  const triggers = ["Accounts", "Investing", "Planning", "Settings"];
+  await expect(nav.getByRole("link", { name: "Dashboard", exact: true })).toBeVisible();
+  for (const label of triggers) {
+    await expect(nav.getByRole("button", { name: label, exact: true })).toBeVisible();
+  }
+
+  // The bar does not wrap: every trigger sits on the same row as the brand.
+  const brandBox = await nav.getByRole("link", { name: "my-money" }).boundingBox();
+  for (const label of triggers) {
+    const box = await nav.getByRole("button", { name: label, exact: true }).boundingBox();
+    expect(box, `${label} trigger has no box`).not.toBeNull();
+    expect(
+      Math.abs((box?.y ?? 0) - (brandBox?.y ?? 0)),
+      `nav wrapped at 1024px — "${label}" fell to another row`,
+    ).toBeLessThan(16);
+  }
+
+  // A disclosure opens on click, shows its group's destinations, and `Esc`
+  // closes it while returning focus to the trigger (ARIA APG disclosure).
+  const investing = nav.getByRole("button", { name: "Investing", exact: true });
+  await investing.click();
+  await expect(investing).toHaveAttribute("aria-expanded", "true");
+  for (const item of ["Portfolio", "Performance", "Forecast", "Watchlist"]) {
+    await expect(nav.getByRole("link", { name: item, exact: true })).toBeVisible();
+  }
+  await page.keyboard.press("Escape");
+  await expect(investing).toHaveAttribute("aria-expanded", "false");
+  await expect(investing).toBeFocused();
+
+  // Only one group opens at a time.
+  await nav.getByRole("button", { name: "Planning", exact: true }).click();
+  await nav.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(nav.getByRole("button", { name: "Planning", exact: true })).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  await page.keyboard.press("Escape");
+
+  // A deep route lights its parent group, and the section strip appears with
+  // the current destination marked.
+  await page.goto("/investments/performance");
+  await expect(nav.getByRole("button", { name: "Investing", exact: true })).toHaveClass(
+    /font-medium/,
+  );
+  const strip = page.getByRole("navigation", { name: "Investing sections" });
+  await expect(strip).toBeVisible();
+  await expect(strip.getByRole("link", { name: "Performance" })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await expect(strip.getByRole("link", { name: "Portfolio" })).not.toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+
+  // Every destination is ⌘K-reachable by label, however deep it is nested.
+  await page.keyboard.press("ControlOrMeta+k");
+  const box = page.getByRole("combobox", { name: /search/i });
+  await expect(box).toBeVisible();
+  await box.fill("forecast");
+  await expect(page.getByRole("group", { name: "Pages" })).toBeVisible();
+  await page
+    .getByRole("option", { name: /Forecast/ })
+    .first()
+    .click();
+  await expect(page).toHaveURL(/\/investments\/forecast$/);
+
+  if (original) await page.setViewportSize(original);
+  await page.goto("/");
+}
