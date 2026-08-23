@@ -1,5 +1,6 @@
 import { type Page, expect, test } from "@playwright/test";
 import postgres from "postgres";
+import { navigateViaMobile } from "./helpers/nav.ts";
 
 /**
  * Phase 6 mobile smoke (P6-25).
@@ -41,20 +42,18 @@ test.describe("phase 6: 375px mobile smoke", () => {
     await page.getByLabel("Password").fill("hunter2");
     await page.getByRole("button", { name: /set password/i }).click();
     await expect(page).toHaveURL("/");
-    await expect(page.getByRole("heading", { name: /net worth/i })).toBeVisible();
+    // No accounts yet → the first-run dashboard (P13-16); the net-worth table is
+    // asserted at the end of the flow, once an account and balance exist.
+    await expect(page.getByRole("heading", { name: /welcome/i })).toBeVisible();
 
     // ── Nav is collapsed: the inline desktop row is hidden, hamburger is in ────
     const hamburger = page.getByRole("button", { name: /toggle navigation menu/i });
     await expect(hamburger).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
-    // The hamburger opens a panel that exposes the nav links and navigates.
-    // Within the <header> there are two "Accounts" links — the hidden desktop
-    // row and the visible mobile panel (rendered last); take the panel one.
-    await hamburger.click();
-    const navAccounts = page.locator("header").getByRole("link", { name: "Accounts" }).last();
-    await expect(navAccounts).toBeVisible();
-    await navAccounts.click();
+    // The hamburger opens the grouped accordion (NAV-07): tapping a group
+    // header expands its section, and the destination inside it navigates.
+    await navigateViaMobile(page, "Accounts", "All accounts");
     await expect(page).toHaveURL(/\/accounts$/);
     await expectNoHorizontalOverflow(page);
 

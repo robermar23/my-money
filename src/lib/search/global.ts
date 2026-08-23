@@ -27,8 +27,23 @@ import { sanitizeSearchTerm } from "./term.ts";
  * payee/ticker fragment is financial data). No HTTP client is imported here.
  */
 
-/** The entity kinds a palette result can be. */
-export type SearchResultKind = "account" | "category" | "security" | "watchlist" | "transaction";
+/**
+ * The kinds a palette result can be.
+ *
+ * `page` is the odd one out: a **nav-manifest destination**, not a database
+ * row. Page results are matched locally and synchronously in the client island
+ * by {@link ./pages.ts#searchPages} — no query runs here for them — and are
+ * prepended ahead of the record groups so every destination stays one keystroke
+ * away no matter how deep the nav puts it (ADR-035 rule 5, NAV-11). The kind
+ * lives in this union so the palette renders every group through one shape.
+ */
+export type SearchResultKind =
+  | "page"
+  | "account"
+  | "category"
+  | "security"
+  | "watchlist"
+  | "transaction";
 
 /**
  * One palette result — a jump target, discriminated by {@link SearchResultKind}.

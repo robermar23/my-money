@@ -25,7 +25,6 @@ import { Money } from "@/lib/money/money.ts";
 import Link from "next/link";
 import { AllocationChart } from "./allocation-chart.tsx";
 import { IncomeChart } from "./income-chart.tsx";
-import { InvestmentTabs } from "./investment-tabs.tsx";
 import { RefreshPricesButton } from "./refresh-prices-button.tsx";
 
 interface InvestmentsPageProps {
@@ -223,11 +222,7 @@ export default async function InvestmentsPage(
 
   return (
     <main className="mx-auto max-w-5xl p-6">
-      <Link href="/" className="text-sm text-zinc-500 hover:underline">
-        ← Dashboard
-      </Link>
-
-      <div className="mt-2 flex flex-wrap items-end justify-between gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-semibold text-2xl tracking-tight">Investments</h1>
           <p className="mt-1 text-sm text-zinc-500">
@@ -235,7 +230,6 @@ export default async function InvestmentsPage(
           </p>
           <div className="mt-2 flex items-center gap-4">
             <RefreshPricesButton />
-            <InvestmentTabs active="overview" />
           </div>
         </div>
         <div className="text-right">

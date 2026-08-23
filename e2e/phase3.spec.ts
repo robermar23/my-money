@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 import postgres from "postgres";
+import { navigateVia } from "./helpers/nav.ts";
 
 const QFX_FIXTURE = fileURLToPath(
   new URL("../src/lib/importers/qfx/__fixtures__/mt-checking.qfx", import.meta.url),
@@ -38,7 +39,7 @@ test.describe("phase 3: QFX upload → preview → confirm", () => {
     await expect(page).toHaveURL("/");
 
     // Create the cash account that the QFX belongs to.
-    await page.getByRole("link", { name: "Accounts" }).first().click();
+    await navigateVia(page, "Accounts", "All accounts");
     await page.getByRole("link", { name: /add account/i }).click();
     await page.getByLabel("Name").fill("M&T Checking");
     await page.getByLabel("Institution").fill("M&T Bank");
@@ -75,7 +76,7 @@ test.describe("phase 3: QFX upload → preview → confirm", () => {
       await page.getByLabel("Password").fill("hunter2");
       await page.getByRole("button", { name: /sign in|set password/i }).click();
     }
-    await page.getByRole("link", { name: "Accounts" }).first().click();
+    await navigateVia(page, "Accounts", "All accounts");
     await page.getByRole("link", { name: "M&T Checking" }).click();
     await page.getByRole("link", { name: /import file/i }).click();
 

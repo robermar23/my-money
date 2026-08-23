@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import postgres from "postgres";
+import { navigateDirect, navigateVia } from "./helpers/nav.ts";
 
 /**
  * Phase 2 critical flow: with cached prices in place, holdings get valued
@@ -37,7 +38,7 @@ test.describe("phase 2: cached prices → live holding valuations", () => {
     await expect(page).toHaveURL("/");
 
     // ── Create a Fidelity investment account and add a holding ──────────────
-    await page.getByRole("link", { name: "Accounts" }).first().click();
+    await navigateVia(page, "Accounts", "All accounts");
     await page.getByRole("link", { name: /add account/i }).click();
     await page.getByLabel("Name").fill("Fidelity Brokerage");
     await page.getByLabel("Institution").fill("Fidelity");
@@ -81,7 +82,7 @@ test.describe("phase 2: cached prices → live holding valuations", () => {
     await expect(page.getByText("$234.56").first()).toBeVisible();
 
     // ── Dashboard: net worth picks up the live holdings valuation ───────────
-    await page.getByRole("link", { name: "Dashboard" }).click();
+    await navigateDirect(page, "Dashboard");
     await expect(page).toHaveURL("/");
     await expect(page.locator("table")).toContainText("Fidelity Brokerage");
     await expect(page.locator("table")).toContainText("$2,345.60");

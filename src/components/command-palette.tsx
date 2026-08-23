@@ -1,9 +1,10 @@
 "use client";
 
 import type { SearchResult, SearchResultKind } from "@/lib/search/global.ts";
+import { searchPages } from "@/lib/search/pages.ts";
 import { MIN_SEARCH_TERM_LENGTH } from "@/lib/search/term.ts";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 /**
  * Global ⌘K command palette (Phase 12, P12-14, ADR-027/028).
@@ -16,6 +17,12 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
  *
  * Results are *jump targets*: selecting one `router.push`es to its `href`. The
  * palette **never mutates** — no result is editable (ADR-027).
+ *
+ * Since ADR-035 the first group is **Pages**: every nav-manifest destination,
+ * matched locally and synchronously by {@link searchPages} with no query and no
+ * round-trip, so it paints before the debounced record search resolves. That is
+ * what makes a two-level nav safe — a page three clicks deep in a dropdown is
+ * still one keystroke away (NAV-11).
  *
  * **Privacy (CLAUDE.md §Privacy — binding):** the only network call is to our own
  * same-origin handler; the term is never logged. In-flight requests are cancelled
@@ -40,6 +47,7 @@ const DEBOUNCE_MS = 250;
 
 /** Human-facing group headers, in the order {@link globalSearch} returns them. */
 const GROUP_LABELS: Record<SearchResultKind, string> = {
+  page: "Pages",
   account: "Accounts",
   category: "Categories",
   security: "Securities",
@@ -48,6 +56,7 @@ const GROUP_LABELS: Record<SearchResultKind, string> = {
 };
 
 const GROUP_ORDER: readonly SearchResultKind[] = [
+  "page",
   "account",
   "category",
   "security",
@@ -91,7 +100,7 @@ export function CommandPalette(): React.JSX.Element | null {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<readonly SearchResult[]>([]);
+  const [records, setRecords] = useState<readonly SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
 
@@ -104,7 +113,7 @@ export function CommandPalette(): React.JSX.Element | null {
   const close = useCallback((): void => {
     setOpen(false);
     setQuery("");
-    setResults([]);
+    setRecords([]);
     setActiveIndex(-1);
     setLoading(false);
   }, []);
@@ -143,8 +152,7 @@ export function CommandPalette(): React.JSX.Element | null {
     if (!open) return;
     const term = query.trim();
     if (term.length < MIN_SEARCH_TERM_LENGTH) {
-      setResults([]);
-      setActiveIndex(-1);
+      setRecords([]);
       setLoading(false);
       return;
     }
@@ -158,20 +166,17 @@ export function CommandPalette(): React.JSX.Element | null {
             signal: controller.signal,
           });
           if (!res.ok) {
-            setResults([]);
-            setActiveIndex(-1);
+            setRecords([]);
             setLoading(false);
             return;
           }
           const data = (await res.json()) as SearchApiResponse;
-          setResults(data.results);
-          setActiveIndex(data.results.length > 0 ? 0 : -1);
+          setRecords(data.results);
           setLoading(false);
         } catch (err) {
           // A cancelled keystroke is expected; swallow it. Never log the term.
           if ((err as Error).name !== "AbortError") {
-            setResults([]);
-            setActiveIndex(-1);
+            setRecords([]);
             setLoading(false);
           }
         }
@@ -183,6 +188,18 @@ export function CommandPalette(): React.JSX.Element | null {
       controller.abort();
     };
   }, [query, open]);
+
+  // Pages are matched in-process from the nav manifest, so they are available
+  // on the keystroke — no debounce, no request. Records arrive afterwards and
+  // append below them.
+  const pages = useMemo(() => searchPages(query), [query]);
+  const results = useMemo<readonly SearchResult[]>(() => [...pages, ...records], [pages, records]);
+
+  // Keep the highlight on the first result as the list changes underneath it
+  // (pages paint first, records land ~250 ms later and extend the same list).
+  useEffect(() => {
+    setActiveIndex(results.length > 0 ? 0 : -1);
+  }, [results]);
 
   const select = useCallback(
     (result: SearchResult): void => {
@@ -241,6 +258,8 @@ export function CommandPalette(): React.JSX.Element | null {
   const tooShort = term.length > 0 && term.length < MIN_SEARCH_TERM_LENGTH;
   const groups = groupResults(results);
   const showEmpty = !loading && term.length >= MIN_SEARCH_TERM_LENGTH && results.length === 0;
+  // Pages render immediately; only the record half is still in flight.
+  const showSpinner = loading && results.length === 0;
 
   return (
     <div
@@ -309,50 +328,49 @@ export function CommandPalette(): React.JSX.Element | null {
               Keep typing to search…
             </div>
           )}
-          {loading && <div className="px-3 py-6 text-center text-sm text-zinc-400">Searching…</div>}
+          {showSpinner && (
+            <div className="px-3 py-6 text-center text-sm text-zinc-400">Searching…</div>
+          )}
           {showEmpty && (
             <div className="px-3 py-6 text-center text-sm text-zinc-400">
               No matches for “{term}”.
             </div>
           )}
-          {!loading &&
-            groups.map((group) => (
-              <div key={group.kind} role="group" aria-label={GROUP_LABELS[group.kind]}>
-                <div
-                  aria-hidden="true"
-                  className="px-3 pt-2 pb-1 font-medium text-[11px] text-zinc-400 uppercase tracking-wide"
-                >
-                  {GROUP_LABELS[group.kind]}
-                </div>
-                {group.items.map(({ result, index }) => {
-                  const isActive = index === activeIndex;
-                  return (
-                    <button
-                      key={result.id}
-                      type="button"
-                      id={optionId(index)}
-                      role="option"
-                      aria-selected={isActive}
-                      tabIndex={-1}
-                      onMouseEnter={() => setActiveIndex(index)}
-                      onClick={() => select(result)}
-                      className={`flex w-full items-baseline gap-2 px-3 py-2 text-left text-sm ${
-                        isActive ? "bg-zinc-100 dark:bg-zinc-800" : ""
-                      }`}
-                    >
-                      <span className="truncate text-zinc-900 dark:text-zinc-50">
-                        {result.title}
-                      </span>
-                      {result.subtitle && (
-                        <span className="ml-auto truncate text-xs text-zinc-400">
-                          {result.subtitle}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
+          {groups.map((group) => (
+            <div key={group.kind} role="group" aria-label={GROUP_LABELS[group.kind]}>
+              <div
+                aria-hidden="true"
+                className="px-3 pt-2 pb-1 font-medium text-[11px] text-zinc-400 uppercase tracking-wide"
+              >
+                {GROUP_LABELS[group.kind]}
               </div>
-            ))}
+              {group.items.map(({ result, index }) => {
+                const isActive = index === activeIndex;
+                return (
+                  <button
+                    key={result.id}
+                    type="button"
+                    id={optionId(index)}
+                    role="option"
+                    aria-selected={isActive}
+                    tabIndex={-1}
+                    onMouseEnter={() => setActiveIndex(index)}
+                    onClick={() => select(result)}
+                    className={`flex w-full items-baseline gap-2 px-3 py-2 text-left text-sm ${
+                      isActive ? "bg-zinc-100 dark:bg-zinc-800" : ""
+                    }`}
+                  >
+                    <span className="truncate text-zinc-900 dark:text-zinc-50">{result.title}</span>
+                    {result.subtitle && (
+                      <span className="ml-auto truncate text-xs text-zinc-400">
+                        {result.subtitle}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </div>
       </div>
     </div>
