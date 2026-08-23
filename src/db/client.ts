@@ -35,6 +35,27 @@ function createDb() {
 
 export type Db = ReturnType<typeof createDb>;
 
+/**
+ * Process-wide slot for the pool.
+ *
+ * A module-scoped `let` is **not** enough. Next's dev server bundles this
+ * module into every compiled route entry, and each of those evaluations gets
+ * its own copy of the module scope — so a per-module singleton silently becomes
+ * one pool per route. Since the pool has no `idle_timeout` (see above), nothing
+ * ever reclaims those connections: a full Playwright run walked Postgres from
+ * 12 to `max_connections` (100) and every spec after that died with
+ * `sorry, too many clients already`.
+ *
+ * `globalThis` is shared by every module instance in the process, so parking
+ * the pool there means they all land on the same slot and share one
+ * 10-connection pool. In production this is a no-op (the module is
+ * evaluated once), which is why it is unconditional rather than dev-gated —
+ * a bundler that duplicates the module in prod would leak the same way.
+ */
+const POOL_KEY = "__myMoneyDbPool__" as const;
+
+type PoolHost = { [POOL_KEY]?: Db };
+
 // Lazily instantiate on first use. Connecting eagerly at module load breaks
 // `next build`: its "Collecting page data" step imports every route module
 // (including ones that import this client) while `DATABASE_URL` is legitimately
@@ -42,13 +63,13 @@ export type Db = ReturnType<typeof createDb>;
 // Deferring means importing this module is side-effect-free; the connection —
 // and the `DATABASE_URL` requirement — kicks in only on the first real query,
 // which happens at request time when the env var is present.
-let instance: Db | undefined;
-
 function getDb(): Db {
-  if (!instance) {
-    instance = createDb();
-  }
-  return instance;
+  const host = globalThis as unknown as PoolHost;
+  const existing = host[POOL_KEY];
+  if (existing) return existing;
+  const created = createDb();
+  host[POOL_KEY] = created;
+  return created;
 }
 
 /**

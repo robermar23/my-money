@@ -457,11 +457,12 @@ which had to be fixed to verify NAV-07 and NAV-12:
   `locator("table")` matching two tables on the account detail page). Both were
   previously masked because the spec failed at the nav step first.
 
-Separately, running the **whole** E2E suite in one process exhausts Postgres
+Separately, running the **whole** E2E suite in one process exhausted Postgres
 connections (`sorry, too many clients already`) partway through — the Next dev
-server accumulates pools across compiled routes. This reproduces identically on
-`master` (8 hits there, 9 here) and is not caused by this change. Run in
-batches; every spec passes that way.
+server accumulated one pool per compiled route entry. This reproduced
+identically on `master` and was not caused by this change; it is fixed on its
+own branch (`fix/db-pool-per-module-leak`) by parking the pool on `globalThis`.
+With that fix the full suite runs in one pass and peaks at 10 connections.
 
 ---
 
