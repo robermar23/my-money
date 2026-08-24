@@ -85,6 +85,37 @@ describe("Money", () => {
       expect(Money.fromString("1", "USD").isNegative()).toBe(false);
       expect(Money.zero("USD").toString()).toBe("0.00");
     });
+
+    it("compare: orders values exactly, without going through a float", () => {
+      const a = Money.fromString("0.10", "USD");
+      const b = Money.fromString("0.20", "USD");
+      expect(a.compare(b)).toBe(-1);
+      expect(b.compare(a)).toBe(1);
+      expect(a.compare(Money.fromString("0.1", "USD"))).toBe(0);
+    });
+
+    it("compare: decides a difference no float could represent", () => {
+      // 0.1 + 0.2 !== 0.3 in IEEE 754; through Decimal these are equal, and a
+      // sort that used subtraction-to-number would order them wrongly.
+      const sum = Money.fromString("0.10", "USD").add(Money.fromString("0.20", "USD"));
+      expect(sum.compare(Money.fromString("0.30", "USD"))).toBe(0);
+    });
+
+    it("compare: refuses to order across currencies", () => {
+      expect(() => Money.fromString("1", "USD").compare(Money.fromString("1", "EUR"))).toThrow(
+        /currency/i,
+      );
+    });
+
+    it("abs: returns the magnitude, leaving a positive value alone", () => {
+      expect(Money.fromString("-1234.56", "USD").abs().toString()).toBe("1234.56");
+      expect(Money.fromString("1234.56", "USD").abs().toString()).toBe("1234.56");
+      expect(Money.fromString("-0.00", "USD").abs().toString()).toBe("0.00");
+    });
+
+    it("abs: keeps the currency", () => {
+      expect(Money.fromString("-5", "EUR").abs().currency).toBe("EUR");
+    });
   });
 
   describe("Money.sum", () => {

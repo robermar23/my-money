@@ -108,6 +108,40 @@ export class Money {
     return this.amount.isZero();
   }
 
+  /**
+   * Order two amounts of the same currency.
+   *
+   * The comparison callers need in order to SORT money — computing a median,
+   * finding a low-water mark — without the two things that quietly break it:
+   * `Number(a) - Number(b)`, which reintroduces the float this class exists to
+   * avoid, and `a.sub(b).isNegative()`, which is correct but leaves every call
+   * site reimplementing a comparator.
+   *
+   * @param other - The value to compare against. Must share this currency.
+   * @returns -1 when this is smaller, 0 when equal, 1 when larger — the
+   *   `Array.prototype.sort` comparator contract.
+   * @throws If the currencies differ. Ordering across currencies is meaningless
+   *   without an FX rate and a date, so it is refused rather than guessed.
+   */
+  compare(other: Money): -1 | 0 | 1 {
+    this.assertSameCurrency(other);
+    return this.amount.comparedTo(other.amount) as -1 | 0 | 1;
+  }
+
+  /**
+   * Magnitude, discarding the sign.
+   *
+   * Used where a value is a size rather than a movement — an obligation's
+   * expected amount, a dispersion measure. Sign conventions differ between
+   * `transactions.amount` and display, so the conversion is explicit here
+   * rather than assumed at each call site.
+   *
+   * @returns A Money of the same currency with a non-negative amount.
+   */
+  abs(): Money {
+    return new Money(this.amount.abs(), this.currency);
+  }
+
   isNegative(): boolean {
     return this.amount.isNegative();
   }

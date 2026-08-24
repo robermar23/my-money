@@ -43,8 +43,21 @@ function formatIsoDate(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
-/** Parse a `YYYY-MM-DD` string to its UTC-midnight epoch ms, validating strictly. */
-function parseIsoDate(iso: string, label: string): number {
+/**
+ * Parse a `YYYY-MM-DD` string to its UTC-midnight epoch ms, validating strictly.
+ *
+ * Exported because the calendar dimension needs exactly one strict ISO-date
+ * parser, for the same reason it needs exactly one occurrence expander: a second
+ * copy is how "2026-02-30" ends up rejected in one place and silently rolled
+ * over in another. `detectPeriodicity` (P16-09) reads gaps in whole days from
+ * the values this returns.
+ *
+ * @param iso - The candidate date string.
+ * @param label - Field name used in the thrown message.
+ * @returns UTC-midnight epoch milliseconds.
+ * @throws If `iso` is not a real `YYYY-MM-DD` calendar date.
+ */
+export function parseIsoDate(iso: string, label: string): number {
   if (!ISO_DATE.test(iso)) {
     throw new Error(`${label} must be a YYYY-MM-DD date, got: ${iso}`);
   }
