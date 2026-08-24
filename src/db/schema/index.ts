@@ -33,3 +33,5 @@ export * from "./income-contributions.ts";
 export * from "./credit-lines.ts";
 export * from "./household.ts";
 export * from "./recommendation-dismissals.ts";
+export * from "./scheduled-obligations.ts";
+export * from "./obligation-occurrences.ts";
