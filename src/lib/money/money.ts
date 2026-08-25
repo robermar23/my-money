@@ -95,6 +95,33 @@ export class Money {
     return new Money(result, this.currency);
   }
 
+  /**
+   * Divide by a unitless scalar, truncated toward zero at cents.
+   *
+   * The companion to {@link div}, and the difference matters exactly once: when
+   * the quotient is a RATE that will later be multiplied back by the same
+   * divisor. `div` rounds half-even, so $1,200 over 31 days becomes $38.71 and
+   * 31 days of it is $1,200.01 — a cent the household never spent. Multiplied
+   * across a year-long projection that error only ever accumulates in the
+   * direction that overstates outflow, which understates safe-to-spend, which
+   * is the direction ADR-038 §2 calls the dangerous one.
+   *
+   * Use `div` to SPLIT a known total (a bill three ways, a median of two
+   * values), where half-even is the fair rounding. Use `divFloor` for a rate.
+   *
+   * Truncation rather than floor-toward-minus-infinity, so the magnitude only
+   * ever shrinks whichever side of zero the value sits on.
+   *
+   * @param scalar - The unitless divisor.
+   * @returns A new Money whose magnitude is never larger than the exact quotient.
+   */
+  divFloor(scalar: string | number): Money {
+    const result = this.amount
+      .dividedBy(new Decimal(scalar))
+      .toDecimalPlaces(2, Decimal.ROUND_DOWN);
+    return new Money(result, this.currency);
+  }
+
   negate(): Money {
     return new Money(this.amount.negated(), this.currency);
   }

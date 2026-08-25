@@ -118,6 +118,35 @@ describe("Money", () => {
     });
   });
 
+  describe("divFloor — a rate that will be multiplied back", () => {
+    it("never rounds up, where div does", () => {
+      // $1,200 over 31 days is $38.7096…. `div` rounds half-even to 38.71, and
+      // 31 x 38.71 is 1200.01 — a cent the household never spent. A per-day
+      // rate that gets multiplied by its own day count must round DOWN or the
+      // projection overstates outflow, which understates safe-to-spend.
+      const total = Money.fromString("1200.00", "USD");
+      expect(total.div(31).toString()).toBe("38.71");
+      expect(total.divFloor(31).toString()).toBe("38.70");
+      expect(total.divFloor(31).mul(31).compare(total)).toBeLessThanOrEqual(0);
+    });
+
+    it("agrees with div when the quotient is exact", () => {
+      const total = Money.fromString("3000.00", "USD");
+      expect(total.divFloor(30).toString()).toBe("100.00");
+      expect(total.divFloor(30).toString()).toBe(total.div(30).toString());
+    });
+
+    it("rounds toward zero on a negative value, never away from it", () => {
+      // Truncation, not floor-toward-minus-infinity: the magnitude only ever
+      // shrinks, whichever side of zero the value sits on.
+      expect(Money.fromString("-1200.00", "USD").divFloor(31).toString()).toBe("-38.70");
+    });
+
+    it("keeps the currency", () => {
+      expect(Money.fromString("100", "EUR").divFloor(3).currency).toBe("EUR");
+    });
+  });
+
   describe("Money.sum", () => {
     it("sums an empty list to zero", () => {
       expect(Money.sum([], "USD").toString()).toBe("0.00");
