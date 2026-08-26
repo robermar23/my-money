@@ -57,6 +57,18 @@ export interface HouseholdProfilePatch {
   readonly highInterestThresholdApr: string | null;
 }
 
+/**
+ * The two Phase-16 projection settings. Kept apart from
+ * {@link HouseholdProfilePatch} so the two forms that write this row cannot
+ * clear each other's columns.
+ */
+export interface CashFlowSettingsPatch {
+  /** Money string, or `null` to fall back to the default (no buffer). */
+  readonly cashFloor: string | null;
+  /** Days, or `null` to fall back to the 60-day default. */
+  readonly projectionHorizonDays: number | null;
+}
+
 /** One member's editable fields. */
 export interface HouseholdMemberPatch {
   readonly label: string;
@@ -91,6 +103,38 @@ export async function loadHousehold(): Promise<Household> {
 export async function saveHouseholdProfile(
   patch: HouseholdProfilePatch,
 ): Promise<HouseholdProfile> {
+  return upsertProfile(patch, "saveHouseholdProfile");
+}
+
+/**
+ * Save the two cash-flow projection settings (Phase 16, P16-23, ADR-038 §4/§5).
+ *
+ * A SEPARATE entry point rather than two more fields on
+ * {@link HouseholdProfilePatch}, because these are edited from the projection
+ * surface rather than from `/settings/household`, and the two forms must not
+ * clobber each other's columns. They share {@link upsertProfile}, so there is
+ * still exactly one writer of the singleton row and one place the
+ * insert-or-update invariant lives.
+ *
+ * `null` means "use the checked-in default", exactly as every other override on
+ * this table does — never zero. For the floor that distinction is load-bearing:
+ * a stored `0.00` says "I want no cushion", while `null` says "I have not
+ * thought about it", and only the first should silence the prompt to set one.
+ *
+ * @param patch - Floor as a money string or `null`; horizon in days or `null`.
+ * @returns The saved profile row.
+ */
+export async function saveCashFlowSettings(
+  patch: CashFlowSettingsPatch,
+): Promise<HouseholdProfile> {
+  return upsertProfile(patch, "saveCashFlowSettings");
+}
+
+/** Insert-or-update the singleton profile row with whichever columns are given. */
+async function upsertProfile(
+  patch: HouseholdProfilePatch | CashFlowSettingsPatch,
+  label: string,
+): Promise<HouseholdProfile> {
   return db.transaction(async (tx) => {
     const [existing] = await tx.select({ id: householdProfile.id }).from(householdProfile).limit(1);
 
@@ -100,12 +144,12 @@ export async function saveHouseholdProfile(
         .set({ ...patch, updatedAt: new Date() })
         .where(eq(householdProfile.id, existing.id))
         .returning();
-      if (!row) throw new Error("saveHouseholdProfile: update returned no row");
+      if (!row) throw new Error(`${label}: update returned no row`);
       return row;
     }
 
     const [row] = await tx.insert(householdProfile).values(patch).returning();
-    if (!row) throw new Error("saveHouseholdProfile: insert returned no row");
+    if (!row) throw new Error(`${label}: insert returned no row`);
     return row;
   });
 }

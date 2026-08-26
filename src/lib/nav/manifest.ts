@@ -147,6 +147,11 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         label: "Guidance",
         description: "Household money guidance and recommended next steps",
       },
+      {
+        href: "/plan/cashflow/review",
+        label: "Recurring bills",
+        description: "Confirm detected bills and manage the ones you track by hand",
+      },
     ],
   },
   {
