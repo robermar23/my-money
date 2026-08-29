@@ -630,6 +630,19 @@ the worker container's local time; set the host/container `TZ` accordingly.
 | 04:30 | `export-beancount-daily`     | mirror reflects the same data as the 04:00 dump |
 | 05:00 | `detect-anomalies-daily`     | runs last so a failed 04:00 backup is alertable |
 
+Two more jobs run **chained off 02:00** rather than on their own cron, because
+both read `account_snapshots` and a cron that fired first would evaluate
+yesterday's balances: `evaluate-advice` (Phase 15) and `project-cashflow-daily`
+(Phase 16 — materializes obligation occurrences, matches them against posted
+transactions, and raises or resolves cash-flow alerts). Chaining is why neither
+appears in the table: they have no time of their own.
+
+One job is **weekly**: `detect-obligations-weekly` at **Sundays 06:30**, which
+re-runs recurring-obligation detection over 24 months of history and refreshes
+the candidate list at `/plan/cashflow/review`. It shares the day with the 06:00
+`refresh-fundamentals-weekly` and is deliberately half an hour behind it — see
+[CASHFLOW.md](CASHFLOW.md).
+
 A 60-second `heartbeat` also ticks continuously to confirm worker plumbing.
 Each job is idempotent (CLAUDE.md §Background Jobs), so a missed or double run is
 safe; BullMQ retries failures with exponential backoff.

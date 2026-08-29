@@ -44,6 +44,7 @@ If a figure looks wrong here, it is wrong on its deep page too — fix it there.
 | **Watchlist movers** | Top two and bottom two *paper* movers | `listWatchlist` (Phase 11 `paperValuation`) | `/watchlist` |
 | **Savings rate** | Employee contributions ÷ projected annual gross, with the employer match beside it | `savingsRateInputs` → `savingsRate` (Phase 14, ADR-030/031) | `/settings/income` |
 | **Your plan** | The single most urgent open recommendation + your current waterfall rung | `loadPlan` → `runAdvice` (Phase 15, ADR-032) | `/plan` |
+| **Safe to spend** | What you can spend over the horizon on top of usual spending, its floor, the low-water date, and the next bill | `loadCashFlow` → `projectDailyBalance` + `safeToSpend` (Phase 16, ADR-038) | `/plan/cashflow` |
 
 Three of those carry a label that is not decoration:
 
@@ -59,6 +60,14 @@ The **savings rate** carries the same kind of label for the same kind of reason:
 its denominator is *projected* (current gross × pay periods) while its numerator
 is *measured* (contributions materialized in the window), so the card says
 "estimate" and names the window it summed.
+
+**Safe to spend** carries two qualifiers that are not decoration either: the
+figure never renders without its **horizon** and its **floor**. A bare
+"$1,240" reads as a balance, and it is not one — it is what you may spend *on
+top of your usual spending*, over a stated window, before breaching a cushion
+you chose. The card also withholds the figure entirely when the projection is
+too thin to state one honestly (see below), because the failure mode there
+**inflates** it ([CASHFLOW.md](CASHFLOW.md)).
 
 Alert titles are **content-free** (**ADR-015**) — the card shows the title and the
 count, never a figure.
@@ -113,6 +122,9 @@ card renders its degraded state without re-deriving "is this empty?" (ADR-029 §
 | No income source defined | Savings rate says "Define your income…" — *not* 0%, which would claim you save nothing |
 | No transaction history | Your plan names the missing input and links to where to supply it — never a confident recommendation on absent data ([GUIDANCE.md](GUIDANCE.md)) |
 | Nothing urgent to act on | Your plan shows the calm state and your current rung — "you are on track" is guidance too, so the disclaimer stays |
+| No account marked `checking` / `cash_management` | Safe to spend names the missing subtype and links to `/accounts` — there is no balance to walk forward from, so no figure is invented |
+| Under 3 months of transactions | Safe to spend shows **no figure**. The everyday-spending rate is zeroed at that point, so any number derived from it would assume you spend nothing day to day — which inflates it, the dangerous direction (ADR-038 §5). The dated calendar still renders on `/plan/cashflow`, labelled a schedule rather than a forecast |
+| No confirmed obligations | Safe to spend renders from your spending pace alone, **labelled as such**, with the number of detected candidates waiting for review |
 
 ---
 

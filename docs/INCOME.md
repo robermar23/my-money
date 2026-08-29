@@ -290,9 +290,19 @@ this arises. A hard guard is a recorded Open Item if the soft one ever bites.
 | `/accounts/[id]` (investment) | A read-only **Contributions** ledger — pay date, source, you, employer, total — plus a `†` on contribution-funded cost basis |
 | `/investments` | `†` marker + per-account footnote on contribution-funded basis |
 | `/investments/security/[id]` | "Cost basis tracked from payroll contributions", the basis-only caveat, and a **Source** column on the lots table |
+| `/plan/cashflow` | Your paydays as dated **inflows** on the balance projection — see [CASHFLOW.md](CASHFLOW.md) |
 
 The ledger is read-only everywhere. The job is the sole writer of contributions —
 edit the rule, not the rows.
+
+> **A source's cadence and anchor drive the cash-flow calendar; its
+> `gross_per_period` does not.** The projection's inflows are **observed
+> take-home** — the deposits that actually landed — because gross pay is not
+> what reaches your checking account, and a projection built from it would
+> overstate every payday by the size of your withholding (ADR-038 §3). The
+> declared figure still drives the savings rate and the contribution rules
+> above; the two numbers answer different questions and are deliberately not
+> interchangeable.
 
 ---
 

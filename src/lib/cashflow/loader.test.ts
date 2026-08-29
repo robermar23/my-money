@@ -10,7 +10,7 @@ import {
   transactions,
 } from "@/db/schema/index.ts";
 import { Money } from "@/lib/money/money.ts";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import { loadCashFlow } from "./loader.ts";
 import { materializeOccurrences } from "./materialize.ts";
@@ -290,6 +290,108 @@ describe("loadCashFlow — settled occurrences are not charged again", () => {
 
     expect(chargedBefore).toBeGreaterThan(0);
     expect(chargedAfter).toBe(chargedBefore - 1);
+  });
+});
+
+describe("loadCashFlow — what counts as spend a bill already explains (ADR-038 §2)", () => {
+  /**
+   * Attribution decides whether the residual rate is honest, and it turns on
+   * occurrence STATUS. The ADR states the rule for two of the four
+   * ("attribution uses the occurrence match … unmatched-but-confirmed
+   * obligations are excluded at their occurrence `expected_amount`") and the
+   * lifecycle in ADR-037 later added two more. These tests pin what the loader
+   * actually does for each, so every one of them is a decision on the record
+   * rather than a fall-through.
+   *
+   * The direction of each error is what matters. Attributing MORE than actually
+   * posted lowers the rate, lowers projected outflow, and RAISES safe-to-spend —
+   * the direction ADR-038 §5 names as the dangerous one. Attributing less
+   * understates the figure, which is merely unhelpful.
+   *
+   * ── The open question, recorded rather than silently decided ──────────────
+   * `missed` currently attributes at `expected_amount`, exactly like
+   * `scheduled`. That is defensible — a missed mortgage is usually late rather
+   * than cancelled, and the money is still owed — but it has a consequence
+   * worth stating: the occurrence is not re-dated into the future either, so a
+   * missed bill leaves the projection entirely, and safe-to-spend rises by its
+   * share of the rate. The alternative (treat `missed` like `skipped`) errs the
+   * safe way but would double-charge a bill that DID post under a renamed payee
+   * and was only marked missed because matching failed. Either is arguable; the
+   * point of this test is that changing it has to be a decision someone makes
+   * here, not a line someone edits by accident.
+   */
+
+  /**
+   * The three occurrences inside the 90-day residual window.
+   *
+   * January's falls outside it (the window opens 2026-01-16), which is why
+   * the arithmetic below is over three bills and not four.
+   */
+  const IN_WINDOW_OCCURRENCES = ["2026-02-01", "2026-03-01", "2026-04-01"];
+
+  /**
+   * Seed a household, force every in-window occurrence to `status`, and report
+   * the coverage the loader derives.
+   *
+   * @param status - The occurrence status to apply.
+   * @param matchedAmount - What posted, for the `matched` case.
+   * @returns Coverage as the loader reports it.
+   */
+  async function coverageAt(
+    status: "scheduled" | "matched" | "missed" | "skipped",
+    matchedAmount: string | null = null,
+  ): Promise<string | null> {
+    await reset();
+    const accountId = await seedAccount("Checking", "checking", "50000.00");
+    // `seedSpend` posts through YESTERDAY, so the 90-day window holds 89 days
+    // of $40 = $3,560 of observed expense. The bill itself is deliberately NOT
+    // seeded as a transaction: attribution has to come from the occurrence,
+    // which is the thing under test.
+    await seedSpend(accountId, HISTORY_DAYS, "40.00");
+    const obligationId = await seedObligation(accountId);
+    await materializeOccurrences(
+      {
+        id: obligationId,
+        cadence: "monthly",
+        anchorDate: "2026-01-01",
+        startDate: "2026-01-01",
+        endDate: null,
+        expectedAmount: "600.00",
+        active: true,
+      },
+      TODAY,
+    );
+    await db
+      .update(obligationOccurrences)
+      .set({ status, matchedAmount })
+      .where(inArray(obligationOccurrences.dueDate, IN_WINDOW_OCCURRENCES));
+
+    const snapshot = await loadCashFlow({ today: TODAY, now: NOW });
+    return snapshot.projection.coverage;
+  }
+
+  it("attributes a confirmed bill whose window is still open, at its expectation", async () => {
+    // 3 x $600 = $1,800 against $3,560 of observed spend.
+    expect(await coverageAt("scheduled")).toBe("0.5056");
+  });
+
+  it("attributes a matched bill at what actually posted, not what was expected", async () => {
+    // $750 posted against a $600 expectation: 3 x $750 = $2,250 / $3,560.
+    expect(await coverageAt("matched", "-750.00")).toBe("0.6320");
+  });
+
+  it("attributes nothing for a bill the household said is not happening", async () => {
+    // `skipped` is intent. Subtracting it would remove spend that never
+    // occurred from a total that never contained it, and inflate the figure.
+    expect(await coverageAt("skipped")).toBe("0.0000");
+  });
+
+  it("still attributes a bill the sweep recorded as missed — see the note above", async () => {
+    // Identical to `scheduled`. Recorded so the choice is visible: this is the
+    // one status where the loader assumes money left the account on evidence
+    // that it did not.
+    expect(await coverageAt("missed")).toBe("0.5056");
+    expect(await coverageAt("missed")).toBe(await coverageAt("scheduled"));
   });
 });
 

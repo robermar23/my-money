@@ -206,7 +206,12 @@ function groupTransactions(
     const amount = Money.fromString(transaction.amount, currency);
     if (amount.isZero()) continue;
     const direction: ObligationDirection = amount.isNegative() ? "outflow" : "inflow";
-    const groupKey = `${transaction.accountId} ${key} ${direction}`;
+    // NUL as the separator: it is the one character `payeeKey` can never emit,
+    // so no payee name can forge a collision across accounts. Written as the
+    // escape rather than a raw byte — a literal NUL makes `grep` classify this
+    // file as binary and skip it, which silently excludes the detector from
+    // every text-based audit in the repo, the privacy sweep included.
+    const groupKey = `${transaction.accountId}\u0000${key}\u0000${direction}`;
     const existing = groups.get(groupKey);
     if (existing) {
       existing.transactions.push(transaction);
