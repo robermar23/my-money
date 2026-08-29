@@ -1,6 +1,7 @@
 import type { ObligationAmountMode, ObligationDirection } from "@/db/schema/index.ts";
 import { type DetectedAlert, dedupHash } from "@/lib/alerts/rules.ts";
 import { Money } from "@/lib/money/money.ts";
+import { STATED_FIGURE_STATUSES } from "./status.ts";
 import type { LowWaterMark, ProjectionStatus, SafeToSpend } from "./types.ts";
 
 /**
@@ -80,8 +81,14 @@ export const AMOUNT_CHANGE_THRESHOLD = {
 
 const CURRENCY = "USD";
 
-/** Statuses honest enough to alert from. See {@link projectedShortfallAlerts}. */
-const ALERTABLE_STATUSES: ReadonlySet<ProjectionStatus> = new Set(["ok", "run_rate_only"]);
+/**
+ * Statuses honest enough to alert from.
+ *
+ * Imported rather than declared here so this module, `/plan/cashflow` and the
+ * dashboard card cannot drift apart on what counts as a stateable figure — see
+ * {@link STATED_FIGURE_STATUSES}.
+ */
+const ALERTABLE_STATUSES: ReadonlySet<ProjectionStatus> = new Set(STATED_FIGURE_STATUSES);
 
 /** The projection figures the shortfall rule reads. Nothing else is needed. */
 export interface ShortfallInput {

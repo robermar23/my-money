@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { loadHousehold } from "@/lib/household/queries.ts";
 import Link from "next/link";
+import { CashFlowSettings } from "./cashflow-settings.tsx";
 import { HouseholdManager, type MemberView, type ProfileView } from "./household-manager.tsx";
 
 /**
@@ -74,6 +75,14 @@ export default async function HouseholdSettingsPage(): Promise<React.JSX.Element
       </div>
 
       <HouseholdManager profile={profileView} members={memberViews} />
+
+      {/* P16-31 — the projection settings. A separate form with its own action,
+          so saving either one never blanks the other's columns on the shared
+          singleton row. */}
+      <CashFlowSettings
+        cashFloor={trimScale(profile?.cashFloor ?? null)}
+        projectionHorizonDays={profile?.projectionHorizonDays?.toString() ?? ""}
+      />
     </main>
   );
 }

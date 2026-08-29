@@ -5,6 +5,8 @@ import type { PlanData } from "@/lib/advice/plan.ts";
 import type { Recommendation, RungState } from "@/lib/advice/types.ts";
 import type { SpendingSummary } from "@/lib/analytics/spending.ts";
 import type { BudgetLine, BudgetVsActual } from "@/lib/budgets/queries.ts";
+import type { CashFlowSnapshot } from "@/lib/cashflow/loader.ts";
+import type { UpcomingOccurrence } from "@/lib/cashflow/queries.ts";
 import type {
   BalanceOnlyAccount,
   HoldingSnapshotRow,
@@ -49,6 +51,7 @@ const q = vi.hoisted(() => ({
   listWatchlist: vi.fn(),
   savingsRateInputs: vi.fn(),
   loadPlan: vi.fn(),
+  loadCashFlow: vi.fn(),
 }));
 
 // Only the *reads* are replaced. The pure modules the loader composes —
@@ -74,6 +77,10 @@ vi.mock("@/lib/income/queries.ts", () => ({ savingsRateInputs: q.savingsRateInpu
 // P15-35: the whole guidance composition is one read from the loader's point of
 // view. `focusRung` stays REAL — the card must name the rung the engine named.
 vi.mock("@/lib/advice/plan.ts", () => ({ loadPlan: q.loadPlan }));
+// P16-32: same posture as the guidance card. The whole cash-flow assembly is one
+// read from here, and the card must agree with `/plan/cashflow` by construction
+// rather than by two implementations happening to match.
+vi.mock("@/lib/cashflow/loader.ts", () => ({ loadCashFlow: q.loadCashFlow }));
 // `monthRange` is pure and drives the spending window — keep the real one.
 vi.mock("@/lib/budgets/queries.ts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/budgets/queries.ts")>()),
@@ -280,6 +287,72 @@ function emptyBook(): void {
   q.listWatchlist.mockResolvedValue([] as WatchlistRow[]);
   q.savingsRateInputs.mockResolvedValue({ sources: [], contributions: [] });
   q.loadPlan.mockResolvedValue(plan());
+  q.loadCashFlow.mockResolvedValue(cashFlow({ status: "no_operating_account" }));
+}
+
+/**
+ * A `loadCashFlow` result. Defaults to the first-run rung — no operating account
+ * classified — so the baseline book has nothing to project, like every other read.
+ */
+function cashFlow(
+  over: {
+    readonly status?: CashFlowSnapshot["projection"]["status"];
+    readonly safeToSpend?: Partial<CashFlowSnapshot["projection"]["safeToSpend"]>;
+    readonly lowWaterMark?: CashFlowSnapshot["projection"]["lowWaterMark"];
+    readonly coverage?: string | null;
+    readonly occurrences?: CashFlowSnapshot["occurrences"];
+    readonly candidateCount?: number;
+    readonly historyMonths?: number;
+  } = {},
+): CashFlowSnapshot {
+  return {
+    projection: {
+      points: [],
+      lowWaterMark:
+        over.lowWaterMark === undefined
+          ? { date: "2026-07-14", balance: "312.00" }
+          : over.lowWaterMark,
+      safeToSpend: {
+        amount: "312.00",
+        bindingDate: "2026-07-14",
+        floor: "0.00",
+        clampedAtZero: false,
+        shortfall: null,
+        ...over.safeToSpend,
+      },
+      horizonDays: 60,
+      cashFloor: "0.00",
+      coverage: over.coverage === undefined ? "0.6200" : over.coverage,
+      status: over.status ?? "ok",
+      inputsUsed: [],
+    },
+    from: "2026-06-15",
+    to: "2026-08-13",
+    operating: [],
+    obligations: [],
+    occurrences: over.occurrences ?? [],
+    candidateCount: over.candidateCount ?? 0,
+    historyMonths: over.historyMonths ?? 14,
+  };
+}
+
+/** A materialized occurrence, as the "next bill" line reads it. */
+function occurrence(over: Partial<UpcomingOccurrence> = {}): UpcomingOccurrence {
+  return {
+    id: "occ-1",
+    obligationId: "obl-1",
+    accountId: ACCOUNT_ID,
+    label: "Mortgage",
+    dueDate: "2026-06-20",
+    expectedAmount: "2150.00",
+    direction: "outflow",
+    amountMode: "fixed",
+    status: "scheduled",
+    payeeKey: "acme mortgage",
+    matchedTransactionId: null,
+    matchedAmount: null,
+    ...over,
+  };
 }
 
 beforeEach(() => {
@@ -849,5 +922,148 @@ describe("loadDashboard — advice card", () => {
     if (card?.status !== "empty") throw new Error("expected an empty advice card");
     expect(card.reason).toContain("38%");
     expect(card.href).toBe("/settings/categories");
+  });
+});
+
+// ── Cash-flow card (P16-32) ──────────────────────────────────────────────────
+
+describe("loadDashboard — cash-flow card", () => {
+  it("is empty with a fix link when no operating account is classified", async () => {
+    q.loadCashFlow.mockResolvedValue(cashFlow({ status: "no_operating_account" }));
+
+    const card = (await loadDashboard("1Y", NOW)).cashFlow;
+    if (card?.status !== "empty") throw new Error("expected an empty cash-flow card");
+    expect(card.reason).toContain("checking");
+    expect(card.href).toBe("/accounts");
+  });
+
+  it("is empty — not optimistic — when history is too thin for a spending rate", async () => {
+    // The loader zeroes the residual under `insufficient_history`, so a figure
+    // computed from it would assume the household spends nothing day to day.
+    // That inflates safe-to-spend, which ADR-038 5 names as the dangerous
+    // direction, so the card names the gap instead of printing the number.
+    q.loadCashFlow.mockResolvedValue(
+      cashFlow({ status: "insufficient_history", historyMonths: 2 }),
+    );
+
+    const card = (await loadDashboard("1Y", NOW)).cashFlow;
+    if (card?.status !== "empty") throw new Error("expected an empty cash-flow card");
+    expect(card.reason).toContain("2 months");
+    expect(card.href).toBe("/accounts");
+  });
+
+  it("echoes the projection's own figures rather than recomputing them", async () => {
+    // ADR-029 2 — the loader composes, it does not do math. Every field here
+    // must be identical to what `/plan/cashflow` renders from the same call.
+    q.loadCashFlow.mockResolvedValue(
+      cashFlow({
+        safeToSpend: { amount: "1240.00", floor: "500.00", bindingDate: "2026-07-14" },
+        lowWaterMark: { date: "2026-07-14", balance: "1740.00" },
+      }),
+    );
+
+    const card = (await loadDashboard("1Y", NOW)).cashFlow;
+    if (card?.status !== "ok") throw new Error("expected an ok cash-flow card");
+    expect(card.safeToSpend).toBe("1240.00");
+    expect(card.floor).toBe("500.00");
+    expect(card.horizonDays).toBe(60);
+    expect(card.lowWater).toEqual({ date: "2026-07-14", balance: "1740.00" });
+  });
+
+  it("carries the shortfall through the clamp instead of showing a bare zero", async () => {
+    q.loadCashFlow.mockResolvedValue(
+      cashFlow({
+        safeToSpend: {
+          amount: "0.00",
+          floor: "500.00",
+          clampedAtZero: true,
+          shortfall: "1412.00",
+          bindingDate: "2026-07-14",
+        },
+        lowWaterMark: { date: "2026-07-14", balance: "-912.00" },
+      }),
+    );
+
+    const card = (await loadDashboard("1Y", NOW)).cashFlow;
+    if (card?.status !== "ok") throw new Error("expected an ok cash-flow card");
+    expect(card.clampedAtZero).toBe(true);
+    expect(card.shortfall).toBe("1412.00");
+  });
+
+  it("names the next bill still waiting to post", async () => {
+    q.loadCashFlow.mockResolvedValue(
+      cashFlow({
+        occurrences: [
+          occurrence({ id: "a", dueDate: "2026-06-20", label: "Mortgage" }),
+          occurrence({ id: "b", dueDate: "2026-06-28", label: "Power" }),
+        ],
+      }),
+    );
+
+    const card = (await loadDashboard("1Y", NOW)).cashFlow;
+    if (card?.status !== "ok") throw new Error("expected an ok cash-flow card");
+    expect(card.nextObligation?.label).toBe("Mortgage");
+    expect(card.nextObligation?.dueDate).toBe("2026-06-20");
+  });
+
+  it("skips occurrences that already settled — they are not what is next", async () => {
+    // A matched bill has posted and a skipped one is not happening. Calling
+    // either "next" would send the household to look for money that already
+    // moved, and both are excluded from the projection for the same reason.
+    q.loadCashFlow.mockResolvedValue(
+      cashFlow({
+        occurrences: [
+          occurrence({ id: "a", dueDate: "2026-06-16", label: "Rent", status: "matched" }),
+          occurrence({ id: "b", dueDate: "2026-06-18", label: "Gym", status: "skipped" }),
+          occurrence({ id: "c", dueDate: "2026-06-20", label: "Mortgage" }),
+        ],
+      }),
+    );
+
+    const card = (await loadDashboard("1Y", NOW)).cashFlow;
+    if (card?.status !== "ok") throw new Error("expected an ok cash-flow card");
+    expect(card.nextObligation?.label).toBe("Mortgage");
+  });
+
+  it("reports no next bill rather than inventing one", async () => {
+    q.loadCashFlow.mockResolvedValue(cashFlow({ occurrences: [] }));
+
+    const card = (await loadDashboard("1Y", NOW)).cashFlow;
+    if (card?.status !== "ok") throw new Error("expected an ok cash-flow card");
+    expect(card.nextObligation).toBeNull();
+  });
+
+  it("shows a run-rate-only projection, labelled, with the count waiting for review", async () => {
+    // Thin but honest: the number is real, it just carries no dated bills. It is
+    // shown with its rung rather than hidden, per ADR-038 7.
+    q.loadCashFlow.mockResolvedValue(cashFlow({ status: "run_rate_only", candidateCount: 4 }));
+
+    const card = (await loadDashboard("1Y", NOW)).cashFlow;
+    if (card?.status !== "ok") throw new Error("expected an ok cash-flow card");
+    expect(card.projectionStatus).toBe("run_rate_only");
+    expect(card.candidateCount).toBe(4);
+  });
+
+  it("passes the coverage share through so a thin projection can say so", async () => {
+    q.loadCashFlow.mockResolvedValue(cashFlow({ coverage: "0.1100" }));
+
+    const card = (await loadDashboard("1Y", NOW)).cashFlow;
+    if (card?.status !== "ok") throw new Error("expected an ok cash-flow card");
+    expect(card.coverage).toBe("0.1100");
+  });
+
+  it("distinguishes nothing-to-measure from measured-and-none", async () => {
+    // `null` and `"0.0000"` are different statements (ADR-038). The card must
+    // not flatten them, because the UI renders them as different sentences.
+    q.loadCashFlow.mockResolvedValue(cashFlow({ coverage: null }));
+
+    const card = (await loadDashboard("1Y", NOW)).cashFlow;
+    if (card?.status !== "ok") throw new Error("expected an ok cash-flow card");
+    expect(card.coverage).toBeNull();
+  });
+
+  it("reads today's date from the injected clock, never the wall clock", async () => {
+    await loadDashboard("1Y", NOW);
+    expect(q.loadCashFlow).toHaveBeenCalledWith({ today: "2026-06-15", now: NOW });
   });
 });

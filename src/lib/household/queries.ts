@@ -110,11 +110,11 @@ export async function saveHouseholdProfile(
  * Save the two cash-flow projection settings (Phase 16, P16-23, ADR-038 §4/§5).
  *
  * A SEPARATE entry point rather than two more fields on
- * {@link HouseholdProfilePatch}, because these are edited from the projection
- * surface rather than from `/settings/household`, and the two forms must not
- * clobber each other's columns. They share {@link upsertProfile}, so there is
- * still exactly one writer of the singleton row and one place the
- * insert-or-update invariant lives.
+ * {@link HouseholdProfilePatch}. Both forms live on `/settings/household`
+ * (P16-31) but they submit independently, and a shared patch type would mean
+ * saving one blanked the other's columns on the singleton row. They share
+ * {@link upsertProfile}, so there is still exactly one writer of that row and
+ * one place the insert-or-update invariant lives.
  *
  * `null` means "use the checked-in default", exactly as every other override on
  * this table does — never zero. For the floor that distinction is load-bearing:

@@ -43,6 +43,24 @@ import type { InputUsed, ProjectionStatus } from "./types.ts";
 /** Months of transaction history below which no residual rate is honest. */
 export const MIN_HISTORY_MONTHS = 3;
 
+/**
+ * The rungs a safe-to-spend figure may be stated from.
+ *
+ * One list, three readers: the alert mapper decides whether to interrupt the
+ * household from it, `/plan/cashflow` decides whether to print the headline from
+ * it, and the dashboard card decides whether to show a figure at all. They must
+ * agree — a number worth waking someone at 02:00 for is a number worth printing,
+ * and a number too thin to print is certainly too thin to alert on.
+ *
+ * `insufficient_history` is excluded even though a projection technically exists
+ * for it: the loader zeroes the discretionary rate at that rung because there is
+ * no honest one, so any figure derived from it assumes the household spends
+ * nothing day to day. That INFLATES safe-to-spend, and ADR-038 §5 names
+ * inflation as the dangerous direction. The dated calendar still renders — a
+ * schedule is not a forecast, and the two surfaces say which one is on screen.
+ */
+export const STATED_FIGURE_STATUSES: readonly ProjectionStatus[] = ["ok", "run_rate_only"];
+
 /** The counts the ladder reads. Every one of them is a fact, not a judgement. */
 export interface StatusInput {
   /** Accounts classified `checking` / `cash_management` (ADR-033 §1). */

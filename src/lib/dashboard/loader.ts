@@ -6,6 +6,8 @@ import type { Recommendation, RungState } from "@/lib/advice/types.ts";
 import { listOpenAlerts } from "@/lib/alerts/queries.ts";
 import { spendingSummary } from "@/lib/analytics/spending.ts";
 import { budgetVsActual, monthRange } from "@/lib/budgets/queries.ts";
+import { type CashFlowSnapshot, loadCashFlow } from "@/lib/cashflow/loader.ts";
+import { MIN_HISTORY_MONTHS } from "@/lib/cashflow/status.ts";
 import { savingsRateInputs } from "@/lib/income/queries.ts";
 import { savingsRate } from "@/lib/income/savings-rate.ts";
 import {
@@ -220,6 +222,58 @@ export type AdviceCard =
   /** Not enough recorded to say anything; `reason` names the missing input. */
   | { readonly status: "empty"; readonly reason: string; readonly href: string };
 
+/**
+ * Cash-flow card data (Phase 16, P16-32, ADR-038).
+ *
+ * ── What earns the tile ────────────────────────────────────────────────────
+ * **Safe-to-spend**, and the low-water mark that bounds it. Not the projection
+ * chart: a sixty-day line rendered at card size is a shape, and the household
+ * cannot read a date off it — the shape belongs on `/plan/cashflow` where the
+ * axis is legible and the tooltip names the bills. What a card can carry is one
+ * figure a person acts on today plus the sentence that qualifies it, so that is
+ * what it carries, with the next bill as the one piece of context that explains
+ * a number that just moved.
+ *
+ * ── Why two rungs of the ladder produce `empty` rather than a number ───────
+ * `no_operating_account` has no balance to project from at all. And under
+ * `insufficient_history` the loader deliberately zeroes the discretionary rate
+ * (there is no honest one), which means a safe-to-spend computed from it would
+ * assume the household spends nothing day to day — an INFLATED figure, and
+ * ADR-038 §5 names inflation as the dangerous direction. Both name their missing
+ * input and link to it. `cashFlowAlerts` refuses to alert on the same two rungs,
+ * for the same reason; the two surfaces agreeing is not a coincidence.
+ */
+export type CashFlowCard =
+  | {
+      readonly status: "ok";
+      /** The rung this figure came from — `run_rate_only` is shown, labelled. */
+      readonly projectionStatus: "ok" | "run_rate_only";
+      /** Clamped and non-negative; `clampedAtZero` says whether it was clamped. */
+      readonly safeToSpend: string;
+      readonly clampedAtZero: boolean;
+      /** How far below the floor the low point falls, when clamped. */
+      readonly shortfall: string | null;
+      /** The user's own buffer, echoed so the figure is never read as a balance. */
+      readonly floor: string;
+      readonly horizonDays: number;
+      /** `null` only on an empty horizon. */
+      readonly lowWater: { readonly date: string; readonly balance: string } | null;
+      /** Decimal fraction in [0,1]; `null` = nothing to measure (never the same as 0). */
+      readonly coverage: string | null;
+      /** Suggestions waiting, for the run-rate-only fix link. */
+      readonly candidateCount: number;
+      /** The next occurrence still expected to move money, or `null`. */
+      readonly nextObligation: {
+        readonly label: string;
+        readonly dueDate: string;
+        /** Positive magnitude — `direction` carries the sign. */
+        readonly amount: string;
+        readonly direction: "inflow" | "outflow";
+      } | null;
+    }
+  /** Not enough recorded to project honestly; `reason` names the missing input. */
+  | { readonly status: "empty"; readonly reason: string; readonly href: string };
+
 /** Everything the curated dashboard renders, one field per card. */
 export interface DashboardData {
   readonly range: DashboardRange;
@@ -246,6 +300,12 @@ export interface DashboardData {
    * existing caller and test on the day it lands.
    */
   readonly advice?: AdviceCard;
+  /**
+   * The cash-flow projection (P16-32). Optional for the same reason `advice` is:
+   * every existing caller and test predates it, and a required field would have
+   * broken all of them on the day it landed.
+   */
+  readonly cashFlow?: CashFlowCard;
 }
 
 // ── Composition ──────────────────────────────────────────────────────────────
@@ -285,6 +345,7 @@ export async function loadDashboard(
     watch,
     incomeInputs,
     plan,
+    cashFlow,
   ] = await Promise.all([
     computeNetWorth(now, BASE_CURRENCY),
     // Windowed at the database, not in JS. `rangeDelta` re-derives the same
@@ -305,6 +366,19 @@ export async function loadDashboard(
     // alongside the others rather than after them, and reusing `loadPlan` is
     // what guarantees the card agrees with `/plan` (P15-35).
     loadPlan({ today }, now),
+    // P16-32: the same assembly `/plan/cashflow` calls, so the card and the page
+    // can never state a different safe-to-spend. It joins the fan-out rather
+    // than running after it — its cost is a round of queries, not a dependency.
+    //
+    // One cost worth naming rather than discovering: while the household has NO
+    // confirmed obligations, `loadCashFlow` also runs candidate detection over
+    // 24 months of transactions, because the run-rate-only rung quotes the count
+    // of waiting suggestions. That is the early state, which is also the state
+    // with the fewest transactions, and confirming a single bill turns it off
+    // permanently — so it is left alone until something is measured rather than
+    // pre-optimized behind a flag that would make this card's copy diverge from
+    // the page's (CLAUDE.md §Performance).
+    loadCashFlow({ today, now }),
   ]);
 
   const netWorth: NetWorthHero = {
@@ -329,6 +403,7 @@ export async function loadDashboard(
     movers: buildMovers(watch),
     savingsRate: buildSavingsRate(incomeInputs, savingsWindow),
     advice: buildAdvice(plan),
+    cashFlow: buildCashFlow(cashFlow),
   };
 }
 
@@ -520,6 +595,69 @@ function buildAdvice(plan: Awaited<ReturnType<typeof loadPlan>>): AdviceCard {
   }
 
   return { status: "ok", top, focus, total: plan.advice.recommendations.length };
+}
+
+/**
+ * Safe-to-spend, its low-water mark, and the next bill (P16-32).
+ *
+ * Every figure is taken off `snapshot.projection` unchanged. There is no
+ * arithmetic in this function and there must not be: `/plan/cashflow` renders
+ * the same projection, the two are read side by side, and a card that recomputed
+ * anything would eventually disagree with the page by a cent and discredit both
+ * (ADR-029 §2).
+ *
+ * The only decision made here is which occurrence is "next", and it is the same
+ * one the projection makes: an occurrence that already matched has posted and a
+ * skipped one is not happening, so neither is ahead of the household. Both are
+ * excluded from the projected line for exactly that reason, and calling one
+ * "next" would send someone looking for money that already moved.
+ */
+function buildCashFlow(snapshot: CashFlowSnapshot): CashFlowCard {
+  const { projection } = snapshot;
+
+  if (projection.status === "no_operating_account") {
+    return {
+      status: "empty",
+      reason:
+        "No account is marked as checking or cash management yet, so there is no everyday " +
+        "balance to project forward.",
+      href: "/accounts",
+    };
+  }
+
+  if (projection.status === "insufficient_history") {
+    return {
+      status: "empty",
+      reason:
+        `You have ${snapshot.historyMonths} ${snapshot.historyMonths === 1 ? "month" : "months"} ` +
+        `of transactions; a spending rate needs ${MIN_HISTORY_MONTHS}.`,
+      href: "/accounts",
+    };
+  }
+
+  const next = snapshot.occurrences.find((row) => row.status === "scheduled") ?? null;
+
+  return {
+    status: "ok",
+    projectionStatus: projection.status,
+    safeToSpend: projection.safeToSpend.amount,
+    clampedAtZero: projection.safeToSpend.clampedAtZero,
+    shortfall: projection.safeToSpend.shortfall,
+    floor: projection.safeToSpend.floor,
+    horizonDays: projection.horizonDays,
+    lowWater: projection.lowWaterMark,
+    coverage: projection.coverage,
+    candidateCount: snapshot.candidateCount,
+    nextObligation:
+      next === null
+        ? null
+        : {
+            label: next.label,
+            dueDate: next.dueDate,
+            amount: next.expectedAmount,
+            direction: next.direction,
+          },
+  };
 }
 
 /** Open-alert count + the 3 most recent titles (content-free per ADR-015). */

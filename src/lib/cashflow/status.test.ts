@@ -1,6 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { MIN_HISTORY_MONTHS, type StatusInput, projectionStatus } from "./status.ts";
+import {
+  MIN_HISTORY_MONTHS,
+  STATED_FIGURE_STATUSES,
+  type StatusInput,
+  projectionStatus,
+} from "./status.ts";
+import type { ProjectionStatus } from "./types.ts";
 
 /**
  * P16-19 — the four-level degradation ladder (ADR-038 §7).
@@ -137,5 +143,36 @@ describe("projectionStatus", () => {
   it("refuses negative counts rather than degrading on nonsense", () => {
     expect(() => projectionStatus(input({ operatingAccountCount: -1 }))).toThrow(/negative/i);
     expect(() => projectionStatus(input({ historyMonths: -3 }))).toThrow(/negative/i);
+  });
+});
+
+/**
+ * P16-31/P16-32 — the one list three surfaces read.
+ *
+ * The alert mapper, `/plan/cashflow` and the dashboard card each decide whether
+ * a safe-to-spend figure may be stated, and they must decide it the same way.
+ * Three copies of a predicate is three chances for the dashboard to print a
+ * number the alert engine considers too thin to mention.
+ */
+describe("STATED_FIGURE_STATUSES", () => {
+  it("is exactly the two rungs with an honest discretionary rate behind them", () => {
+    expect([...STATED_FIGURE_STATUSES].sort()).toEqual(["ok", "run_rate_only"]);
+  });
+
+  it("withholds a figure only where the ladder can say why", () => {
+    // The actual guarantee. A surface that hides the number without naming a
+    // missing input reads as a broken feature; every rung this list excludes
+    // must therefore carry a named, linked gap to render in its place (P16-33).
+    const excluded: ProjectionStatus[] = [
+      ...(["ok", "run_rate_only", "insufficient_history", "no_operating_account"] as const),
+    ].filter((status) => !STATED_FIGURE_STATUSES.includes(status));
+
+    expect(excluded).toEqual(["insufficient_history", "no_operating_account"]);
+
+    for (const over of [{ operatingAccountCount: 0 }, { historyMonths: 0 }]) {
+      const result = projectionStatus(input(over));
+      expect(excluded).toContain(result.status);
+      expect(result.missing?.href).toBeTruthy();
+    }
   });
 });

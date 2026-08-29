@@ -115,6 +115,15 @@ export interface CashFlowSnapshot {
   readonly occurrences: readonly UpcomingOccurrence[];
   /** Detected candidates awaiting review; `0` unless the count was needed. */
   readonly candidateCount: number;
+  /**
+   * Whole months of transaction history behind the rate.
+   *
+   * Carried on the snapshot rather than left inside `inputsUsed` so the page can
+   * say "you have 2 months of 3" without parsing a string out of its own audit
+   * trail — a UI reading its own rendered copy back is a defect waiting for the
+   * day someone rewords it.
+   */
+  readonly historyMonths: number;
 }
 
 /**
@@ -295,6 +304,7 @@ export async function loadCashFlow(options: LoadCashFlowOptions = {}): Promise<C
     obligations,
     occurrences: horizonOccurrences,
     candidateCount,
+    historyMonths,
   };
 }
 
