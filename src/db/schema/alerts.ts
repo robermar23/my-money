@@ -21,6 +21,13 @@ import {
  * changes in household guidance (Phase 15, P15-36 — type `advice`, the third
  * non-swept type).
  *
+ * Phase 16 (P16-28) adds three more, all written by `project-cashflow-daily`:
+ * `projected_shortfall` (a standing condition — the only one of the three that
+ * is resolve-swept, and swept by its own job rather than by the anomaly
+ * detector; see `CASHFLOW_SWEPT_ALERT_TYPES`), plus the one-shot
+ * `obligation_missed` and `obligation_amount_changed`, which are facts about a
+ * single occurrence and behave like `price_target`.
+ *
  * `advice` rows carry the guidance figures in `detail` and a deliberately
  * figure-free `title`: a recommendation's own title routinely contains a dollar
  * amount ("Build your emergency fund to $18,000.00"), and ADR-015 keeps amounts
@@ -73,7 +80,7 @@ export const alerts = pgTable(
       .where(sql`${table.resolvedAt} IS NULL`),
     typeCheck: check(
       "alerts_type_check",
-      sql`${table.type} IN ('large_transaction', 'balance_drop', 'item_login_required', 'stale_snapshot', 'stale_price', 'sync_failure', 'backup_failure', 'price_target', 'advice')`,
+      sql`${table.type} IN ('large_transaction', 'balance_drop', 'item_login_required', 'stale_snapshot', 'stale_price', 'sync_failure', 'backup_failure', 'price_target', 'advice', 'projected_shortfall', 'obligation_missed', 'obligation_amount_changed')`,
     ),
     severityCheck: check(
       "alerts_severity_check",

@@ -19,6 +19,8 @@
  *   - evaluate-advice
  *   - materialize-contributions
  *   - backfill-contributions
+ *   - detect-obligations-weekly
+ *   - project-cashflow-daily
  */
 // Every processor below is imported dynamically, which leaves this file with no
 // static imports — and a script with neither imports nor exports is a CommonJS
@@ -86,6 +88,22 @@ const PROCESSORS: Record<string, (job: never) => Promise<unknown>> = {
       "[run-once] materialize-contributions:",
       await materializeContributionsProcessor(job),
     );
+  }) as never,
+  // P16-26 — writes nothing; the counts are the whole output.
+  "detect-obligations-weekly": (async (job: never) => {
+    const { detectObligationsWeeklyProcessor } = await import(
+      "./jobs/detect-obligations-weekly.ts"
+    );
+    console.info(
+      "[run-once] detect-obligations-weekly:",
+      await detectObligationsWeeklyProcessor(job),
+    );
+  }) as never,
+  // P16-27 — logs counts only. No balance, projection, or obligation amount
+  // ever reaches a log line (CLAUDE.md §Privacy).
+  "project-cashflow-daily": (async (job: never) => {
+    const { projectCashFlowDailyProcessor } = await import("./jobs/project-cashflow-daily.ts");
+    console.info("[run-once] project-cashflow-daily:", await projectCashFlowDailyProcessor(job));
   }) as never,
   "backfill-contributions": (async (job: never) => {
     const { backfillContributionsProcessor } = await import("./jobs/backfill-contributions.ts");
