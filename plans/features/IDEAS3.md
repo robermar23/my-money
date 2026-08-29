@@ -23,7 +23,9 @@
 > [SKILLS.md](SKILLS.md) §Tier 2A/A "on-device intelligence" track (`transformers-js`,
 > `local-llm-expert`) is **not** the frontier for this block and stays gated behind its ADR.
 >
-> **Status**: Round 10 is planned in [PLAN16.md](PLAN16.md). Rounds 11–16 are recorded, not
+> **Status**: Round 10 **shipped** as Phase 16 ([PLAN16.md](PLAN16.md), ADR-036 → ADR-038).
+> Round 11 is planned as Phase 17 ([PLAN17.md](PLAN17.md), ADR-039 → ADR-041) with its
+> [FEATURE.md](FEATURE.md) scope entry recorded 2026-08-29. Rounds 12–16 are recorded, not
 > committed — each still needs its own clarifying round and a [FEATURE.md](FEATURE.md) scope
 > entry before a PLAN exists, per [CLAUDE.md](../../CLAUDE.md) §When in Doubt.
 
