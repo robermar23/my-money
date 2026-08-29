@@ -4,10 +4,12 @@ import { requireUser } from "@/lib/auth/require-user.ts";
 import {
   createHouseholdMember,
   deleteHouseholdMember,
+  saveCashFlowSettings,
   saveHouseholdProfile,
   updateHouseholdMember,
 } from "@/lib/household/queries.ts";
 import { householdMemberSchema, householdProfileSchema } from "@/lib/schemas/advice.ts";
+import { cashFlowSettingsSchema } from "@/lib/schemas/cashflow.ts";
 import { revalidatePath } from "next/cache";
 
 /**
@@ -37,6 +39,19 @@ const UUID_RE = /^[0-9a-f-]{36}$/i;
 function revalidateHouseholdSurfaces(): void {
   revalidatePath("/settings/household");
   revalidatePath("/plan");
+  revalidatePath("/");
+}
+
+/**
+ * Revalidate the surfaces a projection setting moves (P16-31).
+ *
+ * The dashboard card and the projection page both render safe-to-spend, so a
+ * changed floor or horizon has to invalidate both or the two will disagree on
+ * screen — which is precisely the failure ADR-029 §2 exists to prevent.
+ */
+function revalidateCashFlowSurfaces(): void {
+  revalidatePath("/settings/household");
+  revalidatePath("/plan/cashflow");
   revalidatePath("/");
 }
 
@@ -164,5 +179,44 @@ export async function deleteHouseholdMemberAction(
   if (!UUID_RE.test(memberId)) return { error: "Invalid id" };
   await deleteHouseholdMember(memberId);
   revalidateHouseholdSurfaces();
+  return { ok: true };
+}
+
+/**
+ * Save the two cash-flow projection settings (P16-31, ADR-038 §4/§5).
+ *
+ * Submitted independently of the profile form above and written through
+ * `saveCashFlowSettings`, so saving one form never blanks the other's columns on
+ * the shared singleton row.
+ *
+ * Blank clears back to the checked-in default, as everywhere else on this
+ * screen. For the cash floor that is a real distinction rather than a
+ * convention: a stored `0.00` says "I want no cushion", and blank says "I have
+ * not decided" — only the first should silence a prompt to set one.
+ *
+ * @param _prev - Previous action state (unused; required by useActionState).
+ * @param formData - Fields: cashFloor, projectionHorizonDays.
+ * @returns HouseholdActionResult with `ok` on success, or `error`.
+ */
+export async function saveCashFlowSettingsAction(
+  _prev: HouseholdActionResult,
+  formData: FormData,
+): Promise<HouseholdActionResult> {
+  await requireUser();
+  const parsed = cashFlowSettingsSchema.safeParse({
+    cashFloor: formData.get("cashFloor") ?? "",
+    projectionHorizonDays: formData.get("projectionHorizonDays") ?? "",
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  await saveCashFlowSettings({
+    cashFloor: parsed.data.cashFloor,
+    projectionHorizonDays:
+      parsed.data.projectionHorizonDays === null ? null : Number(parsed.data.projectionHorizonDays),
+  });
+
+  revalidateCashFlowSurfaces();
   return { ok: true };
 }

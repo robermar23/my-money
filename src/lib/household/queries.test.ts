@@ -7,6 +7,7 @@ import {
   createHouseholdMember,
   deleteHouseholdMember,
   loadHousehold,
+  saveCashFlowSettings,
   saveHouseholdProfile,
   updateHouseholdMember,
 } from "./queries.ts";
@@ -167,5 +168,59 @@ describe("loadHousehold", () => {
 
     expect(household.profile?.reserveMonthsOverride).toBe(6);
     expect(household.members.map((m) => m.label)).toEqual(["First", "Second"]);
+  });
+});
+
+describe("saveCashFlowSettings", () => {
+  it("creates the profile row when it is the first thing ever saved", async () => {
+    const row = await saveCashFlowSettings({ cashFloor: "500.00", projectionHorizonDays: 90 });
+
+    expect(row.cashFloor).toBe("500.00");
+    expect(row.projectionHorizonDays).toBe(90);
+  });
+
+  it("does not clear the guidance overrides it shares a row with", async () => {
+    // The reason these are a separate patch type: `/settings/household` and the
+    // projection surface write the same singleton row, and neither form may
+    // blank the other's columns just by being submitted.
+    await saveHouseholdProfile({ ...BLANK, reserveMonthsOverride: 6, needsPct: null });
+
+    await saveCashFlowSettings({ cashFloor: "500.00", projectionHorizonDays: 90 });
+
+    const { profile } = await loadHousehold();
+    expect(profile).toMatchObject({
+      reserveMonthsOverride: 6,
+      cashFloor: "500.00",
+      projectionHorizonDays: 90,
+    });
+  });
+
+  it("does not clear the projection settings when the guidance form is saved", async () => {
+    await saveCashFlowSettings({ cashFloor: "500.00", projectionHorizonDays: 90 });
+
+    await saveHouseholdProfile({ ...BLANK, reserveMonthsOverride: 6 });
+
+    const { profile } = await loadHousehold();
+    expect(profile).toMatchObject({ cashFloor: "500.00", projectionHorizonDays: 90 });
+  });
+
+  it("clears back to the checked-in default with null, not zero", async () => {
+    // NULL means "use the default"; "0.00" means "I want no cushion". Only the
+    // second should silence the prompt to set one.
+    await saveCashFlowSettings({ cashFloor: "500.00", projectionHorizonDays: 90 });
+
+    const row = await saveCashFlowSettings({ cashFloor: null, projectionHorizonDays: null });
+
+    expect(row.cashFloor).toBeNull();
+    expect(row.projectionHorizonDays).toBeNull();
+  });
+
+  it("rejects a negative floor and an out-of-range horizon at the database", async () => {
+    await expect(
+      saveCashFlowSettings({ cashFloor: "-1.00", projectionHorizonDays: null }),
+    ).rejects.toThrow();
+    await expect(
+      saveCashFlowSettings({ cashFloor: null, projectionHorizonDays: 400 }),
+    ).rejects.toThrow();
   });
 });

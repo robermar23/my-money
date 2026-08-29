@@ -85,6 +85,66 @@ describe("Money", () => {
       expect(Money.fromString("1", "USD").isNegative()).toBe(false);
       expect(Money.zero("USD").toString()).toBe("0.00");
     });
+
+    it("compare: orders values exactly, without going through a float", () => {
+      const a = Money.fromString("0.10", "USD");
+      const b = Money.fromString("0.20", "USD");
+      expect(a.compare(b)).toBe(-1);
+      expect(b.compare(a)).toBe(1);
+      expect(a.compare(Money.fromString("0.1", "USD"))).toBe(0);
+    });
+
+    it("compare: decides a difference no float could represent", () => {
+      // 0.1 + 0.2 !== 0.3 in IEEE 754; through Decimal these are equal, and a
+      // sort that used subtraction-to-number would order them wrongly.
+      const sum = Money.fromString("0.10", "USD").add(Money.fromString("0.20", "USD"));
+      expect(sum.compare(Money.fromString("0.30", "USD"))).toBe(0);
+    });
+
+    it("compare: refuses to order across currencies", () => {
+      expect(() => Money.fromString("1", "USD").compare(Money.fromString("1", "EUR"))).toThrow(
+        /currency/i,
+      );
+    });
+
+    it("abs: returns the magnitude, leaving a positive value alone", () => {
+      expect(Money.fromString("-1234.56", "USD").abs().toString()).toBe("1234.56");
+      expect(Money.fromString("1234.56", "USD").abs().toString()).toBe("1234.56");
+      expect(Money.fromString("-0.00", "USD").abs().toString()).toBe("0.00");
+    });
+
+    it("abs: keeps the currency", () => {
+      expect(Money.fromString("-5", "EUR").abs().currency).toBe("EUR");
+    });
+  });
+
+  describe("divFloor — a rate that will be multiplied back", () => {
+    it("never rounds up, where div does", () => {
+      // $1,200 over 31 days is $38.7096…. `div` rounds half-even to 38.71, and
+      // 31 x 38.71 is 1200.01 — a cent the household never spent. A per-day
+      // rate that gets multiplied by its own day count must round DOWN or the
+      // projection overstates outflow, which understates safe-to-spend.
+      const total = Money.fromString("1200.00", "USD");
+      expect(total.div(31).toString()).toBe("38.71");
+      expect(total.divFloor(31).toString()).toBe("38.70");
+      expect(total.divFloor(31).mul(31).compare(total)).toBeLessThanOrEqual(0);
+    });
+
+    it("agrees with div when the quotient is exact", () => {
+      const total = Money.fromString("3000.00", "USD");
+      expect(total.divFloor(30).toString()).toBe("100.00");
+      expect(total.divFloor(30).toString()).toBe(total.div(30).toString());
+    });
+
+    it("rounds toward zero on a negative value, never away from it", () => {
+      // Truncation, not floor-toward-minus-infinity: the magnitude only ever
+      // shrinks, whichever side of zero the value sits on.
+      expect(Money.fromString("-1200.00", "USD").divFloor(31).toString()).toBe("-38.70");
+    });
+
+    it("keeps the currency", () => {
+      expect(Money.fromString("100", "EUR").divFloor(3).currency).toBe("EUR");
+    });
   });
 
   describe("Money.sum", () => {

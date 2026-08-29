@@ -323,6 +323,9 @@ starts *"projected"*.
 
 ## See also
 
+- [CASHFLOW.md](CASHFLOW.md) — the timing half: when the money actually moves, and what
+  that leaves. This page says where a dollar *should* go; that one says whether it is
+  there on the 14th
 - [INCOME.md](INCOME.md) — the income model this reads, and the one true savings rate
 - [DASHBOARD.md](DASHBOARD.md) — the loader/card contract the advice card follows
 - [ALERTS.md](ALERTS.md) — the alert pipeline and the content-free email

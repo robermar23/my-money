@@ -360,3 +360,86 @@ Owner decisions from the clarifying round (2026-08-15):
   logged. A regression test enforces all of it.
 
 Implemented under **ADR-032 → ADR-034** (IDEAS.md §11 Decision Log) via [PLAN15.md](PLAN15.md). See [docs/GUIDANCE.md](../../docs/GUIDANCE.md).
+
+### 2026-08-23 — Cash-flow timing: what is due when, and one safe-to-spend number (in scope)
+
+Source: [IDEAS3.md](IDEAS3.md) Round 10. The owner's question is the one a household with a
+mortgage and kids asks most often: *"Can I spend $400 on the car repair this week, or does
+something bounce?"*
+
+The app cannot answer it — and the reason is structural rather than a missing feature. Every
+number it produces today is a **stock** (balance, net worth, allocation, cost basis) or a
+**rate** (savings rate, monthly spend, APR, TWR). Almost nothing is a **date**. But a
+household's money runs on a calendar: the mortgage on the 1st, daycare on the 3rd, paychecks
+on the 15th and 30th, insurance twice a year, property tax in November. Phase 16 adds the
+missing dimension — what lands, when, and what that leaves.
+
+Timing is lifted into scope on exactly the grounds ADR-018 lifted budgets, ADR-030 lifted
+income, and ADR-032 lifted guidance: **the owner explicitly asked**, and this file is where
+that is recorded. Two properties make it safe to say yes. It is **deterministic arithmetic
+over data the app already holds** — a periodicity test with a stated tolerance and a day-by-day
+Decimal walk, never a model. And it **reports timing without ever acting on it**: the app
+proposes what it thinks is recurring, the user confirms or rejects it, and no money is ever
+moved, reserved, or partitioned.
+
+The deliverable is one sentence a family acts on — *"Your lowest projected checking balance is
+$312 on March 14"* — and one number on the dashboard: **safe-to-spend**.
+
+- **In scope (newly added):**
+  - **Recurring-series detection** (`src/lib/cashflow/`) — pure periodicity and
+    amount-stability analysis over transaction history per normalized payee, producing
+    **candidates, never rows**. It returns `null` rather than guessing when nothing fits.
+  - **Scheduled obligations** — the confirmed record of what is due and when. Detection
+    proposes; the user disposes, through the **parse → preview → confirm** posture CLAUDE.md
+    §Importers already mandates. **Manual entry is first-class**, not a fallback: the bills
+    that hurt most (a premium from an untracked account, tuition on a payment plan, a
+    quarterly estimated payment) never touch a tracked account at all.
+  - **A daily cash-flow projection** — starting balance, plus take-home phased by the pay
+    schedule, minus dated obligations, minus a **residual** discretionary run-rate, day by
+    day over a user-settable horizon (default 60 days, range 14–365).
+  - **Safe-to-spend** — the horizon's lowest projected closing balance less a user-set cash
+    floor, clamped at zero. One number, on the dashboard and on a new `/plan/cashflow` page.
+  - **Timing alerts** — a projected shortfall ahead; an obligation whose due date passed
+    unmatched; an obligation whose amount moved materially.
+  - **Two `household_profile` settings** — `cash_floor` and `projection_horizon_days`. No new
+    settings table.
+- **The correctness rule that defines this phase:** recurring obligations are **already
+  inside** observed spend. Projecting an average daily spend **and** adding the mortgage on
+  the 1st counts the mortgage twice, and makes safe-to-spend quietly, badly low — the failure
+  direction that trains a household to ignore the number. The discretionary rate is therefore
+  a **residual**: total observed spend minus the spend attributable to confirmed obligations
+  in the same window. It is test-first, and it has a dedicated invariant test that exists to
+  keep it from ever regressing.
+- **Reaffirmed OUT of scope (not relaxed):** **bill pay, money movement, or ACH initiation of
+  any kind** — a due date is an observation, never an instruction, and this stays a read-only
+  tracker; **envelope budgeting** — nothing is partitioned, reserved, allocated, or moved
+  between virtual buckets, and Round 2's simple monthly targets stay simple (ADR-018
+  unamended); **double-entry accounting** — obligations are not liabilities and do not post;
+  **any AI or LLM over financial data** (§Privacy hard-no — detection is a deterministic
+  periodicity test, and when it cannot decide it says so); **probabilistic cash-flow
+  modeling** — no Monte Carlo, no confidence bands, no fan chart (ADR-022 stands; the
+  projection is a single deterministic line, and uncertainty is expressed as stated inputs the
+  user can correct); **user-authored goals** (ADR-022, ADR-032 §6 — an obligation is a
+  recorded fact about a recurring cost, not a target the user funds); and **live rate, fee, or
+  biller data of any kind**. Crossing any of these needs a new FEATURE.md decision first.
+- **Privacy stance:** timing introduces **no new egress class — and, like guidance, literally
+  zero**. Nothing under `src/lib/cashflow/` makes an outbound HTTP request on any code path.
+  There is **no biller directory, no merchant-enrichment service, no "we recognized this as
+  Netflix" lookup** — payee normalization is local string work over the user's own transaction
+  names. Obligation labels are new user-authored PII-adjacent text (they name real vendors,
+  landlords, and sometimes people): local Postgres only, riding the nightly `age`-encrypted
+  `pg_dump` (ADR-014). Labels **may** enter the ⌘K index, being payee text of the kind already
+  indexed via `transactions.name` (ADR-027/028) — but the projection figures, the safe-to-spend
+  number, and the low-water balance **never** appear in the content-free notification email
+  (ADR-015: numbers live in `detail`, and the email carries neither). No balance, projection,
+  or obligation amount is ever logged. A regression test enforces all of it.
+- **Reconciling with the Phase 15 deferral:** [PLAN15.md](PLAN15.md) §Open Items deferred
+  recurring detection because "`categories.necessity` is explicit and correctable; a
+  merchant-cadence detector is guessing where an answer exists." **That reasoning stands and is
+  reaffirmed, not reversed.** `necessity` answers *"is this essential?"* — a **classification**
+  question. Round 10 asks *"when does it land, and for how much?"* — a **timing** question on
+  an orthogonal axis that `necessity` cannot answer at any level of classification quality.
+  Detection here **schedules; it does not classify**: a confirmed obligation inherits its
+  category from the transactions that produced it and changes no category's `necessity`.
+
+Implemented under **ADR-036 → ADR-038** (IDEAS.md §11 Decision Log) via [PLAN16.md](PLAN16.md). See [docs/CASHFLOW.md](../../docs/CASHFLOW.md).

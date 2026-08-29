@@ -24,7 +24,13 @@ export type AlertType =
   | "backup_failure"
   | "price_target"
   /** Phase 15 (P15-36): a material change in household guidance. */
-  | "advice";
+  | "advice"
+  /** Phase 16 (P16-28): the projection dips below the household's cash floor. */
+  | "projected_shortfall"
+  /** Phase 16 (P16-28): a confirmed obligation's window closed with no match. */
+  | "obligation_missed"
+  /** Phase 16 (P16-28): a matched bill posted for materially more or less. */
+  | "obligation_amount_changed";
 
 export type AlertSeverity = "info" | "warning" | "critical";
 
@@ -47,9 +53,11 @@ export interface AlertThresholds {
  * The rule-managed types swept by the anomaly resolve-loop. Excludes the
  * externally/one-shot-written types: `backup_failure` (written by the backup job,
  * cleared only on a successful backup), `price_target` (one-shot, written by the
- * price-target evaluator and never re-armed automatically — ADR-026), and
- * `advice` (P15-36 — see `src/lib/advice/alerts.ts` on why a guidance alert must
- * not auto-resolve merely because the rule stopped speaking).
+ * price-target evaluator and never re-armed automatically — ADR-026), `advice`
+ * (P15-36 — see `src/lib/advice/alerts.ts` on why a guidance alert must not
+ * auto-resolve merely because the rule stopped speaking), and every Phase-16
+ * cash-flow type (see {@link CASHFLOW_SWEPT_ALERT_TYPES} for why those are swept
+ * by their own job rather than by this one).
  */
 export const RULE_ALERT_TYPES: readonly AlertType[] = [
   "large_transaction",
@@ -59,6 +67,34 @@ export const RULE_ALERT_TYPES: readonly AlertType[] = [
   "stale_price",
   "sync_failure",
 ];
+
+/**
+ * The three Phase-16 cash-flow types (P16-28), written by
+ * `project-cashflow-daily` and by nothing else.
+ */
+export const CASHFLOW_ALERT_TYPES: readonly AlertType[] = [
+  "projected_shortfall",
+  "obligation_missed",
+  "obligation_amount_changed",
+];
+
+/**
+ * The cash-flow types the cash-flow job resolve-sweeps — and the reason this is
+ * a SECOND list rather than three more entries in {@link RULE_ALERT_TYPES}.
+ *
+ * PLAN16 P16-28 asks for `projected_shortfall` to be resolve-swept, and it is
+ * right to: a projected shortfall is a standing condition that genuinely clears
+ * when the projection recovers, unlike the one-shot occurrence events beside it.
+ * But `RULE_ALERT_TYPES` is not "the swept types" in general — it is *the set
+ * `detect-anomalies-daily` owns*, and that job's sweep resolves every open alert
+ * of every type in the list that it did not itself re-detect on that run. Adding
+ * a type it never detects would resolve the shortfall at 05:00 the same night
+ * the cash-flow job raised it at 02:00, before anyone read it.
+ *
+ * So the ownership is explicit instead: each job sweeps its own types, and a
+ * test asserts the two sets stay disjoint.
+ */
+export const CASHFLOW_SWEPT_ALERT_TYPES: readonly AlertType[] = ["projected_shortfall"];
 
 function intFromEnv(raw: string | undefined, fallback: number): number {
   if (!raw) return fallback;

@@ -5,6 +5,7 @@ import {
   backupDatabaseDailyQueue,
   computeSnapshotsDailyQueue,
   detectAnomaliesDailyQueue,
+  detectObligationsWeeklyQueue,
   enqueuePlaidSyncsDailyQueue,
   evaluateAdviceQueue,
   evaluatePriceTargetsQueue,
@@ -13,6 +14,7 @@ import {
   heartbeatQueue,
   materializeContributionsQueue,
   processImportQueue,
+  projectCashFlowDailyQueue,
   recategorizeAllQueue,
   refreshFundamentalsWeeklyQueue,
   syncInvestmentsItemQueue,
@@ -23,6 +25,7 @@ import { backfillWatchlistSymbolProcessor } from "./jobs/backfill-watchlist-symb
 import { backupDatabaseDailyProcessor } from "./jobs/backup-database-daily.ts";
 import { computeSnapshotsDailyProcessor } from "./jobs/compute-snapshots-daily.ts";
 import { detectAnomaliesDailyProcessor } from "./jobs/detect-anomalies-daily.ts";
+import { detectObligationsWeeklyProcessor } from "./jobs/detect-obligations-weekly.ts";
 import { enqueuePlaidSyncsDailyProcessor } from "./jobs/enqueue-plaid-syncs-daily.ts";
 import { evaluateAdviceProcessor } from "./jobs/evaluate-advice.ts";
 import { evaluatePriceTargetsProcessor } from "./jobs/evaluate-price-targets.ts";
@@ -31,6 +34,7 @@ import { fetchPricesDailyProcessor } from "./jobs/fetch-prices-daily.ts";
 import { heartbeatProcessor } from "./jobs/heartbeat.ts";
 import { materializeContributionsProcessor } from "./jobs/materialize-contributions.ts";
 import { processImportProcessor } from "./jobs/process-import.ts";
+import { projectCashFlowDailyProcessor } from "./jobs/project-cashflow-daily.ts";
 import { recategorizeAllProcessor } from "./jobs/recategorize-all.ts";
 import { refreshFundamentalsWeeklyProcessor } from "./jobs/refresh-fundamentals-weekly.ts";
 import { syncInvestmentsItemProcessor } from "./jobs/sync-investments-item.ts";
@@ -66,6 +70,11 @@ const computeSnapshotsWorker = new Worker(
     // that is already wrong. Enqueued here (not inside the processor) so the
     // snapshot processor stays offline-testable.
     await evaluateAdviceQueue.add("evaluate-advice", {});
+    // P16-27 — same reasoning, one step sharper: day zero of the cash-flow
+    // projection IS the latest `account_snapshots` row per account, so a
+    // projection built before this job ran is wrong by a day in exactly the
+    // direction the household is asking about ("can I spend this today?").
+    await projectCashFlowDailyQueue.add("project-cashflow-daily", {});
   },
   { connection: redisConnection, concurrency: 1 },
 );
@@ -115,6 +124,34 @@ const evaluateAdviceWorker = new Worker(
 );
 evaluateAdviceWorker.on("failed", (job, err) => {
   console.error(`[worker] evaluate-advice job ${job?.id} failed:`, err);
+});
+
+// Phase 16 (P16-27): daily materialize + match sweep + projection alerts. No
+// cron — it rides the 02:00 snapshot job above, so the walk always opens on
+// today's balances.
+const projectCashFlowDailyWorker = new Worker(
+  QUEUE_NAMES.PROJECT_CASHFLOW_DAILY,
+  async (job) => {
+    await projectCashFlowDailyProcessor(job);
+  },
+  { connection: redisConnection, concurrency: 1 },
+);
+projectCashFlowDailyWorker.on("failed", (job, err) => {
+  console.error(`[worker] project-cashflow-daily job ${job?.id} failed:`, err);
+});
+
+// Phase 16 (P16-26): weekly recurring-obligation detection. Writes nothing —
+// it re-derives the candidate list, which is the canary on the detector and the
+// count the review surface shows.
+const detectObligationsWeeklyWorker = new Worker(
+  QUEUE_NAMES.DETECT_OBLIGATIONS_WEEKLY,
+  async (job) => {
+    await detectObligationsWeeklyProcessor(job);
+  },
+  { connection: redisConnection, concurrency: 1 },
+);
+detectObligationsWeeklyWorker.on("failed", (job, err) => {
+  console.error(`[worker] detect-obligations-weekly job ${job?.id} failed:`, err);
 });
 
 const processImportWorker = new Worker(QUEUE_NAMES.PROCESS_IMPORT, processImportProcessor, {
@@ -357,6 +394,28 @@ await refreshFundamentalsWeeklyQueue.upsertJobScheduler(
   { name: "refresh-fundamentals-weekly", data: {} },
 );
 
+// P16-26 — Weekly recurring-obligation detection, Sundays at 06:30 local.
+//
+// `cron-doctor` on the expression, because a new schedule IS its trigger
+// condition: `"30 6 * * 0"` is minute 30, hour 6, EVERY day-of-month, EVERY
+// month, day-of-week 0 (Sunday). The classic cron trap — day-of-month and
+// day-of-week being OR'd rather than AND'd, so a schedule fires far more often
+// than its author intended — cannot bite here, because day-of-month is `*`;
+// the OR only produces surprises when BOTH fields are restricted. Single fixed
+// minute, so nothing stacks: the next firing is a week away and this job takes
+// seconds. And 06:30 is a genuinely free slot — the 06:00 Sunday fundamentals
+// refresh above is the only other weekly job, and it is done long before.
+await detectObligationsWeeklyQueue
+  .removeJobScheduler("detect-obligations-weekly-cron")
+  .catch(() => {
+    /* first run */
+  });
+await detectObligationsWeeklyQueue.upsertJobScheduler(
+  "detect-obligations-weekly-cron",
+  { pattern: "30 6 * * 0" },
+  { name: "detect-obligations-weekly", data: {} },
+);
+
 /**
  * Graceful shutdown per bullmq-specialist guidance. Process SIGTERM and SIGINT,
  * stop accepting new jobs, drain in-flight, then close the Redis connection.
@@ -378,6 +437,8 @@ async function shutdown(_signal: string): Promise<void> {
   await evaluatePriceTargetsWorker.close();
   await evaluateAdviceWorker.close();
   await materializeContributionsWorker.close();
+  await projectCashFlowDailyWorker.close();
+  await detectObligationsWeeklyWorker.close();
   await heartbeatQueue.close();
   await computeSnapshotsDailyQueue.close();
   await fetchPricesDailyQueue.close();
@@ -394,6 +455,8 @@ async function shutdown(_signal: string): Promise<void> {
   await evaluatePriceTargetsQueue.close();
   await evaluateAdviceQueue.close();
   await materializeContributionsQueue.close();
+  await projectCashFlowDailyQueue.close();
+  await detectObligationsWeeklyQueue.close();
   await redisConnection.quit();
   process.exit(0);
 }

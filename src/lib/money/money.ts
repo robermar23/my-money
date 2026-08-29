@@ -95,6 +95,33 @@ export class Money {
     return new Money(result, this.currency);
   }
 
+  /**
+   * Divide by a unitless scalar, truncated toward zero at cents.
+   *
+   * The companion to {@link div}, and the difference matters exactly once: when
+   * the quotient is a RATE that will later be multiplied back by the same
+   * divisor. `div` rounds half-even, so $1,200 over 31 days becomes $38.71 and
+   * 31 days of it is $1,200.01 — a cent the household never spent. Multiplied
+   * across a year-long projection that error only ever accumulates in the
+   * direction that overstates outflow, which understates safe-to-spend, which
+   * is the direction ADR-038 §2 calls the dangerous one.
+   *
+   * Use `div` to SPLIT a known total (a bill three ways, a median of two
+   * values), where half-even is the fair rounding. Use `divFloor` for a rate.
+   *
+   * Truncation rather than floor-toward-minus-infinity, so the magnitude only
+   * ever shrinks whichever side of zero the value sits on.
+   *
+   * @param scalar - The unitless divisor.
+   * @returns A new Money whose magnitude is never larger than the exact quotient.
+   */
+  divFloor(scalar: string | number): Money {
+    const result = this.amount
+      .dividedBy(new Decimal(scalar))
+      .toDecimalPlaces(2, Decimal.ROUND_DOWN);
+    return new Money(result, this.currency);
+  }
+
   negate(): Money {
     return new Money(this.amount.negated(), this.currency);
   }
@@ -106,6 +133,40 @@ export class Money {
 
   isZero(): boolean {
     return this.amount.isZero();
+  }
+
+  /**
+   * Order two amounts of the same currency.
+   *
+   * The comparison callers need in order to SORT money — computing a median,
+   * finding a low-water mark — without the two things that quietly break it:
+   * `Number(a) - Number(b)`, which reintroduces the float this class exists to
+   * avoid, and `a.sub(b).isNegative()`, which is correct but leaves every call
+   * site reimplementing a comparator.
+   *
+   * @param other - The value to compare against. Must share this currency.
+   * @returns -1 when this is smaller, 0 when equal, 1 when larger — the
+   *   `Array.prototype.sort` comparator contract.
+   * @throws If the currencies differ. Ordering across currencies is meaningless
+   *   without an FX rate and a date, so it is refused rather than guessed.
+   */
+  compare(other: Money): -1 | 0 | 1 {
+    this.assertSameCurrency(other);
+    return this.amount.comparedTo(other.amount) as -1 | 0 | 1;
+  }
+
+  /**
+   * Magnitude, discarding the sign.
+   *
+   * Used where a value is a size rather than a movement — an obligation's
+   * expected amount, a dispersion measure. Sign conventions differ between
+   * `transactions.amount` and display, so the conversion is explicit here
+   * rather than assumed at each call site.
+   *
+   * @returns A Money of the same currency with a non-negative amount.
+   */
+  abs(): Money {
+    return new Money(this.amount.abs(), this.currency);
   }
 
   isNegative(): boolean {

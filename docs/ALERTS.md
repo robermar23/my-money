@@ -38,6 +38,9 @@ View everything at **`/alerts`** (severity-colored; dismiss to resolve manually)
 | `sync_failure` | warning | a Plaid sync run recorded an error in the last day | — | sync-run id + started date |
 | `backup_failure` | critical | the nightly backup job threw | — | per day; **cleared only by a successful backup**, never by this job |
 | `advice` | inherits the recommendation's (critical/warning only) | household guidance changes state — see [GUIDANCE.md](GUIDANCE.md) | `household_profile.high_interest_threshold_apr` and the other tunables | rule + subject + `severity\|status`, **deliberately excluding the amount** |
+| `projected_shortfall` | **critical** if the balance goes negative, else warning | the daily cash-flow projection dips below your cash floor inside the horizon — see [CASHFLOW.md](CASHFLOW.md) | `household_profile.cash_floor` / `projection_horizon_days` | the low-water **date** (so a moving shortfall re-fires, a standing one does not) |
+| `obligation_missed` | warning | a confirmed obligation's match window closed with nothing found. Fires for receipts too — an expected payment that never arrived leaves the projection wrong in the optimistic direction | ±5 days (`DEFAULT_MATCH_TOLERANCE`) | occurrence + due date, so it fires exactly once |
+| `obligation_amount_changed` | warning | a matched bill posted for more than **5% or $5** off its expectation, whichever is larger. `trailing_median` obligations never fire — varying is what that mode means | `AMOUNT_CHANGE_THRESHOLD` | occurrence + due date |
 
 Notes:
 - Thresholds are **strictly greater-than** — a transaction of exactly
@@ -56,6 +59,16 @@ Notes:
   omits the dollar figure on purpose: folding in the amount would make every cent
   of balance drift a fresh "material change," which is the nightly nag in
   disguise. Titles carry no figures (ADR-015); they live in `detail`.
+- The three **cash-flow** types are written by `project-cashflow-daily` and
+  swept by that same job, **not** by `detect-anomalies-daily`. Each job
+  resolve-sweeps only the types it detects; adding one to the anomaly job's
+  list would resolve a shortfall raised at 02:00 by 05:00 the same night,
+  before anyone read it. `projected_shortfall` is a standing condition that
+  genuinely clears when the projection recovers; `obligation_missed` and
+  `obligation_amount_changed` are one-shot events and never auto-resolve.
+  Their titles name the **obligation label** but never an amount — Phase 16
+  is the first phase whose titles carry user-authored text, and the
+  content-free email carries neither.
 
 ## Threshold configuration
 

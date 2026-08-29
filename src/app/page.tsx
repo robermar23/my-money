@@ -1,6 +1,7 @@
 import { AdviceCard } from "@/components/dashboard/advice-card.tsx";
 import { AlertsCard } from "@/components/dashboard/alerts-card.tsx";
 import { AllocationCard } from "@/components/dashboard/allocation-card.tsx";
+import { CashFlowCard } from "@/components/dashboard/cashflow-card.tsx";
 import { FirstRunDashboard } from "@/components/dashboard/first-run.tsx";
 import { DASHBOARD_GRID, SPAN_STANDARD, SPAN_WIDE } from "@/components/dashboard/grid.ts";
 import { IncomeCard } from "@/components/dashboard/income-card.tsx";
@@ -133,6 +134,10 @@ async function DashboardBody({
         {/* Guidance (P15-35) leads the numeric row: it is the only card that
             says what to DO, and the rest describe what IS. */}
         <AdviceCard data={data.advice} currency={data.baseCurrency} className={SPAN_STANDARD} />
+        {/* Cash flow (P16-32) sits beside guidance because it is the other card
+            that answers a question rather than reporting a total — "can I spend
+            this?" is the one a household asks most often. */}
+        <CashFlowCard data={data.cashFlow} currency={data.baseCurrency} className={SPAN_STANDARD} />
         <SpendCard data={data.spending} className={SPAN_STANDARD} />
         <IncomeCard data={data.income} className={SPAN_STANDARD} />
         <AlertsCard data={data.alerts} className={SPAN_STANDARD} />

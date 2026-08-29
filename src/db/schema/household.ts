@@ -92,6 +92,27 @@ export const householdProfile = pgTable(
      * (ADR-034 §6).
      */
     highInterestThresholdApr: numeric("high_interest_threshold_apr", { precision: 8, scale: 6 }),
+    /**
+     * The buffer safe-to-spend subtracts before reporting a number (Phase 16,
+     * ADR-037 §4 / ADR-038 §5). NULL = 0, i.e. no buffer.
+     *
+     * This is the user's own stated cushion, not a computed one, and it is
+     * always displayed alongside the figure it reduces — a safe-to-spend number
+     * without its floor is indistinguishable from a raw balance, which is
+     * exactly the confusion the feature exists to remove.
+     */
+    cashFloor: numeric("cash_floor", { precision: 18, scale: 2 }),
+    /**
+     * How far the daily balance projection runs. NULL = the 60-day default from
+     * `src/lib/cashflow/` — long enough to contain a full pay cycle plus a
+     * monthly bill cycle plus the next one, which is the window a family can
+     * still *act* in (ADR-038 §4).
+     *
+     * Bounded 14–365 by the CHECK below. Beyond ~90 days the residual
+     * discretionary rate dominates and the line stops being information; the
+     * upper bound is a guard rail, not an endorsement.
+     */
+    projectionHorizonDays: integer("projection_horizon_days"),
     /** Household base currency. Defaults to USD like every other money column. */
     currency: text("currency").notNull().default("USD"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
@@ -127,6 +148,19 @@ export const householdProfile = pgTable(
       "household_profile_high_interest_check",
       sql`${table.highInterestThresholdApr} IS NULL
         OR (${table.highInterestThresholdApr} >= 0 AND ${table.highInterestThresholdApr} <= 1)`,
+    ),
+    // A negative buffer is not "spend $200 past empty" — it is a data-entry
+    // error, and it would inflate safe-to-spend in the one direction that
+    // matters (ADR-038 §5).
+    cashFloorCheck: check(
+      "household_profile_cash_floor_check",
+      sql`${table.cashFloor} IS NULL OR ${table.cashFloor} >= 0`,
+    ),
+    // 14–365 (ADR-037 §4). NULL-tolerant like every override on this table.
+    horizonDaysCheck: check(
+      "household_profile_horizon_days_check",
+      sql`${table.projectionHorizonDays} IS NULL
+        OR (${table.projectionHorizonDays} >= 14 AND ${table.projectionHorizonDays} <= 365)`,
     ),
   }),
 );

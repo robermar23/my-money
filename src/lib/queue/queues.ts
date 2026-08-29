@@ -54,6 +54,10 @@ export const QUEUE_NAMES = {
   MATERIALIZE_CONTRIBUTIONS: "materialize-contributions",
   /** Phase 15 (P15-36): daily guidance evaluation, chained off the snapshot job. */
   EVALUATE_ADVICE: "evaluate-advice",
+  /** Phase 16 (P16-26): Sunday 06:30 recurring-obligation detection. Writes nothing. */
+  DETECT_OBLIGATIONS_WEEKLY: "detect-obligations-weekly",
+  /** Phase 16 (P16-27): daily materialize + match sweep + projection alerts. */
+  PROJECT_CASHFLOW_DAILY: "project-cashflow-daily",
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -116,3 +120,7 @@ export const evaluatePriceTargetsQueue = lazyQueue(QUEUE_NAMES.EVALUATE_PRICE_TA
 export const materializeContributionsQueue = lazyQueue(QUEUE_NAMES.MATERIALIZE_CONTRIBUTIONS);
 
 export const evaluateAdviceQueue = lazyQueue(QUEUE_NAMES.EVALUATE_ADVICE);
+
+export const detectObligationsWeeklyQueue = lazyQueue(QUEUE_NAMES.DETECT_OBLIGATIONS_WEEKLY);
+
+export const projectCashFlowDailyQueue = lazyQueue(QUEUE_NAMES.PROJECT_CASHFLOW_DAILY);
