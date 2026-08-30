@@ -111,6 +111,30 @@ export interface AttributionRung {
 export type AttributionStatus = "ok" | "insufficient_history" | "no_snapshots";
 
 /**
+ * The closed set of residual contributors (P17-16/17/18, ADR-039 §4).
+ *
+ * Closed on purpose. The residual is only useful if every cause it can name is
+ * one the app knows how to explain and link to — an open-ended `string` would
+ * let a future contributor add a code that the UI has no copy for and the
+ * Round-16 data-contract registry cannot enumerate (ADR-039 consequence 3).
+ * Adding a member here is the deliberate act of adding a cause.
+ *
+ * Ordered by how fundamental the problem is, which is NOT the render order —
+ * diagnostics sort by magnitude (see {@link ResidualDiagnostic.magnitude}).
+ */
+export const RESIDUAL_DIAGNOSTIC_CODES = [
+  "untracked_loan",
+  "snapshot_gap",
+  "manual_balance_accounts",
+  "uncategorized",
+  "unpaired_transfers",
+  "unmatched_investment_deposits",
+  "quantity_drift",
+] as const;
+
+export type ResidualDiagnosticCode = (typeof RESIDUAL_DIAGNOSTIC_CODES)[number];
+
+/**
  * A named contributor to `unexplained`, with somewhere to go and fix it.
  *
  * The residual on its own is a verdict. The residual plus "you have $4,200 of
@@ -118,8 +142,8 @@ export type AttributionStatus = "ok" | "insufficient_history" | "no_snapshots";
  * difference between a number that erodes trust and one that improves the data.
  */
 export interface ResidualDiagnostic {
-  /** Stable machine code: `'uncategorized'`, `'unpaired_transfers'`, … */
-  readonly code: string;
+  /** Stable machine code from the closed set above. */
+  readonly code: ResidualDiagnosticCode;
   /** Human label: "Transfers to accounts this app doesn't track". */
   readonly label: string;
   /** One sentence of specifics, including counts where they help. */
@@ -133,7 +157,7 @@ export interface ResidualDiagnostic {
    * cannot honestly assert. Diagnostics sort by it, descending.
    */
   readonly magnitude: string;
-  /** In-app route where the user can act on it, e.g. `/transactions?...`. */
+  /** In-app route where the user can act on it, e.g. `/analysis/review`. */
   readonly href?: string;
 }
 
