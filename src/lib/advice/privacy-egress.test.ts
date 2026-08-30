@@ -126,6 +126,15 @@ describe("P15-39 — the advice engine imports nothing that could reach the netw
     "@/lib/analytics/forecast.ts",
     "@/lib/analytics/range.ts",
     "@/lib/mortgage/amortization.ts",
+    // P17-07: the ONE `monthsBetween`. `snapshot.ts` had a private copy of the
+    // same UTC month arithmetic as `net-worth/compute.ts`, and Phase 17 needed a
+    // third — so all three now share `occurrences.ts`, the module whose header
+    // already declares itself the single implementation of this app's ISO date
+    // math (ADR-036 §5). Justified against THIS test's purpose, not merely
+    // convenient: the module is pure and I/O-free, its only import is a
+    // type-only `./cadence.ts`, and it holds no client, fetcher, or SDK. It is
+    // the same category as the amortization entry directly above.
+    "@/lib/schedule/occurrences.ts",
     "@/lib/alerts/rules.ts",
   ];
 

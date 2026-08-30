@@ -73,6 +73,39 @@ export function parseIsoDate(iso: string, label: string): number {
   return ms;
 }
 
+/**
+ * Whole calendar months from `fromIso` to `toIso`, floored at zero.
+ *
+ * Exported for the same reason {@link parseIsoDate} is: there were three copies
+ * of this arithmetic in the codebase (two in
+ * [net-worth/compute.ts](../net-worth/compute.ts), one in
+ * [advice/snapshot.ts](../advice/snapshot.ts)) and Phase 17's principal rung
+ * (P17-07) needed a fourth. Every one of them feeds a `monthsElapsed` argument
+ * to `balanceAtMonth`, so a drift bug in any single copy would move a mortgage
+ * balance in one surface and not the others — the ADR-036 §5 "one
+ * implementation" rule applied to date math.
+ *
+ * Counts **month boundaries crossed**, not elapsed days: Jan 31 → Feb 01 is one
+ * month, and Jan 01 → Jan 31 is zero. That is the amortization reading — a
+ * scheduled payment lands once per calendar month — and it is what all three
+ * prior copies did.
+ *
+ * @param fromIso - Start date, `YYYY-MM-DD`.
+ * @param toIso - End date, `YYYY-MM-DD`.
+ * @returns Whole months between the two, never negative. A `to` before `from`
+ *   floors to zero rather than reporting negative elapsed time, because callers
+ *   feed this straight into `balanceAtMonth`, which rejects a negative.
+ * @throws If either argument is not a real `YYYY-MM-DD` calendar date.
+ */
+export function monthsBetween(fromIso: string, toIso: string): number {
+  parseIsoDate(fromIso, "fromIso");
+  parseIsoDate(toIso, "toIso");
+  const months =
+    (Number(toIso.slice(0, 4)) - Number(fromIso.slice(0, 4))) * 12 +
+    (Number(toIso.slice(5, 7)) - Number(fromIso.slice(5, 7)));
+  return Math.max(0, months);
+}
+
 /** Number of days in a month (monthIndex is 0-based, as in `Date.getUTCMonth`). */
 function daysInMonth(year: number, monthIndex: number): number {
   return new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
