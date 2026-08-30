@@ -101,6 +101,13 @@ number but a wrong one (see [INCOME.md](INCOME.md)); and allocation, forward
 income, alerts, and movers are all **as-of-now** figures with no time window to
 rewind.
 
+**Where the hero's signed change gets explained.** The dashboard states *that* net
+worth moved over the selected range; [ATTRIBUTION.md](ATTRIBUTION.md) covers
+`/analysis/networth`, which decomposes the same figure into what you saved, what the
+market did, what you paid down, and what is still unexplained. It reads the endpoints
+from the same `computeNetWorth` this page does — deliberately, so the two can never
+disagree — and adds nothing to the dashboard itself.
+
 ---
 
 ## Degrading gracefully
