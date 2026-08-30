@@ -20,6 +20,7 @@ import { lotCoverage, resolveCostBasis } from "@/lib/investments/lots.ts";
 import { Money } from "@/lib/money/money.ts";
 import { balanceAtMonth } from "@/lib/mortgage/amortization.ts";
 import { transactionFilterSchema } from "@/lib/schemas/search.ts";
+import { isLiabilityAccount } from "@/lib/snapshots/sign.ts";
 import { type TransactionFilters, listTransactions } from "@/lib/transactions/queries.ts";
 import { toAccountId } from "@/lib/types/ids.ts";
 import Decimal from "decimal.js";
@@ -412,7 +413,7 @@ export default async function AccountDetailPage(
               : "Enter the end-of-day balance from your statement or online portal."}
           </p>
           <div className="mt-4">
-            <BalanceForm accountId={account.id} accountType={account.type} />
+            <BalanceForm accountId={account.id} owed={isLiabilityAccount(account.type)} />
           </div>
         </section>
       )}

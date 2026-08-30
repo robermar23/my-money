@@ -1,6 +1,5 @@
 "use client";
 
-import { type AccountType, isLiabilityAccount } from "@/lib/snapshots/sign.ts";
 import { useActionState } from "react";
 import { type ActionResult, recordBalanceAction } from "./actions.ts";
 
@@ -12,10 +11,15 @@ const fieldClass =
 interface Props {
   readonly accountId: string;
   /**
-   * Drives the field label. A liability account asks for an **amount owed**;
-   * everything else asks for a balance.
+   * Drives the field label. True for a liability account, which asks for an
+   * **amount owed**; false for everything else, which asks for a balance.
+   *
+   * Resolved by the *server* page from `isLiabilityAccount`, rather than
+   * imported here and evaluated on the client: this is a client component, and
+   * importing the sign module would pull `decimal.js` into the account page's
+   * bundle to answer one boolean.
    */
-  readonly accountType: AccountType;
+  readonly owed: boolean;
 }
 
 /**
@@ -30,11 +34,10 @@ interface Props {
  * drop the relabel from a diff as polish: the label is what makes the negation
  * legible, and the two come from the same predicate so they cannot drift.
  */
-export function BalanceForm({ accountId, accountType }: Props): React.JSX.Element {
+export function BalanceForm({ accountId, owed }: Props): React.JSX.Element {
   const bound = recordBalanceAction.bind(null, accountId);
   const [state, action, pending] = useActionState(bound, initial);
   const today = new Date().toISOString().slice(0, 10);
-  const owed = isLiabilityAccount(accountType);
 
   return (
     <form action={action} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
