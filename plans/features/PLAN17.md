@@ -331,7 +331,9 @@ closingNetWorth − openingNetWorth
 
 #### ADR-042 — proposed at plan time, **not yet locked**
 
-**Status**: ⬜ Proposed 2026-08-30 — **P17-30 is the gate.** Append to [IDEAS.md](IDEAS.md) §11 Decision Log as **ADR-042** (verify **ADR-041** is the max at commit time — Batch 0 left the log at 41 rows running ADR-001 → ADR-041).
+**Status**: ✅ **Locked 2026-08-30** — P17-30's gate cleared. The owner confirmed the §2 "amount owed" framing (the recommended option, over "keep `Balance` verbatim plus a hint" and "keep `Balance` and reject a positive card entry"). Appended to [IDEAS.md](IDEAS.md) §11 as **ADR-042**, the 42nd row; ADR-041 was verified as the max first, and the `awk -F'|'` field count re-run over the new row and its neighbours — all 7 fields, no cell split by a stray pipe.
+>
+> **The no-migration check, re-run against the live book on 2026-08-30 as P17-30 requires** — recorded whatever it came back as: `accounts` holds **1 row** (a manual `investment`), `account_snapshots` holds **0 rows**, and `credit_card` snapshots number **0**, of which **0** are positive. Unchanged from the 2026-08-29 reading, so the batch ships as a pure boundary change with no data step and no `pg_dump`. Append to [IDEAS.md](IDEAS.md) §11 Decision Log as **ADR-042** (verify **ADR-041** is the max at commit time — Batch 0 left the log at 41 rows running ADR-001 → ADR-041).
 
 **Context**: The storage convention for `account_snapshots.balance` is real, load-bearing, and undocumented. Three write paths honour it deliberately; two honour it only by luck of what the user typed. The question is not whether to enforce it but *where*, and with what user-visible behaviour.
 
