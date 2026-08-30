@@ -133,6 +133,11 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         description: "Spending and income by category and period",
       },
       {
+        href: "/analysis/networth",
+        label: "Net worth change",
+        description: "What moved your net worth over a window, and what is still unexplained",
+      },
+      {
         href: "/analysis/budgets",
         label: "Budgets",
         description: "Per-category budgets and month-to-date pacing",
