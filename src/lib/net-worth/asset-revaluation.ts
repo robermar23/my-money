@@ -28,22 +28,31 @@ import { type AccountEndpoint, endpointsOfType } from "./endpoints.ts";
  * The phase is required to establish that `account_snapshots.balance` for a
  * `credit_card` account is stored **negative** before a rung relies on it.
  * [credit-card-sign.test.ts](./credit-card-sign.test.ts) does that, and the
- * finding is threefold:
+ * finding was threefold:
  *
  *   1. `computeNetWorth` negates `loan` accounts and **nothing else**, so it
  *      sums a card's snapshot verbatim. The convention is entirely the writer's
  *      responsibility.
- *   2. The Plaid path enforces it — `sync-plaid-item.ts` negates explicitly for
- *      `credit_card` before writing. The **manual** path does not:
+ *   2. The Plaid path enforced it — `sync-plaid-item.ts` negated explicitly for
+ *      `credit_card` before writing. The **manual** path did not:
  *      `recordBalanceSchema` makes the leading `-` optional, so a household
- *      typing `1200.00` for a card they owe $1,200 on overstates net worth by
- *      $2,400 with no warning. Recorded here, not fixed here — the manual write
- *      path belongs to whichever phase owns balance entry, and ADR-039 §3 keeps
- *      this phase read-only.
+ *      typing `1200.00` for a card they owe $1,200 on overstated net worth by
+ *      $2,400 with no warning.
  *   3. The empirical survey the ADR asks for is **vacuous on the owner's dev
- *      book today**: it holds one account and zero snapshots, so no real card
- *      data exists to check. The guarantee therefore comes from the write paths
- *      and the pinned assertions, not from a row count.
+ *      book**: it holds one account and zero snapshots, so no real card data
+ *      exists to check. The guarantee therefore comes from the write paths and
+ *      the pinned assertions, not from a row count.
+ *
+ * **Closed by ADR-042 (P17-31..34), the phase's one deliberate write-path
+ * exception to ADR-039 §3.** The rule now lives in
+ * [snapshots/sign.ts](../snapshots/sign.ts), the manual form asks for an
+ * *amount owed* and negates it, the Plaid path was refactored onto the same
+ * helper, and a QFX card statement with a positive ending balance warns in the
+ * preview rather than being flipped. Landing it in this phase was what made it
+ * free: the book had zero card snapshots, so there was nothing to migrate.
+ * Point 1 above is **unchanged and deliberate** — the read side still sums a
+ * card verbatim, because normalizing there would double-negate the rows Plaid
+ * has always stored correctly.
  *
  * **No rung in this phase reads a credit-card balance.** Cards reach the
  * decomposition only through the anchor, which is `computeNetWorth`'s own total

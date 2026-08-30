@@ -12,6 +12,7 @@ import { Money } from "@/lib/money/money.ts";
 import { plaidClient } from "@/lib/plaid/client.ts";
 import { plaidToTransaction } from "@/lib/plaid/map.ts";
 import { loadAccessToken } from "@/lib/plaid/tokens.ts";
+import { type AccountType, snapshotBalance } from "@/lib/snapshots/sign.ts";
 import { upsertSnapshots } from "@/lib/snapshots/upsert.ts";
 import type { Job } from "bullmq";
 import { and, eq, gt, lte, sql } from "drizzle-orm";
@@ -116,7 +117,10 @@ export async function syncPlaidItemProcessor(job: Job<SyncPlaidItemJobData>): Pr
     })
     .from(accounts)
     .where(eq(accounts.plaidItemId, item.id));
-  const accountByPlaidId = new Map<string, { id: string; currency: string; type: string }>();
+  // `type` is the enum, not `string`: `snapshotBalance` below only accepts an
+  // `AccountType`, so widening here would let a new account type reach the sign
+  // rule without anyone deciding its sign (P17-32, ADR-042 §1).
+  const accountByPlaidId = new Map<string, { id: string; currency: string; type: AccountType }>();
   for (const r of accountRows) {
     if (r.plaidAccountId)
       accountByPlaidId.set(r.plaidAccountId, { id: r.id, currency: r.currency, type: r.type });
@@ -145,9 +149,14 @@ export async function syncPlaidItemProcessor(job: Job<SyncPlaidItemJobData>): Pr
     // never the real-time `accountsBalanceGet` — we're a read-only tracker.
     // Without this anchor, balances were reconstructed as a running sum from $0
     // over Plaid's bounded transaction window, so the true opening balance was
-    // lost (a savings account showing negative). Net-worth sign: depository =
-    // +current, credit card = -current (it's a liability; net-worth/compute.ts
-    // sums snapshots directly and only negates loans).
+    // lost (a savings account showing negative).
+    //
+    // Sign: Plaid's `balances.current` for a card is an **amount owed**, exactly
+    // like the figure the manual form now asks for, so both paths run it through
+    // the same `snapshotBalance` helper (P17-32, ADR-042 §4). This used to be an
+    // inline `type === "credit_card" ? negate : verbatim` ternary — correct, but
+    // a second copy of a rule the manual path did not have, which is how the two
+    // drifted apart in the first place.
     const currentByAccountId = new Map<string, { signed: string; currency: string }>();
     try {
       const balResp = await plaidClient.accountsGet({ access_token: accessToken });
@@ -156,8 +165,7 @@ export async function syncPlaidItemProcessor(job: Job<SyncPlaidItemJobData>): Pr
         if (!ours) continue;
         const current = pa.balances?.current;
         if (current == null || !Number.isFinite(current)) continue;
-        const m = Money.fromString(current.toFixed(2), ours.currency);
-        const signed = (ours.type === "credit_card" ? m.negate() : m).toString();
+        const signed = snapshotBalance(ours.type, current.toFixed(2), ours.currency);
         currentByAccountId.set(ours.id, { signed, currency: ours.currency });
       }
     } catch (err) {

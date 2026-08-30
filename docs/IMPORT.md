@@ -19,6 +19,26 @@ ritual is:
 Re-importing the same file is always safe. The dedup key is `(account_id,
 fitid)` for QFX/OFX and `SHA-256(date | amount | name | memo)` for CSV.
 
+## Credit-card statements: the sign warning
+
+The app stores a balance as what it contributes to your **net worth**, so a card
+you owe $1,200 on is stored as `-1200.00`. Banks do not agree on this: some
+write a card's OFX ending balance negative, others write the amount owed as a
+positive number.
+
+There is no reliable way to tell which, so the importer **does not guess**. If a
+card statement's ending balance is positive, the preview shows a warning naming
+the exact value that will be stored, and waits for your confirm click. Nothing
+is written until then.
+
+- If your card really is overpaid, confirm — a positive balance is correct.
+- If your bank writes the amount owed as a positive number, **cancel** and record
+  that date by hand on the account page, where the field asks for the *amount
+  owed* and the app handles the sign for you.
+
+The full rule, and why the importer warns rather than flipping, is in
+[ATTRIBUTION.md](ATTRIBUTION.md#balance-sign-convention) and **ADR-042**.
+
 ## Supported file types
 
 - **OFX 1.x (SGML)** — `.qfx` and `.ofx`. The flavor exported by every major US

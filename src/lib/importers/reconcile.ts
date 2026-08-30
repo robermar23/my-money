@@ -3,6 +3,7 @@ import "server-only";
 import { db } from "@/db/client.ts";
 import { type ImportBatch, accountSnapshots, transactions } from "@/db/schema/index.ts";
 import { Money } from "@/lib/money/money.ts";
+import type { AccountType } from "@/lib/snapshots/sign.ts";
 import { and, desc, eq, lt, lte, sql } from "drizzle-orm";
 import type { NormalizedBatch } from "./normalize.ts";
 
@@ -18,6 +19,25 @@ export interface ReconciliationResult {
   readonly sumOfTransactions: Money;
   /** The ending balance from the file (LEDGERBAL for QFX). */
   readonly endingBalance: Money | null;
+  /**
+   * P17-33 — the credit-card sign advisory (ADR-042 §5).
+   *
+   * True when this is a `credit_card` account and the file's ending balance is
+   * **positive**, which under the storage convention would mean the card is
+   * overpaid — possible, but far more often it means the institution writes
+   * card balances as amounts owed.
+   *
+   * It is an **advisory, not a status**, on purpose. The two are orthogonal: a
+   * card can be `no-anchor` *and* sign-suspect at the same time, and folding
+   * this into `ReconciliationStatus` would force the UI to drop one message to
+   * show the other. It is also deliberately **not** a normalization — the OFX
+   * `LEDGERBAL` sign for a card is institution-dependent, so an automatic flip
+   * would be confidently wrong for some banks. The preview names it, shows what
+   * will be stored, and the user's existing confirm click is the authorization:
+   * CLAUDE.md §Importers' "parse → preview → confirm, never silently mutate the
+   * DB from a file upload", applied literally.
+   */
+  readonly cardSignSuspect: boolean;
 }
 
 const RECONCILE_TOLERANCE = "0.005";
@@ -41,6 +61,7 @@ export async function reconcile(
   >,
   normalized: NormalizedBatch,
   currency: string,
+  accountType: AccountType,
 ): Promise<ReconciliationResult> {
   const txns = normalized.transactions;
   let sum = Money.zero(currency);
@@ -55,10 +76,16 @@ export async function reconcile(
       anchor: null,
       sumOfTransactions: sum,
       endingBalance: null,
+      cardSignSuspect: false,
     };
   }
 
   const endingBalance = Money.fromString(batch.statementEndingBalance, currency);
+
+  // The advisory is computed once, here, and rides along with every status — a
+  // sign-suspect card is just as sign-suspect when it also has no anchor.
+  const cardSignSuspect =
+    accountType === "credit_card" && !endingBalance.isNegative() && !endingBalance.isZero();
 
   // Anchor: most-recent snapshot strictly BEFORE statementStart.
   let anchor: Money | null = null;
@@ -84,6 +111,7 @@ export async function reconcile(
       anchor: null,
       sumOfTransactions: sum,
       endingBalance,
+      cardSignSuspect,
     };
   }
 
@@ -97,6 +125,7 @@ export async function reconcile(
     anchor,
     sumOfTransactions: sum,
     endingBalance,
+    cardSignSuspect,
   };
 }
 

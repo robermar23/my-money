@@ -413,7 +413,54 @@ negates **only** `loan` accounts, whose value comes from the amortization
 schedule.
 
 So a credit card you owe $1,200 on is stored as **`-1200.00`**, not `1200.00`.
-Entering it unsigned overstates net worth by twice the balance.
+Stored unsigned, it would count as an *asset* and overstate your net worth by
+twice the balance.
+
+The rule lives in exactly one place — `snapshotBalance()` in
+[src/lib/snapshots/sign.ts](../src/lib/snapshots/sign.ts) — and every path that
+writes a balance calls it. It is a map from account type to "is this a
+liability", written with a `satisfies Record<AccountType, boolean>` so that
+adding a new account type without deciding its sign **fails the build** instead
+of quietly defaulting to storing the number as typed.
+
+### What you type, and what gets stored
+
+For a credit card the form asks for an **amount owed** — the figure on your
+statement, positive when you owe money — and the app stores the negation:
+
+| Account | You enter | Stored | Effect on net worth |
+|---|---|---|---|
+| Checking | `1,200.00` | `1200.00` | +$1,200 |
+| Credit card, $1,200 owed | `1,200.00` | `-1200.00` | −$1,200 |
+| Credit card, overpaid by $75 | `-75.00` | `75.00` | +$75 |
+
+An overpaid card is rare but real, and entering it as a *negative amount owed*
+reads oddly. That was the accepted cost: every alternative design — refusing
+positive card entries, a `CHECK` constraint forcing card balances non-positive —
+made the overpaid card **inexpressible** rather than merely awkward.
+
+### Why the read side does not normalize
+
+It would be easy to make `computeNetWorth` negate `credit_card` alongside `loan`
+and stop worrying about writers. That would be a bug: the Plaid sync path has
+always stored cards correctly negated, so a read-side negation would flip those
+rows a *second* time. The convention belongs to whoever writes the row, and this
+is why [credit-card-sign.test.ts](../src/lib/net-worth/credit-card-sign.test.ts)
+still asserts that the read side sums a card **verbatim** — so a future change
+there is a deliberate decision rather than a quiet fix.
+
+### QFX imports warn; they never flip
+
+An OFX `LEDGERBAL` for a credit card is positive at some institutions and
+negative at others. There is no reliable rule, so the importer does not guess.
+When a card statement's ending balance is positive, the import **preview** says
+so, shows the exact value that will be stored, and waits — your confirm click is
+the authorization. Nothing is written until then. If your bank writes the amount
+owed as a positive number, cancel the import and record that date by hand, where
+the field asks for the amount owed.
+
+See **ADR-042** in [IDEAS.md](../plans/features/IDEAS.md) §11 for the full
+decision, including the alternatives that were rejected and why.
 
 ---
 

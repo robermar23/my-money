@@ -48,7 +48,7 @@ export default async function PreviewPage(props: PageProps): Promise<React.JSX.E
 
   const normalized = batch.parsedPayload as NormalizedBatch;
   const preview = await buildPreview(accountId, normalized);
-  const recon = await reconcile(batch, normalized, account.currency);
+  const recon = await reconcile(batch, normalized, account.currency, account.type);
 
   const driftStr = recon.diff?.toString() ?? "0.00";
   const driftAbs = Math.abs(Number.parseFloat(driftStr));
@@ -117,6 +117,36 @@ export default async function PreviewPage(props: PageProps): Promise<React.JSX.E
           </p>
         )}
       </section>
+
+      {/*
+        P17-33 — the credit-card sign advisory (ADR-042 §5). Deliberately its own
+        banner rather than a reconciliation status: a card can be `no-anchor`
+        *and* sign-suspect at once, and one message must not hide the other.
+
+        It names the suspicion and shows the exact value that will be stored. It
+        does NOT flip anything: the OFX LEDGERBAL sign for a card is
+        institution-dependent, so an automatic flip would be confidently wrong
+        for some banks. The Confirm button below is the authorization.
+      */}
+      {recon.cardSignSuspect && (
+        <section className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950">
+          <p className="text-sm">
+            ⚠️ This card statement's ending balance is <strong>positive</strong>.
+          </p>
+          <p className="mt-1 text-xs text-zinc-700 dark:text-zinc-300">
+            For a credit card this app stores what the balance contributes to your net worth, so an
+            amount you owe is stored as a negative number. Confirming will store{" "}
+            <span className="font-mono">{recon.endingBalance?.format()}</span> as of{" "}
+            <span className="font-mono">{batch.statementEnd}</span>, which counts the card as
+            something you <em>own</em>.
+          </p>
+          <p className="mt-1 text-xs text-zinc-700 dark:text-zinc-300">
+            That is right if the card is overpaid. If instead your bank writes the amount you owe as
+            a positive number, cancel this import and record the balance by hand on the account
+            page, where the field asks for the amount owed. Nothing is stored until you confirm.
+          </p>
+        </section>
+      )}
 
       {/* Counts */}
       <div className="mt-6 grid grid-cols-3 gap-3">
