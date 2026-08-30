@@ -54,7 +54,15 @@ test.describe("phase 3: QFX upload → preview → confirm", () => {
     await page.getByRole("button", { name: /upload & preview/i }).click();
 
     // Preview page should render with 5 new transactions and reconcile (no anchor).
-    await expect(page).toHaveURL(/\/preview$/);
+    //
+    // Longer timeout than the 5 s default, and it is about the dev server rather
+    // than the app: the upload action ends in a `redirect()` whose response
+    // carries the destination's RSC payload, so the button stays "Uploading…"
+    // until the preview route finishes its **first on-demand compile**. Running
+    // this spec alone that lands inside 5 s; running it thirteenth in the full
+    // suite, on a dev server that has already compiled twenty route trees, it
+    // does not. Nothing here asserts production latency.
+    await expect(page).toHaveURL(/\/preview$/, { timeout: 30_000 });
     await expect(page.getByRole("heading", { name: /preview import/i })).toBeVisible();
     await expect(page.getByText("EMPLOYER PAYROLL")).toBeVisible();
     await expect(page.getByText("WEGMANS FOOD MARKET")).toBeVisible();

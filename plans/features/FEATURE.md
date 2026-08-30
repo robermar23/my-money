@@ -443,3 +443,94 @@ $312 on March 14"* — and one number on the dashboard: **safe-to-spend**.
   category from the transactions that produced it and changes no category's `necessity`.
 
 Implemented under **ADR-036 → ADR-038** (IDEAS.md §11 Decision Log) via [PLAN16.md](PLAN16.md). See [docs/CASHFLOW.md](../../docs/CASHFLOW.md).
+
+### 2026-08-29 — Why did our net worth change? Attributing the delta (in scope)
+
+Source: [IDEAS3.md](IDEAS3.md) Round 11. The owner's question is about the one number the app
+puts at the top of the dashboard: *"We're up $40k this year. Did we earn that, or did the
+market?"*
+
+The net-worth chart goes up and the household cannot tell whether it reflects their discipline
+or the S&P. Those two facts imply completely different next actions — one says *keep doing what
+you're doing*, the other says *you got lucky and your savings rate is still wrong* — and the app
+reports neither. Phase 17 answers it with one waterfall and one sentence: *"Your net worth rose
+$40,200. You saved $23,100 of it, the market added $14,800, you paid down $2,300 of principal,
+and $0 is unexplained."*
+
+Attribution is lifted into scope on exactly the grounds ADR-018 lifted budgets, ADR-030 lifted
+income, ADR-032 lifted guidance, and ADR-036 lifted timing: **the owner explicitly asked**, and
+this file is where that is recorded. Three properties make it safe to say yes. It is
+**deterministic accounting over data the app already captures nightly** — `account_snapshots`,
+`transactions`, `investment_transactions`, `liabilities` — with a stated one-sentence formula per
+rung. It **explains a change that already happened** and never predicts one. And it **adds no
+schema, no job, no dependency, and no egress**: the phase is pure composition over shipped code,
+and [investments/performance.ts](../../src/lib/investments/performance.ts)'s `attribution()` —
+contribution vs. market growth, already tested — is lifted from the brokerage to the household
+rather than reimplemented.
+
+- **In scope (newly added):**
+  - **External-flow classification** (`src/lib/net-worth/boundary.ts`) — a pure classifier for
+    which transactions move money *into or out of the household* versus merely between its own
+    accounts. `categories.kind` states **intent**; it does not establish that money crossed the
+    boundary, so this is settled **structurally**: a transfer is internal iff its counterparty
+    leg is found in another tracked account (`pairTransfers`, modelled on the occurrence matcher
+    Phase 16 already ships). An unpaired transfer is **never guessed** — it is reported by
+    volume as a named cause.
+  - **A period decomposition** (`src/lib/net-worth/decompose.ts`) — for any window, the
+    net-worth delta split into **saved**, **retirement contributions**, **debt principal paid**,
+    **investment return**, **asset revaluation**, and **unexplained**. Pure, `Money`-only, and
+    anchored to `computeNetWorth` at both endpoints so the waterfall cannot silently disagree
+    with the dashboard directly above it.
+  - **The "why" surface** — a waterfall from opening to closing net worth at
+    `/analysis/networth`, for any range the existing range toggle offers, with a plain-language
+    summary sentence, a rung table carrying each rung's `InputUsed[]` audit trail, and one
+    sentence plus a link on `/analysis` where Round 11 expected to find it.
+  - **Residual diagnostics** — `unexplained` names its own causes (uncategorized volume,
+    transfers to accounts the app does not track, manual-balance accounts, snapshot gaps, loans
+    with no `liabilities` row, the documented historical-quantity wart), each with a magnitude
+    and a link to where to fix it.
+- **The correctness rule that defines this phase:** a $2,000 mortgage payment appears in
+  `transactions` as a single $2,000 expense, because the app has no principal/interest split.
+  So `saved` falls by the full $2,000 and `debtPrincipalPaid` **adds back** the $500 of
+  principal from the amortization schedule — **counted twice, with opposite signs, on purpose**
+  — netting to the −$1,500 of interest, which is precisely the amount by which paying a mortgage
+  reduces net worth. Mis-implementing this in either direction moves $500 between two rungs
+  **while the total still reconciles**, so the invariant test asserts the rungs *individually*,
+  not merely their sum. Payroll-direct 401k contributions are their own rung for the mirror-image
+  reason: they never touch checking, so `saved` cannot see them, while `attribution()` correctly
+  removes them — scoping the rung to `investment_transactions.source='income'` makes the two
+  cancel by construction rather than by coincidence.
+- **`unexplained` is a feature, not a defect.** It is computed last, rendered with the same
+  weight as every other rung, and is **never hidden, clamped, folded into "other", or absorbed
+  into a neighbour**. A household with uncategorized transactions or untracked counterparties
+  will see a large residual on day one; that is the app telling the truth about its own inputs,
+  and it is the most valuable thing this phase produces. It is emitted in a shape
+  [IDEAS3.md](IDEAS3.md) Round 16's input-health work can consume directly.
+- **Reaffirmed OUT of scope (not relaxed):** **double-entry accounting or a general ledger** —
+  a decomposition is a *report over balances*, and the moment a rung needs a posting rule to be
+  correct the design is wrong, not the ledger missing; **tax math of any kind** — no
+  realized/unrealized split for tax, no cost-basis-for-1099, no wash sales (ADR-019 and ADR-021
+  unamended); **capital-gains reporting** beyond the simple display gain/loss already shipped;
+  **benchmark-relative attribution, factor models, or Brinson-style sector attribution** — that
+  is portfolio analytics for a professional, needing data the app does not hold, not a household
+  question; **budgeting or envelopes** (ADR-018 unamended — a rung describes the past and is
+  never a target); **probabilistic or forward-looking attribution** (ADR-022 stands: this looks
+  strictly backwards); **any AI or LLM over financial data** (§Privacy hard-no — every rung is
+  arithmetic with a stated formula). Crossing any of these needs a new FEATURE.md decision first.
+- **Privacy stance:** attribution introduces **no new egress class — and, like guidance and cash
+  flow, literally zero**. Nothing under `src/lib/net-worth/` makes or transitively imports an
+  outbound HTTP request on any code path. There is **no benchmark-index fetch** (the `^GSPC`
+  closes such a feature might want are already cached in `prices` by the nightly job, and this
+  phase adds no symbol and no fetch), **no peer comparison, no "households like yours" lookup,
+  and no enrichment of any kind**. The phase **creates no new PII**: it stores nothing at all,
+  and every figure is a function of rows that already exist. No balance, rung amount, delta, or
+  residual is ever logged, and no diagnostic carries a payee string or a household member label.
+  A regression test enforces all of it.
+- **Two things deliberately not shipped, recorded so the absence is not read as an oversight:**
+  **no alert type** — a residual-health alert is really an *input-health* alert, which is Round
+  16's job done once across all inputs, so ADR-015's content-free email is not touched; and
+  **nothing on the dashboard** — the dashboard already gained a cash-flow card in Phase 16, and
+  a backward-looking attribution is a page you visit when you ask the question, not a number you
+  need at a glance.
+
+Implemented under **ADR-039 → ADR-041** (IDEAS.md §11 Decision Log) via [PLAN17.md](PLAN17.md). See [docs/ATTRIBUTION.md](../../docs/ATTRIBUTION.md).

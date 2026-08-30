@@ -585,6 +585,47 @@ async function main(): Promise<void> {
         : "✗ fan-out looks serialized — check for a stray sequential await",
     );
 
+    // ── P17-25: /analysis/networth read cost ────────────────────────────────
+    // ADR-039 accepted a read-time cost — roughly two `computeNetWorth` calls
+    // plus a handful of aggregates per page load — and PLAN17 says to MEASURE
+    // it before deciding whether it needs anything, per §Performance's "profile
+    // before optimizing". Two numbers are reported rather than one: the whole
+    // loader by range, and what the two endpoint computations cost on their
+    // own. If the endpoints are NOT the majority, a set-based endpoint rewrite
+    // — the fix ADR-039 pre-registered — would be work spent on the wrong half.
+    const { loadAttribution } = await import("../src/lib/net-worth/attribution-loader.ts");
+    console.log("\nloadAttribution(range) — /analysis/networth, 2 runs each");
+    const attribution: Record<string, Record<string, string>> = {};
+    const attributionMedians = new Map<string, number>();
+    for (const range of RANGES) {
+      const window = rangeWindow(range, now);
+      const samples: number[] = [];
+      for (let i = 0; i < 2; i++) {
+        const t = performance.now();
+        await loadAttribution({ from: window.from, to: window.to });
+        samples.push(performance.now() - t);
+      }
+      const s = stats(samples);
+      attributionMedians.set(range, s.median);
+      attribution[range] = { from: window.from, to: window.to, min: ms(s.min), max: ms(s.max) };
+    }
+    console.table(attribution);
+
+    // The two endpoints, timed in isolation and in parallel — exactly how the
+    // loader issues them.
+    const tEndpoints = performance.now();
+    await Promise.all([
+      computeNetWorth(new Date(`${w.from}T00:00:00Z`), "USD"),
+      computeNetWorth(new Date(`${w.to}T00:00:00Z`), "USD"),
+    ]);
+    const endpointsMs = performance.now() - tEndpoints;
+    const attributionAll = attributionMedians.get("ALL") ?? 0;
+    console.log(
+      `the two endpoint computeNetWorth calls alone: ${ms(endpointsMs)}  |  ` +
+        `loadAttribution("ALL"): ${ms(attributionAll)}  |  ` +
+        `endpoints are ${((endpointsMs / Math.max(attributionAll, 1)) * 100).toFixed(0)}% of it`,
+    );
+
     // ── N+1 verdict ─────────────────────────────────────────────────────────
     const accountCount =
       INVESTMENT_ACCOUNTS + DEPOSITORY_ACCOUNTS + CREDIT_ACCOUNTS + PROPERTY_ACCOUNTS;

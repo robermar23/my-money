@@ -12,8 +12,10 @@ import { requireUser } from "@/lib/auth/require-user.ts";
 import { Money } from "@/lib/money/money.ts";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 import { AnalysisControls } from "./analysis-controls.tsx";
 import { CategoryBreakdownChart } from "./category-breakdown-chart.tsx";
+import { NetWorthSentence } from "./net-worth-sentence.tsx";
 import { SpendByMonthChart } from "./spend-by-month-chart.tsx";
 
 export const metadata: Metadata = { title: "Analysis" };
@@ -194,6 +196,12 @@ export default async function AnalysisPage(props: PageProps): Promise<React.JSX.
           value={savingsRate === null ? "—" : `${savingsRate.toFixed(0)}%`}
         />
       </div>
+
+      {/* P17-23 — the pointer to the net-worth decomposition. Streamed: a full
+          decomposition is ~10 reads and must not delay the spending page. */}
+      <Suspense fallback={null}>
+        <NetWorthSentence from={range.from} to={range.to} />
+      </Suspense>
 
       {/* Spend over time */}
       <section className="mt-8">

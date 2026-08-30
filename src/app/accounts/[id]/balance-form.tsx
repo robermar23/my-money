@@ -10,9 +10,31 @@ const fieldClass =
 
 interface Props {
   readonly accountId: string;
+  /**
+   * Drives the field label. True for a liability account, which asks for an
+   * **amount owed**; false for everything else, which asks for a balance.
+   *
+   * Resolved by the *server* page from `isLiabilityAccount`, rather than
+   * imported here and evaluated on the client: this is a client component, and
+   * importing the sign module would pull `decimal.js` into the account page's
+   * bundle to answer one boolean.
+   */
+  readonly owed: boolean;
 }
 
-export function BalanceForm({ accountId }: Props): React.JSX.Element {
+/**
+ * P17-32 — manual balance entry.
+ *
+ * **The label is not cosmetic** (ADR-042 §3). For a `credit_card` this field
+ * asks for an amount owed and `recordBalanceAction` stores it negated, because
+ * `account_snapshots.balance` is a net-worth contribution rather than a
+ * statement balance. Before this, the field said `Balance` and stored what was
+ * typed — so a household reading `$1,234.56` off a Visa statement overstated its
+ * net worth by twice that, with no warning anywhere. A future reader must not
+ * drop the relabel from a diff as polish: the label is what makes the negation
+ * legible, and the two come from the same predicate so they cannot drift.
+ */
+export function BalanceForm({ accountId, owed }: Props): React.JSX.Element {
   const bound = recordBalanceAction.bind(null, accountId);
   const [state, action, pending] = useActionState(bound, initial);
   const today = new Date().toISOString().slice(0, 10);
@@ -34,7 +56,7 @@ export function BalanceForm({ accountId }: Props): React.JSX.Element {
       </div>
       <div>
         <label htmlFor="balance-amount" className="block font-medium text-xs">
-          Balance
+          {owed ? "Amount owed" : "Balance"}
         </label>
         <input
           id="balance-amount"
@@ -43,8 +65,15 @@ export function BalanceForm({ accountId }: Props): React.JSX.Element {
           inputMode="decimal"
           required
           placeholder="1234.56"
+          aria-describedby={owed ? "balance-amount-hint" : undefined}
           className={`${fieldClass} font-mono`}
         />
+        {owed && (
+          <p id="balance-amount-hint" className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            Enter what the statement says you owe, as a positive number. If the card is overpaid,
+            enter a negative amount.
+          </p>
+        )}
       </div>
       {state.error && (
         <p className="col-span-full rounded-md bg-red-50 px-3 py-2 text-red-700 text-xs dark:bg-red-950 dark:text-red-300">

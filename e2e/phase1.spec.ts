@@ -6,6 +6,12 @@ import { navigateDirect, navigateVia } from "./helpers/nav.ts";
  * Phase 1 critical flow: bootstrap → create checking account → enter balance
  * → create mortgage → see net worth on the dashboard.
  *
+ * Step 3b rides along on the same flow: a credit card's balance field asks for
+ * an **amount owed** and is stored negated (P17-32, ADR-042). It is here rather
+ * than in a spec of its own because the label change is the one part of that
+ * batch no unit test can see, and this flow already has an account-creation
+ * browser open.
+ *
  * Truncates domain tables before running so this spec is independent of any
  * other spec's state (auth.spec leaves a user row behind).
  */
@@ -60,7 +66,12 @@ test.describe("phase 1: manual entry → net worth on dashboard", () => {
     await expect(page).toHaveURL(/\/accounts\/[0-9a-f-]+$/);
 
     // ── 3. Record a balance ─────────────────────────────────────────────────
-    await page.getByLabel("Balance").fill("5000.00");
+    // `exact` throughout: several account types also carry a "Minimum payment
+    // (% of balance)" field, and Playwright's default substring match would
+    // find that instead and pass for the wrong reason.
+    await expect(page.getByLabel("Balance", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Amount owed", { exact: true })).toHaveCount(0);
+    await page.getByLabel("Balance", { exact: true }).fill("5000.00");
     await page.getByRole("button", { name: /save balance/i }).click();
     await expect(page.getByText(/saved/i)).toBeVisible();
 
@@ -68,6 +79,42 @@ test.describe("phase 1: manual entry → net worth on dashboard", () => {
     await navigateVia(page, "Accounts", "All accounts");
     await expect(page.locator("table")).toContainText("M&T Checking");
     await expect(page.locator("table")).toContainText("$5,000.00");
+
+    // ── 3b. A credit card: the field asks for an AMOUNT OWED (P17-32, ADR-042)
+    // Folded into this flow rather than given its own spec — the arithmetic is
+    // already covered by 21 unit tests on `snapshotBalance` and 5 DB-backed
+    // cases in `credit-card-sign.test.ts`, and the full Playwright suite is
+    // close enough to its resource ceiling that an extra bootstrap+truncate
+    // spec destabilized the QFX flow. Same argument as `assertGroupedNav`
+    // below: asserted where it is cheapest.
+    //
+    // What only a browser can check is ADR-042 §3's claim that **the relabel is
+    // not cosmetic**. Nothing in the unit suites would notice a revert of it: a
+    // form saying "Balance" above storage that negates passes every test in the
+    // repo, and is worse than either behaviour on its own. So the label is
+    // asserted in both directions, then the household's own arithmetic.
+    await page.getByRole("link", { name: /add account/i }).click();
+    await page.getByLabel("Name").fill("Sapphire Visa");
+    await page.getByLabel("Institution").fill("Chase");
+    await page.getByLabel("Type").selectOption("credit_card");
+    await page.getByRole("button", { name: /create account/i }).click();
+    await expect(page).toHaveURL(/\/accounts\/[0-9a-f-]+$/);
+
+    await expect(page.getByLabel("Amount owed", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Balance", { exact: true })).toHaveCount(0);
+    await expect(page.getByText(/statement says you owe/i)).toBeVisible();
+
+    // The household types what the statement says. Positive.
+    await page.getByLabel("Amount owed", { exact: true }).fill("1200.00");
+    await page.getByRole("button", { name: /save balance/i }).click();
+    await expect(page.getByText(/saved/i).first()).toBeVisible();
+
+    // Stored as a net-worth contribution: the card reads as a liability.
+    // Entered verbatim — the behaviour before ADR-042 — this row would say
+    // "$1,200.00" and net worth would be $2,400 too high with no warning.
+    await navigateVia(page, "Accounts", "All accounts");
+    await expect(page.locator("table")).toContainText("Sapphire Visa");
+    await expect(page.locator("table")).toContainText("-$1,200.00");
 
     // ── 4. Create a mortgage (loan account + amortization params) ───────────
     await page.getByRole("link", { name: /add account/i }).click();
@@ -97,6 +144,7 @@ test.describe("phase 1: manual entry → net worth on dashboard", () => {
     await expect(page.getByRole("heading", { name: /net worth/i })).toBeVisible();
     await expect(page.locator("table")).toContainText("M&T Checking");
     await expect(page.locator("table")).toContainText("Sunwest Mortgage");
+    await expect(page.locator("table")).toContainText("Sapphire Visa");
     await expect(page.getByText("$5,000.00")).toBeVisible();
   });
 });

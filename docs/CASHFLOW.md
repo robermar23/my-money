@@ -459,6 +459,8 @@ Work down this list — it is ordered by how often each is the cause.
   where money *should* go; this doc is about when it actually moves.
 - [INCOME.md](INCOME.md) — how paychecks are defined; the projection's inflows
   come from **observed** take-home, not declared gross.
+- [ATTRIBUTION.md](ATTRIBUTION.md) — the backward-looking counterpart: this doc
+  projects a window that has not happened, that one explains one that has.
 - [ALERTS.md](ALERTS.md) — the full alert catalog and email setup.
 - [DASHBOARD.md](DASHBOARD.md) — the card layout and how cards degrade.
 - [IMPORT.md](IMPORT.md) — getting the history the residual rate needs.

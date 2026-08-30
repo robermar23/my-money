@@ -29,6 +29,7 @@ import {
   upsertLotSchema,
 } from "@/lib/schemas/account.ts";
 import { accountTermsSchema, creditLineTermsSchema } from "@/lib/schemas/advice.ts";
+import { snapshotBalance } from "@/lib/snapshots/sign.ts";
 import { toAccountId } from "@/lib/types/ids.ts";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
@@ -340,6 +341,15 @@ export async function deleteAccountAction(accountIdRaw: string): Promise<ActionR
  * crypto_ira accounts (where the user just types in the balance from their
  * statement / portal).
  *
+ * **The entered value is not what gets stored** (P17-32, ADR-042). For a
+ * `credit_card` the form asks for an **amount owed** — the positive figure on
+ * the statement — and `snapshotBalance` negates it, because
+ * `account_snapshots.balance` is a net-worth contribution rather than a
+ * statement balance. The Plaid sync path calls the same helper on Plaid's
+ * `balances.current`, which is also an amount owed; keeping both paths on one
+ * implementation is the whole point, since two copies of this rule is how the
+ * manual path drifted from the convention in the first place.
+ *
  * Idempotent: UPSERT on (account_id, date) — re-recording the same date overwrites.
  */
 export async function recordBalanceAction(
@@ -347,7 +357,7 @@ export async function recordBalanceAction(
   _prev: ActionResult,
   formData: FormData,
 ): Promise<ActionResult> {
-  const { accountId } = await loadAccount(accountIdRaw);
+  const { accountId, account } = await loadAccount(accountIdRaw);
   const parsed = recordBalanceSchema.safeParse({
     date: formData.get("date"),
     balance: formData.get("balance"),
@@ -355,12 +365,13 @@ export async function recordBalanceAction(
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
   }
+  const balance = snapshotBalance(account.type, parsed.data.balance, account.currency);
   await db
     .insert(accountSnapshots)
-    .values({ accountId, date: parsed.data.date, balance: parsed.data.balance })
+    .values({ accountId, date: parsed.data.date, balance })
     .onConflictDoUpdate({
       target: [accountSnapshots.accountId, accountSnapshots.date],
-      set: { balance: parsed.data.balance },
+      set: { balance },
     });
   revalidatePath(`/accounts/${accountIdRaw}`);
   revalidatePath("/accounts");

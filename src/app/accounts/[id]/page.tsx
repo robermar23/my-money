@@ -20,6 +20,7 @@ import { lotCoverage, resolveCostBasis } from "@/lib/investments/lots.ts";
 import { Money } from "@/lib/money/money.ts";
 import { balanceAtMonth } from "@/lib/mortgage/amortization.ts";
 import { transactionFilterSchema } from "@/lib/schemas/search.ts";
+import { isLiabilityAccount } from "@/lib/snapshots/sign.ts";
 import { type TransactionFilters, listTransactions } from "@/lib/transactions/queries.ts";
 import { toAccountId } from "@/lib/types/ids.ts";
 import Decimal from "decimal.js";
@@ -403,12 +404,16 @@ export default async function AccountDetailPage(
       {/* Conditional entry forms by account type */}
       {showBalanceForm && (
         <section className="mt-8 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
-          <h2 className="font-medium">Record balance</h2>
+          <h2 className="font-medium">
+            {account.type === "credit_card" ? "Record amount owed" : "Record balance"}
+          </h2>
           <p className="mt-1 text-sm text-zinc-500">
-            Enter the end-of-day balance from your statement or online portal.
+            {account.type === "credit_card"
+              ? "Enter the end-of-day amount owed from your statement or online portal."
+              : "Enter the end-of-day balance from your statement or online portal."}
           </p>
           <div className="mt-4">
-            <BalanceForm accountId={account.id} />
+            <BalanceForm accountId={account.id} owed={isLiabilityAccount(account.type)} />
           </div>
         </section>
       )}

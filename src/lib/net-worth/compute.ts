@@ -5,16 +5,9 @@ import { accountSnapshots, accounts, holdings, liabilities, prices } from "@/db/
 import { valueAccountHoldings } from "@/lib/holdings/value.ts";
 import { Money, toCurrency } from "@/lib/money/money.ts";
 import { balanceAtMonth } from "@/lib/mortgage/amortization.ts";
+import { monthsBetween } from "@/lib/schedule/occurrences.ts";
 import { and, desc, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import { halfEvenCents } from "./round.ts";
-
-function monthsBetween(startIso: string, asOf: Date): number {
-  const start = new Date(`${startIso}T00:00:00Z`);
-  const months =
-    (asOf.getUTCFullYear() - start.getUTCFullYear()) * 12 +
-    (asOf.getUTCMonth() - start.getUTCMonth());
-  return Math.max(0, months);
-}
 
 interface NetWorthLineItem {
   readonly accountId: string;
@@ -72,7 +65,7 @@ export async function computeNetWorth(
         Money.fromString(liab.principalAtOrigination, account.currency),
         liab.annualRate,
         liab.termMonths,
-        monthsBetween(liab.startDate, asOf),
+        monthsBetween(liab.startDate, asOfIso),
       );
       items.push({
         accountId: account.id,
@@ -358,7 +351,7 @@ export async function netWorthSeries(
         Money.fromString(loan.principalAtOrigination, loan.currency),
         loan.annualRate,
         loan.termMonths,
-        monthsBetween(loan.startDate, asOf),
+        monthsBetween(loan.startDate, row.date),
       );
       total = total.add(remaining.negate());
     }

@@ -265,3 +265,9 @@ states up front: *"Projections are illustrative estimates, not financial advice.
 
 See [PLAID.md](PLAID.md) for Link/credentials/mapping and
 [RUNBOOK_PLAID.md](RUNBOOK_PLAID.md) for sync failure modes.
+
+The contributions-versus-market-growth split on the Performance tab is reused
+verbatim, per account, as the `investment_return` rung of the household-level
+decomposition — see [ATTRIBUTION.md](ATTRIBUTION.md). There is deliberately no second
+implementation of `marketGrowth`: two of them is how this page and that one would end
+up disagreeing about the same quarter with no way to tell which is right.

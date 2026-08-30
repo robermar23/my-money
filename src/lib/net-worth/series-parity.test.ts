@@ -7,9 +7,11 @@ import {
   plaidItems,
   prices,
 } from "@/db/schema/index.ts";
+import { Money } from "@/lib/money/money.ts";
 import { sql } from "drizzle-orm";
 import * as fc from "fast-check";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
+import { loadAttribution } from "./attribution-loader.ts";
 import { type NetWorthPoint, computeNetWorth, netWorthSeries } from "./compute.ts";
 
 /**
@@ -617,4 +619,120 @@ describe("netWorthSeries parity — property-based", () => {
       { numRuns: 15 },
     );
   }, 60_000);
+});
+
+// ── P17-26: the decomposition's endpoints are the chart's own figures ────────
+
+/**
+ * **ADR-039 §1 as an enforced property rather than a claim.**
+ *
+ * The attribution page states an opening and a closing net worth and then
+ * explains the gap between them. Those two numbers are *given*: they come from
+ * `computeNetWorth`, the same function behind the dashboard figure and the
+ * net-worth chart. Nothing in `src/lib/net-worth/` may derive them a second
+ * way, because a second derivation is a second number with equal apparent
+ * authority and no way for a household to tell which one is wrong.
+ *
+ * The oracle is deliberately the *series*, not `computeNetWorth` — the series is
+ * what the chart actually renders, and the assertions above already pin the
+ * series to `computeNetWorth`. Asserting against `computeNetWorth` here would
+ * check the loader against the thing it calls; asserting against
+ * `netWorthSeries` checks it against the thing the user is looking at, which is
+ * the promise being made.
+ *
+ * `loadAttribution` is the only surface tested here, on purpose: it is the one
+ * place the endpoint values enter the decomposition, and the failure this guards
+ * against — re-summing `items[]` instead of copying `total` — is invisible on a
+ * single-currency book and *silent* on any book, because a re-summed endpoint
+ * still satisfies the identity perfectly. The generated books carry EUR
+ * accounts (`accountArb`), which is exactly what makes `total ≠ Σ items` and
+ * therefore what makes the difference observable at all.
+ */
+describe("attribution endpoints equal the net-worth chart (P17-26)", () => {
+  beforeEach(async () => {
+    await resetDomain();
+  });
+
+  afterAll(async () => {
+    await resetDomain();
+  });
+
+  /** The series point on `date`, which must exist for the assertion to mean anything. */
+  function pointOn(series: readonly NetWorthPoint[], date: string): NetWorthPoint {
+    const point = series.find((p) => p.date === date);
+    if (!point) throw new Error(`no series point on ${date}`);
+    return point;
+  }
+
+  it("reports the chart's own opening and closing over a hand-built book", async () => {
+    // A book whose total is NOT the sum of its lines: the EUR account appears in
+    // `items[]` and is excluded from `total` (compute.ts R11). A loader that
+    // re-derived the endpoint would come out 99,999 high at both ends — and
+    // would still reconcile, because the error cancels in the delta.
+    const checking = await newAccount({ name: "Checking", type: "depository" });
+    const card = await newAccount({ name: "Card", type: "credit_card" });
+    const euro = await newAccount({ name: "Euro account", type: "depository", currency: "EUR" });
+    await db.insert(accountSnapshots).values([
+      { accountId: checking, date: "2026-01-01", balance: "10000.00" },
+      { accountId: checking, date: "2026-03-01", balance: "12500.00" },
+      { accountId: card, date: "2026-01-01", balance: "-1200.00" },
+      { accountId: card, date: "2026-03-01", balance: "-800.00" },
+      { accountId: euro, date: "2026-01-01", balance: "99999.00" },
+      { accountId: euro, date: "2026-03-01", balance: "99999.00" },
+    ]);
+
+    const series = await netWorthSeries();
+    const result = await loadAttribution({ from: "2026-01-01", to: "2026-03-01" });
+
+    expect(result.opening).toBe(pointOn(series, "2026-01-01").value);
+    expect(result.closing).toBe(pointOn(series, "2026-03-01").value);
+    // Stated absolutely too, so a bug that moved BOTH the series and the loader
+    // by the same amount could not pass by agreeing with itself.
+    expect(result.opening).toBe("8800.00");
+    expect(result.closing).toBe("11700.00");
+    expect(result.delta).toBe("2900.00");
+  });
+
+  it("holds on randomly generated books, at both ends and in the middle", async () => {
+    await fc.assert(
+      fc.asyncProperty(bookArb, async (book) => {
+        await resetDomain();
+        await seedBook(book);
+
+        const series = await netWorthSeries();
+        // A book with fewer than two dated points has no window to decompose;
+        // `assertWindow` rejects `from === to` everywhere in this layer.
+        if (series.length < 2) return;
+
+        const first = series[0] as NetWorthPoint;
+        const last = series[series.length - 1] as NetWorthPoint;
+        const pairs: ReadonlyArray<readonly [NetWorthPoint, NetWorthPoint]> =
+          series.length >= 3
+            ? [
+                [first, last],
+                // A window that starts and ends INSIDE the history, so a loader
+                // that quietly used the book's first or last snapshot instead of
+                // the requested date cannot pass by coincidence.
+                [series[1] as NetWorthPoint, last],
+                [first, series[series.length - 2] as NetWorthPoint],
+              ]
+            : [[first, last]];
+
+        for (const [open, close] of pairs) {
+          const result = await loadAttribution({ from: open.date, to: close.date });
+          expect(result.opening).toBe(open.value);
+          expect(result.closing).toBe(close.value);
+          expect(result.delta).toBe(
+            Money.fromString(close.value, "USD")
+              .sub(Money.fromString(open.value, "USD"))
+              .toString(),
+          );
+        }
+      }),
+      // Each run re-seeds and then decomposes up to three windows, so the runs
+      // cost several times a parity run. 20 is enough to sweep the currency and
+      // account-type combinations that make the endpoint rule observable.
+      { numRuns: 20 },
+    );
+  }, 120_000);
 });

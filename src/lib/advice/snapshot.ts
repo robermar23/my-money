@@ -18,6 +18,7 @@ import {
 import type { EmployeeContributionBasis, EmployerMatchBasis } from "@/db/schema/index.ts";
 import { type MonthlyTotals, spendByMonth } from "@/lib/analytics/spending.ts";
 import { Money } from "@/lib/money/money.ts";
+import { monthsBetween } from "@/lib/schedule/occurrences.ts";
 import { and, asc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { type CashAccountInput, type CashTiers, classifyCashTiers } from "./cash-tiers.ts";
 import {
@@ -231,14 +232,6 @@ function windowStart(today: string, monthsBack: number): string {
   const month = Number(today.slice(5, 7));
   const d = new Date(Date.UTC(year, month - 1 - monthsBack, 1));
   return d.toISOString().slice(0, 10);
-}
-
-/** Whole months between two ISO dates, floored at zero. */
-function monthsBetween(from: string, to: string): number {
-  const months =
-    (Number(to.slice(0, 4)) - Number(from.slice(0, 4))) * 12 +
-    (Number(to.slice(5, 7)) - Number(from.slice(5, 7)));
-  return Math.max(0, months);
 }
 
 export interface LoadSnapshotOptions {
