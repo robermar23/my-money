@@ -534,3 +534,52 @@ rather than reimplemented.
   need at a glance.
 
 Implemented under **ADR-039 → ADR-041** (IDEAS.md §11 Decision Log) via [PLAN17.md](PLAN17.md). See [docs/ATTRIBUTION.md](../../docs/ATTRIBUTION.md).
+
+### 2026-08-30 — Two cash-flow gaps: the bill the app already knows, and the savings that already close the shortfall (in scope)
+
+Source: the owner, reading `/plan/cashflow` against their own book. Two complaints, one sentence
+each: *"It's missing my mortgage — which should be auto calculated/figured out"*, and *"instead of
+listing the shortfall, if the user has a savings account that can transfer in funds, shouldn't it
+show that advice?"* Both are Phase 16 defects rather than new features, and both are **corrections
+to what a screen says**, not additions to what the app computes.
+
+- **The diagnosis that sizes the whole change: the totals are right, the DATES are wrong.** An
+  unconfirmed mortgage is not missing from the projection. It is a transaction like any other, so
+  it sits inside trailing observed spend, so it sits inside the residual daily rate and is spread
+  flat across every day of the horizon as *"Everyday spending"*. The household's money is fully
+  accounted for; what is wrong is that a payment which actually leaves on the 1st is charged at a
+  flat daily rate for two months. That is exactly what the page's own coverage caveat reports, and
+  it is why the projected line slopes instead of stepping. **The consequence is that the low-water
+  date is wrong** — and the low-water date is the entire product of that page. So the fix
+  **re-dates** money the line already contains; it never adds any.
+- **In scope, gap 1 (ADR-047):** a `liabilities` row on an active `loan` account now produces an
+  obligation **candidate** on `/plan/cashflow/review`, pre-filled from stated loan terms and ranked
+  above detected suggestions under its own heading. ADR-036 §2 — *confirm, never infer* — is
+  **unchanged**: nothing is written to `scheduled_obligations` without a click, on install or on
+  upgrade. The proposed amount prefers the household's **observed** payments over computed
+  principal-and-interest, because escrow makes a real payment materially larger than P&I and the
+  matcher's ±15% band would then report a correctly-paid mortgage as missed.
+- **In scope, gap 2 (ADR-048):** a projected shortfall is **classified against reserve cash** before
+  it is reported — covered, partly covered, uncovered, or reserve-unknown. A shortfall the emergency
+  fund covers is a *timing* problem; one it does not cover is a *solvency* problem, and those are
+  different sentences with different next actions. A covered shortfall's alert drops to `info`; it
+  is **never** silenced, because a monthly raid on the emergency fund is itself worth surfacing.
+- **What deliberately does NOT change:** the projection walks **operating cash only** (ADR-038 §6),
+  exactly as before. Savings never enters the balance line, the low-water mark, or safe-to-spend —
+  a line that quietly absorbed reserve cash could no longer tell a household it is overspending.
+  Gap 2 adds a second *sentence* about the same number, never a second number, and the projected
+  series is byte-identical before and after it.
+- **Reaffirmed OUT of scope (not relaxed):** **no transfer is initiated, offered, simulated, or
+  scheduled** — money movement stays permanently out of scope, and this remains a read-only tracker;
+  **no envelope or virtual-bucket partition** of a real balance; **no emergency-fund target stated
+  on the cash-flow page** (that is `/plan`'s number, and two implementations of "how many months"
+  is two numbers that can disagree on one screen); **no interest/principal split on the calendar**;
+  **no escrow model** — escrow is absorbed by `trailing_median` and its annual step is reported by
+  the existing amount-drift alert; and **no live rate, servicer, or biller lookup of any kind**.
+- **Privacy stance:** unchanged and still literally zero egress. `monthlyPayment()` is arithmetic
+  over terms the user typed in; the reserve total is a sum over accounts the app already holds.
+  Both new modules are pure, both are covered by the existing cash-flow egress allowlist, and no
+  servicer name, label, or figure reaches a log line.
+
+Implemented under **ADR-047 → ADR-048** (IDEAS.md §11 Decision Log) via
+[PLAN_CASHFLOW_GAPS.md](PLAN_CASHFLOW_GAPS.md).
