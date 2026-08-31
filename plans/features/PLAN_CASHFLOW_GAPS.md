@@ -138,10 +138,10 @@ per CF-B4 — different alert severities.
 
 ## 3. ADR-047 — A stated loan schedule is a first-class obligation candidate: `source='liability'`, `detection_key IS NULL`, and the amount comes from the bank when the bank has spoken
 
-**Status**: proposed — CF-00 is the gate.
-**Numbering**: `IDEAS.md` §11 currently ends at **ADR-042**. [PLAN18.md](PLAN18.md)
-proposes 043–046 and is not yet locked, so this plan takes **047/048** to avoid
-a collision whichever lands first. **Verify the max before appending.**
+**Status**: ✅ **Locked 2026-08-30** — appended to [IDEAS.md](IDEAS.md) §11.
+**Numbering**: `IDEAS.md` §11 ended at **ADR-042**, verified immediately before
+appending under CF-00. [PLAN18.md](PLAN18.md) proposes 043–046 and is not yet
+locked, so this plan took **047/048** and either can land first.
 
 **Context**: §1.1. The household typed its loan terms into the app; the app
 computes the payment for the advice engine; the calendar still waits to
@@ -251,7 +251,7 @@ exists to state.
 
 ## 4. ADR-048 — A shortfall is classified against reserve cash before it is reported: covered shortfalls are a timing statement, not an alarm
 
-**Status**: proposed — CF-00 is the gate.
+**Status**: ✅ **Locked 2026-08-30** — appended to [IDEAS.md](IDEAS.md) §11.
 
 **Context**: §1.2. The page computes a shortfall, prints it in red, and closes
 with generic advice about moving money — without knowing whether there is money
@@ -288,7 +288,7 @@ serving two opposite situations is the defect.
    gives the reason: *"two implementations of 'how many months' is two numbers
    that can disagree on one screen."* `reserveMonthsFor()` needs a full
    `AdviceInput`, and building one inside a page whose budget is a fast render
-   is how the second implementation gets written. Recorded as Open Item 8.2.
+   is how the second implementation gets written. Recorded as Open Item 9.2.
 6. **No transfer is initiated, offered, or simulated.** This app is read-only
    (CLAUDE.md §Domain Scope) and this is one derived sentence. No "move money"
    button, no scheduled transfer, no partition of a real balance into virtual
@@ -307,7 +307,7 @@ serving two opposite situations is the defect.
   reads `uncovered`. Correct — the app states what it knows — and the standard
   "add the account" path fixes it.
 - ⚠️ Transferring from reserve may breach the emergency-fund target, and this
-  page will not say so (§4.5). Mitigated by the `/plan` link; Open Item 8.2.
+  page will not say so (§4.5). Mitigated by the `/plan` link; Open Item 9.2.
 
 **Rejected alternatives**:
 
@@ -398,7 +398,44 @@ serving two opposite situations is the defect.
 
 ---
 
-## 8. Open items (record, don't build)
+## 8. What shipped differently, and why
+
+Three deviations from the sketch above. All three are narrower or safer than what
+was drawn, and all three are recorded here so the plan does not quietly disagree
+with the code.
+
+1. **The collision warning matches on the SERIES, not on the amount.** CF-A5
+   sketched *"a detected candidate on the same account overlaps the proposed
+   amount"*. Implemented that way it cried wolf immediately: the E2E fixture's
+   rent is $1,850 and its mortgage $1,750, and any tolerance loose enough to be
+   useful calls those the same bill. The shipped rule is an exact `payeeKey`
+   comparison — the detector proposed the very payments this schedule was priced
+   from — which cannot false-positive. The cost is stated rather than hidden: a
+   loan whose payments were never recognized carries no key, so no warning is
+   possible there. That is also the case where the two rows are least likely to
+   be the same money. **Found by running the E2E**, which is what CF-C3 is for.
+
+2. **One tiered balance read, not a `listReserveBalances()` sibling.** CF-B3
+   sketched a sibling of `listOperatingBalances()`. Two siblings would each run
+   their own `DISTINCT ON (account_id)` pass over `account_snapshots` — a second
+   snapshot read, on a page that already does one, about the same accounts. The
+   shipped `listCashBalancesByTier()` splits a single read, which is cheaper and
+   cannot produce two opinions about one balance. `listOperatingBalances()` is
+   gone; its one caller now takes the `operating` half. The projection reads that
+   half and nothing else, exactly as before (acceptance criterion 8).
+
+3. **A liability candidate's `start_date` is `today`, not the loan's
+   origination, when no payments have been imported.** Not covered either way by
+   ADR-047 §7, which specifies the anchor and `end_date` only. Materialization
+   walks from `start_date`, so back-dating a six-year-old mortgage would create
+   ~80 occurrences the app holds no evidence for, sweep every one to `missed`,
+   and bury the household in alerts for a bill they have paid every month since
+   2019. With payments observed it starts at the first of them, matching the
+   detector's use of `firstSeen` — those months have real transactions to match.
+
+---
+
+## 9. Open items (record, don't build)
 
 1. **Interest/principal split on the calendar.** `balanceAtMonth()` could label
    each occurrence with its split. Deferred: the calendar answers *"what leaves
