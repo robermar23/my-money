@@ -38,6 +38,7 @@ function occurrence(over: Partial<OccurrenceInput> = {}): OccurrenceInput {
     amountMode: "fixed",
     status: "scheduled",
     matchedAmount: null,
+    source: "detected",
     ...over,
   };
 }

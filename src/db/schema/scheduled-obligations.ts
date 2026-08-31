@@ -16,6 +16,7 @@ import {
 import { inList } from "./_sql.ts";
 import { accounts } from "./accounts.ts";
 import { categories } from "./categories.ts";
+import { liabilities } from "./liabilities.ts";
 
 /**
  * scheduled_obligations: a recurring bill or receipt the user has CONFIRMED
@@ -80,8 +81,19 @@ export type ObligationDirection = (typeof OBLIGATION_DIRECTIONS)[number];
 export const OBLIGATION_AMOUNT_MODES = ["fixed", "trailing_median"] as const;
 export type ObligationAmountMode = (typeof OBLIGATION_AMOUNT_MODES)[number];
 
-/** How the row got here. `detected` still means the user confirmed it. */
-export const OBLIGATION_SOURCES = ["detected", "manual"] as const;
+/**
+ * How the row got here. **Every value still means the user confirmed it**
+ * (ADR-036 §2) — `source` records which door the proposal arrived through, never
+ * whether a click happened.
+ *
+ * `detected` — reverse-engineered from three months of bank descriptors.
+ * `manual`   — typed in by hand.
+ * `liability` — pre-filled from loan terms the user already stated in
+ *   [`liabilities`](./liabilities.ts) (ADR-047 §3). A stronger claim than
+ *   `detected` and a different one from `manual`: nothing was guessed, which is
+ *   why such a row carries `confidence = NULL`.
+ */
+export const OBLIGATION_SOURCES = ["detected", "manual", "liability"] as const;
 export type ObligationSource = (typeof OBLIGATION_SOURCES)[number];
 
 /**
@@ -142,11 +154,31 @@ export const scheduledObligations = pgTable(
     source: text("source").notNull(),
     /**
      * The normalized payee that produced this series (`payeeKey`, P16-08).
-     * NULL for manual obligations, which is what makes the UNIQUE index below
-     * partial: one payee series cannot be confirmed twice, while unlimited
-     * manual obligations stay legal.
+     * NULL for manual obligations AND for liability-sourced ones, which is what
+     * makes the UNIQUE index below partial: one payee series cannot be confirmed
+     * twice, while unlimited rows with no key stay legal.
+     *
+     * For a liability-sourced row the NULL is not an absence of information —
+     * it is the mechanism. See {@link scheduledObligations.liabilityId}.
      */
     detectionKey: text("detection_key"),
+    /**
+     * The loan whose stated terms produced this schedule (ADR-047 §4). NULL for
+     * every other provenance, which is what makes the UNIQUE index below partial.
+     *
+     * **This is a separate column rather than a synthetic `detection_key`, and
+     * the distinction is load-bearing.** The matcher matches an occurrence to a
+     * posted transaction ON `detection_key`
+     * ([match.ts](../../lib/cashflow/match.ts)); a key like `liability:<uuid>`
+     * would match no transaction that ever exists, so the occurrence would go
+     * unmatched, the residual would keep the payment inside the flat daily rate
+     * — and the calendar would date it too. That is exactly the ADR-038 §2
+     * double-count, arriving through a door ADR-038 did not think to close. Left
+     * NULL, `detection_key` lets the matcher fall back to
+     * `(account, direction, window, amount)`, which is what pairs a mortgage
+     * occurrence to the real payment.
+     */
+    liabilityId: uuid("liability_id"),
     /** One of `OBLIGATION_CONFIDENCES`; NULL for manual rows (nothing guessed). */
     confidence: text("confidence"),
     notes: text("notes"),
@@ -167,6 +199,14 @@ export const scheduledObligations = pgTable(
       foreignColumns: [categories.id],
       name: "scheduled_obligations_category_fk",
     }).onDelete("set null"),
+    // SET NULL, not cascade: deleting a liability must not delete the schedule
+    // that explains the household's month. The bill is still leaving the account
+    // whether or not the loan's terms are still recorded.
+    liabilityFk: foreignKey({
+      columns: [table.liabilityId],
+      foreignColumns: [liabilities.id],
+      name: "scheduled_obligations_liability_fk",
+    }).onDelete("set null"),
     // One confirmed series per (account, payee). Partial because manual rows
     // carry a NULL `detection_key`, and NULLs are never equal in Postgres — a
     // non-partial index would let the same detected series in twice the moment
@@ -174,6 +214,14 @@ export const scheduledObligations = pgTable(
     accountDetectionKeyUnique: uniqueIndex("scheduled_obligations_account_detection_key_unique")
       .on(table.accountId, table.detectionKey)
       .where(sql`${table.detectionKey} IS NOT NULL`),
+    // One confirmed obligation per loan (ADR-047 §5) — the same shape and the
+    // same reason as the detection-key index above. Partial because every other
+    // provenance carries a NULL `liability_id`, and NULLs are never equal in
+    // Postgres, so unlimited detected and manual rows stay legal. It is also the
+    // index the candidate loader's suppression read uses.
+    liabilityUnique: uniqueIndex("scheduled_obligations_liability_id_unique")
+      .on(table.liabilityId)
+      .where(sql`${table.liabilityId} IS NOT NULL`),
     // FK index for the account cascade, and it doubles as the per-account
     // obligation listing. `category_id` deliberately gets none: this table is
     // bounded by the number of bills a household has, so the SET NULL pass on a
@@ -221,6 +269,10 @@ export const scheduledObligationsRelations = relations(scheduledObligations, ({ 
   account: one(accounts, {
     fields: [scheduledObligations.accountId],
     references: [accounts.id],
+  }),
+  liability: one(liabilities, {
+    fields: [scheduledObligations.liabilityId],
+    references: [liabilities.id],
   }),
   category: one(categories, {
     fields: [scheduledObligations.categoryId],

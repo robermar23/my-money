@@ -1,14 +1,20 @@
 import { listAccounts } from "@/lib/accounts/queries.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
-import { loadCandidates } from "@/lib/cashflow/candidate-loader.ts";
+import { loadCandidates, loadLiabilityCandidates } from "@/lib/cashflow/candidate-loader.ts";
 import { listObligations } from "@/lib/cashflow/queries.ts";
 import { listCategoriesWithGroups } from "@/lib/categories/queries.ts";
 import { Money } from "@/lib/money/money.ts";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { CandidateReview } from "./candidate-review.tsx";
+import { LiabilityReview } from "./liability-review.tsx";
 import { ObligationManager } from "./obligation-manager.tsx";
-import type { AccountView, CandidateView, ObligationView } from "./view-models.ts";
+import type {
+  AccountView,
+  CandidateView,
+  LiabilityCandidateView,
+  ObligationView,
+} from "./view-models.ts";
 
 export const metadata: Metadata = { title: "Recurring bills" };
 
@@ -35,8 +41,9 @@ export default async function CashFlowReviewPage(): Promise<React.JSX.Element> {
   await requireUser();
 
   const today = new Date().toISOString().slice(0, 10);
-  const [candidates, obligations, accounts, categoryData] = await Promise.all([
+  const [candidates, liabilityProposals, obligations, accounts, categoryData] = await Promise.all([
     loadCandidates({ today }),
+    loadLiabilityCandidates({ today }),
     listObligations({ includeInactive: true }),
     listAccounts(),
     listCategoriesWithGroups(),
@@ -86,6 +93,33 @@ export default async function CashFlowReviewPage(): Promise<React.JSX.Element> {
     })),
   }));
 
+  const liabilityViews: LiabilityCandidateView[] = liabilityProposals.map((candidate) => ({
+    liabilityId: candidate.liabilityId,
+    accountId: candidate.accountId,
+    accountOptions: candidate.accountOptions.map((account) => ({
+      id: account.accountId,
+      name: account.name,
+      institution: account.institution,
+    })),
+    label: candidate.label,
+    expectedAmount: candidate.expectedAmount,
+    expectedDisplay: money(candidate.expectedAmount),
+    scheduledDisplay: money(candidate.scheduledPayment),
+    observedDisplay: candidate.observedMedian === null ? null : money(candidate.observedMedian),
+    spreadDisplay: candidate.observedSpread === null ? null : money(candidate.observedSpread),
+    observedCount: candidate.observedCount,
+    escrowCaveat: candidate.escrowCaveat,
+    amountMode: candidate.amountMode,
+    anchorDate: candidate.anchorDate,
+    startDate: candidate.startDate,
+    sampleName: candidate.sampleName,
+    evidence: candidate.evidence.map((payment) => ({
+      date: payment.date,
+      amountDisplay: money(payment.amount),
+    })),
+    collision: collisionWarning(candidate.accountId, candidate.expectedAmount, candidates),
+  }));
+
   const obligationViews: ObligationView[] = obligations.map((obligation) => ({
     id: obligation.id,
     accountId: obligation.accountId,
@@ -104,6 +138,7 @@ export default async function CashFlowReviewPage(): Promise<React.JSX.Element> {
     active: obligation.active,
     amountMode: obligation.amountMode,
     source: obligation.source,
+    liabilityId: obligation.liabilityId,
     confidence: obligation.confidence,
     notes: obligation.notes,
   }));
@@ -118,6 +153,8 @@ export default async function CashFlowReviewPage(): Promise<React.JSX.Element> {
         Bills and regular receipts the projection should expect. Suggestions come from your own
         transaction history and are never added on their own — confirming one is what makes it real.
       </p>
+
+      <LiabilityReview candidates={liabilityViews} categories={categories} />
 
       <section aria-labelledby="candidates-heading" className="mt-8">
         <h2 id="candidates-heading" className="font-medium text-lg">
@@ -143,4 +180,64 @@ export default async function CashFlowReviewPage(): Promise<React.JSX.Element> {
 /** Format a stored `numeric` string for display. The only place this happens. */
 function money(amount: string): string {
   return Money.fromString(amount, "USD").abs().format();
+}
+
+/**
+ * How close a detected amount has to be before it might be the same payment.
+ *
+ * The matcher's own band for a `fixed` obligation (ADR-037 §6). Using the same
+ * figure is deliberate: if the two amounts are close enough that ONE posted
+ * transaction could satisfy either schedule, the household is at risk of having
+ * the same money dated twice, and that is exactly what the warning is about.
+ */
+const COLLISION_TOLERANCE_PCT = "0.15";
+
+/**
+ * A sentence naming a detected suggestion that looks like this loan payment.
+ *
+ * ADR-047 cannot prevent the double-entry by structure — a detected series and a
+ * stated loan schedule are two legitimately different rows, and there are real
+ * households where both belong. So it is handled by DISCLOSURE, the same posture
+ * the rest of this surface takes: say what the app noticed, and let the person
+ * who knows their own book decide.
+ *
+ * Computed on the server so no money arithmetic crosses to the browser
+ * (CLAUDE.md §Money).
+ *
+ * @param accountId - The account the loan payment leaves, or `null` when the app
+ *   cannot tell — in which case nothing is compared, because a collision on an
+ *   unknown account is a guess about a guess.
+ * @param expectedAmount - The proposed payment, as a `numeric` string.
+ * @param candidates - The detector's current proposals.
+ * @returns The warning, or `null` when nothing overlaps.
+ */
+function collisionWarning(
+  accountId: string | null,
+  expectedAmount: string,
+  candidates: readonly {
+    accountId: string;
+    direction: string;
+    label: string;
+    expectedAmount: string;
+  }[],
+): string | null {
+  if (accountId === null) return null;
+
+  const expected = Money.fromString(expectedAmount, "USD").abs();
+  if (expected.isZero()) return null;
+  const tolerance = expected.mul(COLLISION_TOLERANCE_PCT);
+
+  const overlapping = candidates.find(
+    (candidate) =>
+      candidate.accountId === accountId &&
+      candidate.direction === "outflow" &&
+      Money.fromString(candidate.expectedAmount, "USD")
+        .abs()
+        .sub(expected)
+        .abs()
+        .compare(tolerance) <= 0,
+  );
+  if (overlapping === undefined) return null;
+
+  return `Your history also suggests “${overlapping.label}” on this account for about the same amount. If that is this loan payment, add one of them — not both, or the calendar will expect it twice.`;
 }

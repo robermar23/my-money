@@ -332,6 +332,9 @@ function WeekGroup({ group }: { readonly group: WeekGroupView }): React.JSX.Elem
             </span>
             <span className="grow">
               {item.label}
+              {item.fromLoanTerms && (
+                <span className="ml-2 text-xs text-zinc-500">from your loan terms</span>
+              )}
               {item.amountMode === "trailing_median" && (
                 <span className="ml-2 text-xs text-zinc-500">varies</span>
               )}

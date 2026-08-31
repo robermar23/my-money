@@ -348,6 +348,7 @@ function occurrence(over: Partial<UpcomingOccurrence> = {}): UpcomingOccurrence 
     direction: "outflow",
     amountMode: "fixed",
     status: "scheduled",
+    source: "detected",
     payeeKey: "acme mortgage",
     matchedTransactionId: null,
     matchedAmount: null,

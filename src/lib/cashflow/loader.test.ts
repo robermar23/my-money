@@ -110,6 +110,7 @@ async function seedObligation(
     amountMode: "fixed",
     source: "manual",
     detectionKey: null,
+    liabilityId: null,
     confidence: null,
     notes: null,
   });

@@ -2,12 +2,23 @@ import "server-only";
 
 import { db } from "@/db/client.ts";
 import type { CategoryKind } from "@/db/schema/categories.ts";
-import { accounts, categories, recommendationDismissals, transactions } from "@/db/schema/index.ts";
+import {
+  accounts,
+  categories,
+  liabilities,
+  recommendationDismissals,
+  transactions,
+} from "@/db/schema/index.ts";
 import { and, eq, gte, inArray, isNull } from "drizzle-orm";
-import { filterCandidates } from "./candidates.ts";
+import { filterCandidates, filterLiabilityCandidates } from "./candidates.ts";
 import { type ObligationCandidate, detectObligations } from "./detect.ts";
+import {
+  type LiabilityCandidate,
+  OBSERVED_PAYMENT_WINDOW_MONTHS,
+  liabilityCandidates,
+} from "./liability-obligations.ts";
 import { payeeKey } from "./payee-key.ts";
-import { listObligations } from "./queries.ts";
+import { listObligations, listOperatingAccounts } from "./queries.ts";
 
 /**
  * The candidate review page's one read (P16-24, ADR-036 §2).
@@ -65,9 +76,24 @@ export interface LoadCandidatesOptions {
   readonly now?: Date;
 }
 
+/**
+ * The prefix that marks a dismissal as belonging to a LIABILITY candidate.
+ *
+ * A literal rather than a uuid, so the two kinds of subject key are told apart
+ * by inspection: `"<accountId> <detectionKey>"` for a detected series,
+ * `"liability <liabilityId>"` for a stated loan schedule (ADR-047 §5). No
+ * account id can collide with it, because account ids are uuids.
+ */
+const LIABILITY_SUBJECT_PREFIX = "liability";
+
 /** The subject key a candidate dismissal is stored under. */
 export function candidateSubjectKey(accountId: string, detectionKey: string): string {
   return `${accountId} ${detectionKey}`;
+}
+
+/** The subject key a liability-candidate dismissal is stored under. */
+export function liabilitySubjectKey(liabilityId: string): string {
+  return `${LIABILITY_SUBJECT_PREFIX} ${liabilityId}`;
 }
 
 /**
@@ -186,8 +212,142 @@ function windowStart(today: string): string {
 function splitSubjectKey(subjectKey: string): { accountId: string; detectionKey: string } | null {
   const space = subjectKey.indexOf(" ");
   if (space <= 0 || space === subjectKey.length - 1) return null;
-  return {
-    accountId: subjectKey.slice(0, space),
-    detectionKey: subjectKey.slice(space + 1),
-  };
+  const accountId = subjectKey.slice(0, space);
+  // Liability dismissals share the rule id, so they arrive in the same result
+  // set. Skipping them here is belt-and-braces rather than load-bearing —
+  // "liability" is not a uuid, so it could never match a real account — but a
+  // key that parses into a nonsense account is the kind of thing a future
+  // reader debugs twice before concluding it was harmless.
+  if (accountId === LIABILITY_SUBJECT_PREFIX) return null;
+  return { accountId, detectionKey: subjectKey.slice(space + 1) };
+}
+
+/** `"liability <liabilityId>"` back into the id, or `null` when it is not one. */
+function splitLiabilitySubjectKey(subjectKey: string): string | null {
+  const prefix = `${LIABILITY_SUBJECT_PREFIX} `;
+  if (!subjectKey.startsWith(prefix)) return null;
+  const liabilityId = subjectKey.slice(prefix.length);
+  return liabilityId.length === 0 ? null : liabilityId;
+}
+
+/**
+ * Propose a schedule for every loan whose terms the household has stated
+ * (CF-A4, ADR-047).
+ *
+ * Computed on read, exactly like detection — see the header. Nothing is stored,
+ * and nothing reaches `scheduled_obligations` without a confirm click.
+ *
+ * The observed-payment window is deliberately narrower than detection's: six
+ * months of outflows on the operating accounts, which is long enough for a
+ * stable median and recent enough to reflect the current escrow. See
+ * {@link OBSERVED_PAYMENT_WINDOW_MONTHS}.
+ *
+ * @param options - `today`, and optionally the instant snoozes are measured
+ *   against.
+ * @returns Candidates in `liabilityCandidates`' stable order, with confirmed and
+ *   dismissed loans removed. Empty when no loan has stated terms.
+ */
+export async function loadLiabilityCandidates(
+  options: LoadCandidatesOptions,
+): Promise<LiabilityCandidate[]> {
+  const [terms, operating] = await Promise.all([
+    db
+      .select({
+        id: liabilities.id,
+        accountId: liabilities.accountId,
+        name: liabilities.name,
+        principalAtOrigination: liabilities.principalAtOrigination,
+        annualRate: liabilities.annualRate,
+        termMonths: liabilities.termMonths,
+        startDate: liabilities.startDate,
+      })
+      .from(liabilities)
+      .innerJoin(accounts, eq(accounts.id, liabilities.accountId))
+      // A closed loan account is a paid-off or refinanced loan; dating its
+      // payment would invent an outflow the household will never see.
+      .where(and(eq(accounts.type, "loan"), isNull(accounts.closedAt))),
+    listOperatingAccounts(),
+  ]);
+  if (terms.length === 0) return [];
+
+  const [outflows, confirmed, dismissals] = await Promise.all([
+    operating.length === 0
+      ? Promise.resolve([])
+      : db
+          .select({
+            accountId: transactions.accountId,
+            name: transactions.name,
+            postedAt: transactions.postedAt,
+            amount: transactions.amount,
+          })
+          .from(transactions)
+          .where(
+            and(
+              inArray(
+                transactions.accountId,
+                operating.map((row) => row.accountId),
+              ),
+              gte(transactions.postedAt, monthsBack(options.today, OBSERVED_PAYMENT_WINDOW_MONTHS)),
+            ),
+          ),
+    // Active AND inactive, for the same reason detection reads both: a
+    // deactivated obligation is one the user deliberately turned off.
+    listObligations({ includeInactive: true }),
+    db
+      .select({
+        subjectKey: recommendationDismissals.subjectKey,
+        snoozeUntil: recommendationDismissals.snoozeUntil,
+      })
+      .from(recommendationDismissals)
+      .where(eq(recommendationDismissals.ruleId, CANDIDATE_DISMISSAL_RULE_ID)),
+  ]);
+
+  const candidates = liabilityCandidates({
+    liabilities: terms,
+    operatingAccounts: operating,
+    observedOutflows: outflows.map((row) => ({
+      accountId: row.accountId,
+      payeeKey: payeeKey(row.name),
+      name: row.name,
+      postedAt: row.postedAt,
+      amount: row.amount,
+    })),
+    today: options.today,
+  });
+
+  return filterLiabilityCandidates(candidates, {
+    confirmed: confirmed.map((row) => row.liabilityId),
+    dismissed: dismissals.flatMap((row) => {
+      const liabilityId = splitLiabilitySubjectKey(row.subjectKey);
+      return liabilityId === null ? [] : [{ liabilityId, snoozeUntil: row.snoozeUntil }];
+    }),
+    now: options.now ?? new Date(),
+  });
+}
+
+/**
+ * Re-derive one liability candidate server-side, for the confirm action.
+ *
+ * The same guarantee `findCandidate` gives for a detected series: the form
+ * supplies the user's EDITS, the server supplies the PROVENANCE. Without it a
+ * hand-crafted POST could write a `source='liability'` row pointing at a loan
+ * that proposes nothing at all.
+ *
+ * @param liabilityId - The loan the candidate belongs to.
+ * @param options - `today`, so the derivation matches what the page rendered.
+ * @returns The candidate, or `undefined` if it is no longer proposed.
+ */
+export async function findLiabilityCandidate(
+  liabilityId: string,
+  options: LoadCandidatesOptions,
+): Promise<LiabilityCandidate | undefined> {
+  const candidates = await loadLiabilityCandidates(options);
+  return candidates.find((candidate) => candidate.liabilityId === liabilityId);
+}
+
+/** `today` minus whole months, as `YYYY-MM-DD`. */
+function monthsBack(today: string, months: number): string {
+  const date = new Date(`${today}T00:00:00Z`);
+  date.setUTCMonth(date.getUTCMonth() - months);
+  return date.toISOString().slice(0, 10);
 }

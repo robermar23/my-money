@@ -74,6 +74,8 @@ export interface ObligationRow {
   readonly source: ObligationSource;
   /** `null` for a manual obligation — it identifies no detected series. */
   readonly detectionKey: string | null;
+  /** The loan whose stated terms produced this schedule; `null` otherwise. */
+  readonly liabilityId: string | null;
   readonly confidence: ObligationConfidence | null;
   readonly notes: string | null;
 }
@@ -95,6 +97,12 @@ export interface ObligationPatch {
   readonly amountMode: ObligationAmountMode;
   readonly source: ObligationSource;
   readonly detectionKey: string | null;
+  /**
+   * Provenance, never form data. The obligation form does not carry this field
+   * and the manual save action re-reads it from the stored row — the same
+   * posture `confidence` takes, for the same reason (P16-24).
+   */
+  readonly liabilityId: string | null;
   readonly confidence: ObligationConfidence | null;
   readonly notes: string | null;
 }
@@ -111,10 +119,23 @@ export interface UpcomingOccurrence {
   readonly direction: ObligationDirection;
   readonly amountMode: ObligationAmountMode;
   readonly status: ObligationOccurrenceStatus;
+  /**
+   * Which door the obligation came through. Carried so `/plan/cashflow` can say
+   * *why* a bill the household never typed in by hand is on the line (CF-A7).
+   */
+  readonly source: ObligationSource;
   /** The obligation's `detection_key`, which is what the matcher keys on. */
   readonly payeeKey: string | null;
   readonly matchedTransactionId: string | null;
   readonly matchedAmount: string | null;
+}
+
+/** An operating-cash account, before any balance is read. */
+export interface OperatingAccountRow {
+  readonly accountId: string;
+  readonly name: string;
+  readonly institution: string;
+  readonly subtype: AccountSubtype;
 }
 
 /** An operating-cash account and its latest snapshot balance. */
@@ -160,6 +181,7 @@ export async function listObligations(
       amountMode: scheduledObligations.amountMode,
       source: scheduledObligations.source,
       detectionKey: scheduledObligations.detectionKey,
+      liabilityId: scheduledObligations.liabilityId,
       confidence: scheduledObligations.confidence,
       notes: scheduledObligations.notes,
     })
@@ -279,6 +301,7 @@ export async function listUpcomingOccurrences(
       direction: scheduledObligations.direction,
       amountMode: scheduledObligations.amountMode,
       status: obligationOccurrences.status,
+      source: scheduledObligations.source,
       payeeKey: scheduledObligations.detectionKey,
       matchedTransactionId: obligationOccurrences.matchedTransactionId,
       matchedAmount: obligationOccurrences.matchedAmount,
@@ -300,6 +323,7 @@ export async function listUpcomingOccurrences(
     direction: row.direction as ObligationDirection,
     amountMode: row.amountMode as ObligationAmountMode,
     status: row.status as ObligationOccurrenceStatus,
+    source: row.source as ObligationSource,
   }));
 }
 
@@ -319,22 +343,7 @@ export async function listUpcomingOccurrences(
  * @returns One row per open operating account, alphabetical by name.
  */
 export async function listOperatingBalances(): Promise<OperatingBalance[]> {
-  const rows = await db
-    .select({
-      accountId: accounts.id,
-      name: accounts.name,
-      institution: accounts.institution,
-      subtype: accounts.subtype,
-    })
-    .from(accounts)
-    // Closed accounts are excluded: a closed checking account pays no bills, and
-    // its stale final balance would inflate the opening balance of the walk.
-    .where(and(eq(accounts.type, "depository"), isNull(accounts.closedAt)))
-    .orderBy(asc(accounts.name));
-
-  const operating = rows.filter(
-    (row) => tierForSubtype(row.subtype as AccountSubtype | null) === "operating",
-  );
+  const operating = await listOperatingAccounts();
   if (operating.length === 0) return [];
 
   const balances = await latestBalances(operating.map((row) => row.accountId));
@@ -351,6 +360,38 @@ export async function listOperatingBalances(): Promise<OperatingBalance[]> {
       balanceAsOf: snapshot?.date ?? null,
     };
   });
+}
+
+/**
+ * The open operating-cash accounts, with no balance read (CF-A4).
+ *
+ * Split out of {@link listOperatingBalances} rather than copied: "operating
+ * cash" must mean one thing across this layer, and a second `tierForSubtype`
+ * filter is exactly how it comes to mean two. The liability-candidate loader
+ * needs the accounts and not their balances, and a snapshot read per review-page
+ * render for figures nothing displays is a cost with no buyer.
+ *
+ * @returns One row per open `depository` account whose subtype tiers as
+ *   `operating` (ADR-033 §1), alphabetical by name. A `NULL` subtype is never
+ *   guessed as checking, so an un-triaged account is absent here.
+ */
+export async function listOperatingAccounts(): Promise<OperatingAccountRow[]> {
+  const rows = await db
+    .select({
+      accountId: accounts.id,
+      name: accounts.name,
+      institution: accounts.institution,
+      subtype: accounts.subtype,
+    })
+    .from(accounts)
+    // Closed accounts are excluded: a closed checking account pays no bills, and
+    // its stale final balance would inflate the opening balance of the walk.
+    .where(and(eq(accounts.type, "depository"), isNull(accounts.closedAt)))
+    .orderBy(asc(accounts.name));
+
+  return rows
+    .filter((row) => tierForSubtype(row.subtype as AccountSubtype | null) === "operating")
+    .map((row) => ({ ...row, subtype: row.subtype as AccountSubtype }));
 }
 
 /**

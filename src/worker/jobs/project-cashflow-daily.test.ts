@@ -138,6 +138,7 @@ async function seedObligation(
     amountMode: "fixed",
     source: "detected",
     detectionKey: over.detectionKey === undefined ? "acme mortgage co" : over.detectionKey,
+    liabilityId: null,
     confidence: "high",
     notes: null,
   });

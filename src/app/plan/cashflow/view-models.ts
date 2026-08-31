@@ -2,6 +2,7 @@ import type {
   ObligationAmountMode,
   ObligationDirection,
   ObligationOccurrenceStatus,
+  ObligationSource,
 } from "@/db/schema/index.ts";
 import type {
   CashFlowDirection,
@@ -40,6 +41,8 @@ export interface OccurrenceInput {
   readonly status: ObligationOccurrenceStatus;
   /** What actually posted, when the sweep matched one. Signed as stored. */
   readonly matchedAmount: string | null;
+  /** Which door the obligation came through (ADR-047 §3). */
+  readonly source: ObligationSource;
 }
 
 /** One bill or receipt as the upcoming list renders it. */
@@ -56,6 +59,16 @@ export interface OccurrenceView {
   readonly status: ObligationOccurrenceStatus;
   /** True when the amount shown is what posted rather than what was expected. */
   readonly actual: boolean;
+  /**
+   * True when this bill came from stated loan terms rather than from bank text
+   * or a typed-in form (CF-A7).
+   *
+   * The list says so, because a household that never entered this bill by hand
+   * will otherwise wonder where it came from — and "you told us the loan terms"
+   * is a better answer than silence. It is also the row whose amount is most
+   * worth a second look, since escrow moves it.
+   */
+  readonly fromLoanTerms: boolean;
 }
 
 /** A week's worth of occurrences under one heading. */
@@ -222,6 +235,7 @@ function toOccurrenceView(row: OccurrenceInput, format: MoneyFormatter): Occurre
     amountMode: row.amountMode,
     status: row.status,
     actual,
+    fromLoanTerms: row.source === "liability",
   };
 }
 
