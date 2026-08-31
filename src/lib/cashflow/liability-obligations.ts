@@ -201,6 +201,17 @@ export interface LiabilityCandidate {
   readonly evidence: readonly LiabilityPaymentEvidence[];
   /** A raw description of the recognized series, or `null`. */
   readonly sampleName: string | null;
+  /**
+   * The `payeeKey` of the payments this proposal was priced from, or `null`
+   * when none were recognized.
+   *
+   * Carried for ONE purpose: the review page compares it against the detector's
+   * proposals to warn when both describe the same series (ADR-047 consequence
+   * 4). It is deliberately NOT what gets stored — a confirmed liability
+   * obligation writes `detection_key = NULL`, because the matcher matches on
+   * that column and a key here would leave the occurrence unmatchable.
+   */
+  readonly payeeKey: string | null;
 }
 
 export interface LiabilityCandidateInput {
@@ -217,6 +228,7 @@ export interface LiabilityCandidateInput {
 interface PaymentSeries {
   readonly key: string;
   readonly accountId: string;
+  readonly payeeKey: string;
   readonly name: string;
   readonly payments: readonly LiabilityPaymentEvidence[];
   readonly median: Money;
@@ -304,6 +316,7 @@ export function liabilityCandidates(input: LiabilityCandidateInput): LiabilityCa
       escrowCaveat: !hasObserved,
       evidence,
       sampleName: match?.name ?? null,
+      payeeKey: match?.payeeKey ?? null,
     });
   }
 
@@ -332,7 +345,10 @@ function buildSeries(
   operating: readonly PayingAccount[],
 ): PaymentSeries[] {
   const allowed = new Set(operating.map((account) => account.accountId));
-  const groups = new Map<string, { accountId: string; name: string; rows: ObservedOutflow[] }>();
+  const groups = new Map<
+    string,
+    { accountId: string; payeeKey: string; name: string; rows: ObservedOutflow[] }
+  >();
 
   for (const row of outflows) {
     if (!allowed.has(row.accountId)) continue;
@@ -347,7 +363,12 @@ function buildSeries(
     const key = `${row.accountId}\u0000${row.payeeKey}`;
     const group = groups.get(key);
     if (group === undefined) {
-      groups.set(key, { accountId: row.accountId, name: row.name, rows: [row] });
+      groups.set(key, {
+        accountId: row.accountId,
+        payeeKey: row.payeeKey,
+        name: row.name,
+        rows: [row],
+      });
     } else {
       group.rows.push(row);
     }
@@ -371,6 +392,7 @@ function buildSeries(
     out.push({
       key,
       accountId: group.accountId,
+      payeeKey: group.payeeKey,
       name: group.name,
       payments,
       median: Money.fromString(stability.median, CURRENCY),

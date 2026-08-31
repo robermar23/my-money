@@ -1,7 +1,12 @@
 // @vitest-environment node
 import { Money } from "@/lib/money/money.ts";
 import { describe, expect, it } from "vitest";
-import { type ObligationInput, expandObligationEvents } from "./events.ts";
+import {
+  type IncomeSourceInput,
+  type ObligationInput,
+  expandIncomeEvents,
+  expandObligationEvents,
+} from "./events.ts";
 import { projectDailyBalance } from "./project.ts";
 import { residualDailyRate } from "./residual.ts";
 
@@ -311,6 +316,174 @@ describe("no-double-count invariant (ADR-038 §2)", () => {
     const mortgage = Money.fromString("2150.00", CURRENCY);
     expect(
       excess.sub(mortgage).abs().compare(Money.fromString("0.31", CURRENCY)),
+    ).toBeLessThanOrEqual(0);
+  });
+});
+
+/* ── CF-C2: confirming a stated loan schedule RE-DATES, it never adds ─────── */
+
+describe("CF-C2 — a liability-sourced obligation moves spend rather than adding it", () => {
+  /**
+   * PLAN_CASHFLOW_GAPS §1's central claim, asserted (ADR-047).
+   *
+   * The mortgage was never missing from the projection. Unconfirmed, it is a
+   * transaction like any other: inside trailing observed spend, therefore inside
+   * the residual daily rate, therefore spread flat across every day of the
+   * horizon. What was wrong is that $2,150 which actually leaves on the 1st was
+   * being charged at ~$70/day for a month — so the low-water DATE was wrong,
+   * and the low-water date is the entire product of `/plan/cashflow`.
+   *
+   * Confirming the candidate must therefore leave the TOTAL untouched and move
+   * only the timing. Provenance never reaches these pure modules — a liability
+   * obligation is an `ObligationInput` like any other — and that is precisely
+   * what makes the guarantee structural rather than a rule someone remembers:
+   * the double-count is prevented by leaving `detection_key` NULL so the
+   * occurrence MATCHES (asserted end-to-end in liability-obligations.test.ts),
+   * which is what puts the payment into `attributed` here.
+   */
+
+  const MORTGAGE: ObligationInput = {
+    id: "ob-liability-mortgage",
+    label: "Sunwest Mortgage",
+    expectedAmount: "2150.00",
+    direction: "outflow",
+    // The mode a confirmed liability candidate carries once payments are seen.
+    amountMode: "trailing_median",
+    cadence: "monthly",
+    anchorDate: "2026-01-01",
+    startDate: "2020-01-01",
+    endDate: null,
+    active: true,
+  };
+
+  /** Total observed household spend in the observation month, mortgage included. */
+  const OBSERVED = "4500.00";
+
+  /** Project a month, given how much of the observed spend was attributed. */
+  function project(attributed: string, events: readonly ObligationInput[]) {
+    return projectDailyBalance({
+      from: PROJECTION.from,
+      to: PROJECTION.to,
+      openingBalance: "3000.00",
+      events: expandObligationEvents(events, PROJECTION.from, PROJECTION.to),
+      residual: residualDailyRate(OBSERVED, attributed, OBSERVATION.days),
+      cashFloor: "0.00",
+      status: "ok",
+      inputsUsed: [],
+    });
+  }
+
+  /** Before: nothing is dated, and the mortgage hides inside the flat rate. */
+  const before = project("0.00", []);
+  /** After: the occurrence matches, so the mortgage leaves the rate and is dated. */
+  const after = project("2150.00", [MORTGAGE]);
+
+  function totalOutflow(result: ReturnType<typeof project>): Money {
+    return Money.sum(
+      result.points.map((point) => Money.fromString(point.outflow, CURRENCY)),
+      CURRENCY,
+    );
+  }
+
+  it("does not change total projected outflow over the horizon", () => {
+    // The cent-level bound is the rate's truncation, not slack in the claim:
+    // both rates are floored to cents, so 31 days of them can differ from the
+    // exact figure by up to a cent a day. Asserting an exact equality would be
+    // asserting something that is not true, which is worse than a stated bound.
+    const drift = totalOutflow(after).sub(totalOutflow(before)).abs();
+    expect(drift.compare(Money.fromString("0.31", CURRENCY))).toBeLessThanOrEqual(0);
+  });
+
+  it("puts a cliff on the payment day that was not there before", () => {
+    // The whole point of confirming. Before, every day looks the same; after,
+    // one day carries the mortgage.
+    const rate = Money.fromString(
+      residualDailyRate(OBSERVED, "2150.00", OBSERVATION.days).dailyRate,
+      CURRENCY,
+    );
+    const first = after.points.find((point) => point.date === "2026-03-01");
+    expect(first).toBeDefined();
+
+    const dated = Money.fromString(first?.outflow ?? "0.00", CURRENCY).sub(rate);
+    expect(dated.toString()).toBe("2150.00");
+
+    // And no day of the un-confirmed projection carries anything but the rate.
+    for (const point of before.points) {
+      expect(point.outflow).toBe(residualDailyRate(OBSERVED, "0.00", OBSERVATION.days).dailyRate);
+    }
+  });
+
+  it("moves the low-water DATE, which is the defect being fixed", () => {
+    // The claim in one assertion. A household with no inflows has a
+    // monotonically falling line, so its low point is always the last day and
+    // the date can never move — which is exactly why this case adds paychecks.
+    // With income on the 1st and the 16th, the binding day is the one just
+    // before a payday, and where that lands depends entirely on WHEN the
+    // mortgage is charged.
+    const payroll: IncomeSourceInput = {
+      id: "inc-1",
+      name: "Paycheck",
+      cadence: "semimonthly",
+      anchorDate: "2026-03-01",
+      startDate: "2020-01-01",
+      endDate: null,
+      active: true,
+    };
+    const paychecks = expandIncomeEvents(
+      [payroll],
+      new Map([["inc-1", "2500.00"]]),
+      PROJECTION.from,
+      PROJECTION.to,
+    );
+    // Late in the month, so the two schedules genuinely bind on different days.
+    const lateMortgage: ObligationInput = { ...MORTGAGE, anchorDate: "2026-01-25" };
+
+    function withIncome(attributed: string, events: readonly ObligationInput[]) {
+      return projectDailyBalance({
+        from: PROJECTION.from,
+        to: PROJECTION.to,
+        openingBalance: "3000.00",
+        events: [...expandObligationEvents(events, PROJECTION.from, PROJECTION.to), ...paychecks],
+        residual: residualDailyRate(OBSERVED, attributed, OBSERVATION.days),
+        cashFloor: "0.00",
+        status: "ok",
+        inputsUsed: [],
+      });
+    }
+
+    const smeared = withIncome("0.00", []);
+    const dated = withIncome("2150.00", [lateMortgage]);
+
+    // Same total, different binding day — and the day is what a family plans
+    // around. This is the whole complaint, reduced to one inequality.
+    expect(dated.lowWaterMark?.date).not.toBe(smeared.lowWaterMark?.date);
+
+    const drift = Money.sum(
+      dated.points.map((point) => Money.fromString(point.outflow, CURRENCY)),
+      CURRENCY,
+    )
+      .sub(
+        Money.sum(
+          smeared.points.map((point) => Money.fromString(point.outflow, CURRENCY)),
+          CURRENCY,
+        ),
+      )
+      .abs();
+    expect(drift.compare(Money.fromString("0.31", CURRENCY))).toBeLessThanOrEqual(0);
+  });
+
+  it("CATCHES the double-count if the occurrence never matches", () => {
+    // The failure ADR-047 §4 exists to prevent, built by hand: a synthetic
+    // `detection_key` means the matcher pairs nothing, so `attributed` stays
+    // zero — the mortgage is left inside the flat rate AND dated on the 1st.
+    const doubleCounted = project("0.00", [MORTGAGE]);
+    const excess = totalOutflow(doubleCounted).sub(totalOutflow(before));
+
+    expect(
+      excess
+        .sub(Money.fromString("2150.00", CURRENCY))
+        .abs()
+        .compare(Money.fromString("0.31", CURRENCY)),
     ).toBeLessThanOrEqual(0);
   });
 });

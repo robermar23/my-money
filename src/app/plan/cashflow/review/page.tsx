@@ -117,7 +117,7 @@ export default async function CashFlowReviewPage(): Promise<React.JSX.Element> {
       date: payment.date,
       amountDisplay: money(payment.amount),
     })),
-    collision: collisionWarning(candidate.accountId, candidate.expectedAmount, candidates),
+    collision: collisionWarning(candidate.payeeKey, candidate.accountId, candidates),
   }));
 
   const obligationViews: ObligationView[] = obligations.map((obligation) => ({
@@ -183,17 +183,7 @@ function money(amount: string): string {
 }
 
 /**
- * How close a detected amount has to be before it might be the same payment.
- *
- * The matcher's own band for a `fixed` obligation (ADR-037 §6). Using the same
- * figure is deliberate: if the two amounts are close enough that ONE posted
- * transaction could satisfy either schedule, the household is at risk of having
- * the same money dated twice, and that is exactly what the warning is about.
- */
-const COLLISION_TOLERANCE_PCT = "0.15";
-
-/**
- * A sentence naming a detected suggestion that looks like this loan payment.
+ * A sentence naming a detected suggestion that IS this loan payment.
  *
  * ADR-047 cannot prevent the double-entry by structure — a detected series and a
  * stated loan schedule are two legitimately different rows, and there are real
@@ -201,43 +191,35 @@ const COLLISION_TOLERANCE_PCT = "0.15";
  * the rest of this surface takes: say what the app noticed, and let the person
  * who knows their own book decide.
  *
- * Computed on the server so no money arithmetic crosses to the browser
- * (CLAUDE.md §Money).
+ * ── Matched on the SERIES, not on the amount ───────────────────────────────
+ * The obvious rule — "a detected outflow on the same account for about the same
+ * money" — cries wolf, and the E2E fixture caught it doing so: rent at $1,850
+ * and a mortgage at $1,750 are within any tolerance loose enough to be useful,
+ * and they are plainly different bills. The only honest signal is IDENTITY: the
+ * detector proposed the very payments this proposal was priced from, which is
+ * an exact `payeeKey` comparison and cannot false-positive.
  *
- * @param accountId - The account the loan payment leaves, or `null` when the app
- *   cannot tell — in which case nothing is compared, because a collision on an
- *   unknown account is a guess about a guess.
- * @param expectedAmount - The proposed payment, as a `numeric` string.
+ * The cost of that strictness is stated rather than hidden: a loan whose
+ * payments were never recognized has no `payeeKey`, so no warning is possible.
+ * That is the case where the two rows are least likely to be the same money
+ * anyway — and a warning nobody can trust is worse than none.
+ *
+ * @param payeeKey - The series this loan proposal was priced from, or `null`.
+ * @param accountId - The account the payment leaves, or `null` when unknown.
  * @param candidates - The detector's current proposals.
- * @returns The warning, or `null` when nothing overlaps.
+ * @returns The warning, or `null` when nothing collides.
  */
 function collisionWarning(
+  payeeKey: string | null,
   accountId: string | null,
-  expectedAmount: string,
-  candidates: readonly {
-    accountId: string;
-    direction: string;
-    label: string;
-    expectedAmount: string;
-  }[],
+  candidates: readonly { accountId: string; payeeKey: string; label: string }[],
 ): string | null {
-  if (accountId === null) return null;
-
-  const expected = Money.fromString(expectedAmount, "USD").abs();
-  if (expected.isZero()) return null;
-  const tolerance = expected.mul(COLLISION_TOLERANCE_PCT);
+  if (payeeKey === null || accountId === null) return null;
 
   const overlapping = candidates.find(
-    (candidate) =>
-      candidate.accountId === accountId &&
-      candidate.direction === "outflow" &&
-      Money.fromString(candidate.expectedAmount, "USD")
-        .abs()
-        .sub(expected)
-        .abs()
-        .compare(tolerance) <= 0,
+    (candidate) => candidate.accountId === accountId && candidate.payeeKey === payeeKey,
   );
   if (overlapping === undefined) return null;
 
-  return `Your history also suggests “${overlapping.label}” on this account for about the same amount. If that is this loan payment, add one of them — not both, or the calendar will expect it twice.`;
+  return `Your history also suggests “${overlapping.label}” — the same payments this schedule was priced from. Add one of them, not both, or the calendar will expect this money twice.`;
 }

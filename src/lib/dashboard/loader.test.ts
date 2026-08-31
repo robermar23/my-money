@@ -302,6 +302,7 @@ function cashFlow(
     readonly coverage?: string | null;
     readonly occurrences?: CashFlowSnapshot["occurrences"];
     readonly candidateCount?: number;
+    readonly shortfallClose?: CashFlowSnapshot["shortfallClose"];
     readonly historyMonths?: number;
   } = {},
 ): CashFlowSnapshot {
@@ -332,6 +333,7 @@ function cashFlow(
     obligations: [],
     occurrences: over.occurrences ?? [],
     candidateCount: over.candidateCount ?? 0,
+    shortfallClose: over.shortfallClose ?? null,
     historyMonths: over.historyMonths ?? 14,
   };
 }

@@ -147,6 +147,49 @@ same series cannot appear twice.
 
 ---
 
+## Bills you already told the app about
+
+Detection guesses from bank text. A **loan** is the one bill whose schedule you
+have already stated: recording its terms gives the app the principal, the rate
+and the term, and the payment follows in closed form. Waiting to *recognize* a
+payment you already described is a strange thing for the app to do — so it does
+not (ADR-047).
+
+Every `loan` account with recorded terms proposes a schedule on
+**`/plan/cashflow/review`**, above the detector's suggestions and under its own
+heading. It is still a **suggestion**: nothing goes on the calendar until you
+click, on a fresh install or on an upgrade. There is no confidence grade on these
+rows, because nothing was guessed.
+
+**The amount prefers your own payments over the computed one, and that matters
+more than it sounds.** The closed-form figure is *principal and interest*. A real
+escrowed mortgage payment is materially larger — property tax, insurance, PMI
+ride along — and the matcher only accepts a posted payment within ±15% of what it
+expected. Expect P&I, watch a payment that is 25% bigger arrive, and the app
+would report that a bill *did not post* on a mortgage you paid on time. So:
+
+| What the app can see | What it proposes | What it says |
+|---|---|---|
+| Two or more matching payments in the last six months | Their median, priced as `varies` | Both figures side by side, so the gap — your escrow — is visible once |
+| No payments yet | Principal and interest | That escrow and PMI are **not** in the figure, and that you should correct it if you know better |
+
+Two more things it will not do. It **never guesses which account pays it** — if
+your own payments do not point at exactly one everyday account, the row asks you
+to pick. And it **never dates a payment it has no evidence for**: with no imported
+payments the schedule starts today rather than at the loan's origination, because
+back-dating six years of occurrences would report every one of them as a bill
+that did not post.
+
+If the detector has *also* proposed something that looks like the same payment,
+the row says so before you confirm. Both are legitimate rows and the app cannot
+tell them apart for you — but adding both would put the same money on the
+calendar twice.
+
+A confirmed loan schedule is marked **"from your loan terms"** wherever it
+appears, so a bill you never typed in by hand still explains itself.
+
+---
+
 ## The obligation lifecycle
 
 ```
@@ -290,6 +333,38 @@ The projection walks **operating cash only** — accounts whose subtype is
 An account with **no subtype set** is unclassified and contributes nothing —
 loudly, via the degraded state below, rather than silently.
 
+### What a shortfall means when your savings could close it
+
+The line stays exactly as described above: **savings never enters it**, and that
+is deliberate. A projection that quietly drew on the emergency fund could never
+tell you that you are overspending — it would run flat until the savings ran out
+and then fall off a cliff with no warning.
+
+But *reporting* a shortfall without looking at your savings was its own problem.
+"You are projected to run out of money on October 22" is one sentence serving two
+opposite situations: for a household with a funded emergency fund it over-alarms,
+and for one without it under-states a real problem. So the figure is unchanged and
+a **second sentence** now goes with it (ADR-048):
+
+| What the app can see | What it says | Alert |
+|---|---|---|
+| Savings ≥ the shortfall | A **timing** problem: what to move, by when, and what is left in savings afterwards | `info` — stated, never silenced |
+| Savings > 0 but less than the shortfall | What moving all of it still leaves you short | unchanged |
+| Savings accounts on file, and empty | A **solvency** problem, said plainly | unchanged |
+| Cash accounts still unclassified | That it cannot tell, and where to fix that | unchanged |
+
+A covered shortfall is graded down to `info` rather than suppressed. A household
+that raids its emergency fund every single month is technically fine every single
+month, and the repetition of a quiet alert is the only way that pattern becomes
+visible.
+
+Two things this page still will not tell you. It **states no emergency-fund
+target** — whether what remains is *enough* is [guidance](GUIDANCE.md)'s question,
+answered there against the full picture, and computing a second "how many months"
+here is how two numbers come to disagree on one screen. And it **moves no money**:
+there is no transfer button and never will be (this is a read-only tracker). What
+you get is a sentence about a number you already had.
+
 ### The two settings
 
 Both live at **`/settings/household`**, both are optional, and both default to a
@@ -336,7 +411,7 @@ Three types, all written by `project-cashflow-daily` and by nothing else.
 
 | Type | Fires when |
 |---|---|
-| `projected_shortfall` | The projection dips below your cash floor inside the horizon. Severity is `critical` if the balance actually goes negative, `warning` if it merely breaches your buffer — different sentences. |
+| `projected_shortfall` | The projection dips below your cash floor inside the horizon. Severity is `critical` if the balance actually goes negative, `warning` if it merely breaches your buffer — different sentences. It drops to `info` when your savings covers the gap, which is a timing problem rather than a crisis (ADR-048). |
 | `obligation_missed` | A confirmed occurrence's match window closed with nothing found. Fires for receipts too: a rent cheque that never arrived leaves the projection wrong in the optimistic direction. |
 | `obligation_amount_changed` | A matched bill posted for more than **5% or $5** off its expectation, whichever is larger. `trailing_median` obligations never fire — varying is what that mode means. |
 
@@ -427,6 +502,24 @@ attributed nothing.
 pays bills out of two checking accounts and transfers between them will see a
 correct total that hides a shortfall in one of them. Noted as a stated
 assumption; revisit if you actually operate that way.
+
+**Escrow is absorbed, not modelled.** A loan schedule priced from your own
+payments carries whatever escrow was in them, as one number. When the servicer
+re-analyses escrow — usually once a year — the payment steps, and the existing
+*"a recurring bill went up"* alert reports it; there is no tax-and-insurance
+breakdown behind it, and a payment shown as `varies` will not fire that alert at
+all. Modelling escrow properly is a phase, not a footnote.
+
+**A loan schedule with no imported payments is principal and interest only.** It
+will read low by the escrow, and the review row says so before you confirm.
+Correct the amount if you know it; otherwise it corrects itself once payments
+land.
+
+**A shortfall is classified against savings the app can see.** Reserve cash at an
+institution you have not added reads as *uncovered*, which is the app stating what
+it knows rather than what is true. Adding the account fixes it. Un-triaged cash is
+never counted as savings either — a `NULL` subtype might be a CD, or a second
+checking account already inside the line.
 
 **Plaid's recurring-streams endpoint is deliberately not used.** Local detection
 over data already on the box has zero egress and no per-Item cost, and ADR-033

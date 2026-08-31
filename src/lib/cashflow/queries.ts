@@ -32,7 +32,7 @@ import { and, asc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
  * layer inherits.
  *
  * ── Day-zero balances reuse the ONE balance query ──────────────────────────
- * {@link listOperatingBalances} calls `latestBalances` from
+ * {@link listCashBalancesByTier} calls `latestBalances` from
  * [advice/debt-terms.ts](../advice/debt-terms.ts) rather than writing its own
  * `DISTINCT ON (account_id)` over `account_snapshots`. That is ADR-036 §5's
  * one-implementation rule ("exactly one occurrence expander") applied to reads:
@@ -138,8 +138,8 @@ export interface OperatingAccountRow {
   readonly subtype: AccountSubtype;
 }
 
-/** An operating-cash account and its latest snapshot balance. */
-export interface OperatingBalance {
+/** A cash account and its latest snapshot balance. */
+export interface CashBalance {
   readonly accountId: string;
   readonly name: string;
   readonly institution: string;
@@ -147,6 +147,32 @@ export interface OperatingBalance {
   /** `null` when the account has never been snapshotted — never defaulted to zero. */
   readonly balance: string | null;
   readonly balanceAsOf: string | null;
+}
+
+/**
+ * An operating-cash account and its latest snapshot balance.
+ *
+ * The same shape as any other cash account; the name records which tier the
+ * caller asked for, and every existing call site reads better for keeping it.
+ */
+export type OperatingBalance = CashBalance;
+
+/** The household's cash, split by the tier its subtype puts it in. */
+export interface CashBalancesByTier {
+  /** `checking` / `cash_management` — what the projection walks (ADR-038 §6). */
+  readonly operating: readonly CashBalance[];
+  /** `savings` / `money_market` — the emergency fund (ADR-033 §1). */
+  readonly reserve: readonly CashBalance[];
+  /**
+   * Open cash accounts whose subtype is `NULL`.
+   *
+   * A count rather than a total, and deliberately so: an un-triaged balance is
+   * money the app cannot place, and totalling it would invite exactly the
+   * arithmetic ADR-033 §1 forbids. What the count supports is the honest
+   * sentence — *"some of your cash is not classified yet"* — and the link to
+   * the screen that fixes it.
+   */
+  readonly unclassifiedCount: number;
 }
 
 /**
@@ -328,38 +354,83 @@ export async function listUpcomingOccurrences(
 }
 
 /**
- * The operating-cash accounts and their day-zero balances (ADR-038 §6).
+ * The household's cash accounts and their latest balances, split by tier
+ * (ADR-038 §6 for operating, ADR-048 for reserve).
  *
- * Operating cash ONLY — `checking` and `cash_management`, decided by
- * `tierForSubtype` rather than by a subtype list repeated here. Savings, money
- * market and CDs are deliberately excluded: projecting them would make
- * safe-to-spend read as "you can spend your emergency fund", which is the
- * opposite of the advice the rest of the app gives.
+ * Tiering goes through the shipped `tierForSubtype` rather than a subtype list
+ * repeated here, so "operating cash" and "the emergency fund" mean exactly what
+ * ADR-033 §1 says they mean and cannot drift from what the cash-tier card shows.
+ *
+ * ── One read, two tiers, and why that is not the sketch CF-B3 drew ─────────
+ * PLAN_CASHFLOW_GAPS sketches a `listReserveBalances()` sibling of the old
+ * `listOperatingBalances()`. Two sibling functions would each run their own
+ * `DISTINCT ON (account_id)` pass over `account_snapshots` — a second snapshot
+ * read for a page that already does one, to answer a question about the same
+ * accounts. Splitting a single read is strictly cheaper and cannot produce two
+ * different opinions about the same balance, which is the property ADR-036 §5's
+ * one-implementation rule is actually protecting.
+ *
+ * ── The projection is NOT widened by this ──────────────────────────────────
+ * Returning the reserve tier here does not put it in the projection, and
+ * ADR-048 §2 is explicit that it must not: the walk reads `operating` only. A
+ * line that quietly absorbed savings could never tell a household it is
+ * overspending. The reserve is used for one derived SENTENCE about the number
+ * the line already produced.
  *
  * A `null` balance means the account has never been snapshotted. It is returned
  * as `null`, never as `"0.00"` — an unknown balance and an empty account are
  * different statements, and the second one is a lie that moves the number.
  *
- * @returns One row per open operating account, alphabetical by name.
+ * @returns Both tiers, alphabetical by name within each, plus how many open cash
+ *   accounts are still un-triaged. CDs are in neither list: breaking one costs a
+ *   penalty, so it is not same-day money for either purpose.
  */
-export async function listOperatingBalances(): Promise<OperatingBalance[]> {
-  const operating = await listOperatingAccounts();
-  if (operating.length === 0) return [];
+export async function listCashBalancesByTier(): Promise<CashBalancesByTier> {
+  const rows = await db
+    .select({
+      accountId: accounts.id,
+      name: accounts.name,
+      institution: accounts.institution,
+      subtype: accounts.subtype,
+    })
+    .from(accounts)
+    // Closed accounts are excluded: a closed checking account pays no bills, and
+    // its stale final balance would inflate the opening balance of the walk.
+    .where(and(eq(accounts.type, "depository"), isNull(accounts.closedAt)))
+    .orderBy(asc(accounts.name));
 
-  const balances = await latestBalances(operating.map((row) => row.accountId));
+  const tiered = rows.map((row) => ({
+    ...row,
+    tier: tierForSubtype(row.subtype as AccountSubtype | null),
+  }));
+  const wanted = tiered.filter((row) => row.tier === "operating" || row.tier === "reserve");
+  const unclassifiedCount = tiered.filter((row) => row.tier === "unclassified").length;
+
+  if (wanted.length === 0) return { operating: [], reserve: [], unclassifiedCount };
+
+  const balances = await latestBalances(wanted.map((row) => row.accountId));
   const byAccount = new Map(balances.map((row) => [row.accountId, row]));
 
-  return operating.map((row) => {
+  const withBalance = wanted.map((row) => {
     const snapshot = byAccount.get(row.accountId);
     return {
-      accountId: row.accountId,
-      name: row.name,
-      institution: row.institution,
-      subtype: row.subtype as AccountSubtype,
-      balance: snapshot?.balance ?? null,
-      balanceAsOf: snapshot?.date ?? null,
+      tier: row.tier,
+      account: {
+        accountId: row.accountId,
+        name: row.name,
+        institution: row.institution,
+        subtype: row.subtype as AccountSubtype,
+        balance: snapshot?.balance ?? null,
+        balanceAsOf: snapshot?.date ?? null,
+      },
     };
   });
+
+  return {
+    operating: withBalance.filter((row) => row.tier === "operating").map((row) => row.account),
+    reserve: withBalance.filter((row) => row.tier === "reserve").map((row) => row.account),
+    unclassifiedCount,
+  };
 }
 
 /**

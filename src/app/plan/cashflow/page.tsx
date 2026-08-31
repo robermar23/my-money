@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { loadCashFlow } from "@/lib/cashflow/loader.ts";
+import type { ShortfallClose } from "@/lib/cashflow/shortfall-close.ts";
 import { STATED_FIGURE_STATUSES } from "@/lib/cashflow/status.ts";
 import { Money } from "@/lib/money/money.ts";
 import type { Metadata } from "next";
@@ -104,6 +105,7 @@ export default async function CashFlowPage(): Promise<React.JSX.Element> {
               to={snapshot.to}
               coverage={projection.coverage}
               runRateOnly={projection.status === "run_rate_only"}
+              close={snapshot.shortfallClose}
             />
           )}
 
@@ -173,6 +175,8 @@ interface HeadlineProps {
   readonly to: string;
   readonly coverage: string | null;
   readonly runRateOnly: boolean;
+  /** What would close the shortfall, when there is one (ADR-048). */
+  readonly close: ShortfallClose | null;
 }
 
 /**
@@ -190,6 +194,7 @@ function Headline({
   to,
   coverage,
   runRateOnly,
+  close,
 }: HeadlineProps): React.JSX.Element {
   const floor = Money.fromString(safeToSpend.floor, CURRENCY);
   const hasFloor = !floor.isZero();
@@ -214,10 +219,7 @@ function Headline({
                 ? `You are projected to be ${money(safeToSpend.shortfall ?? "0.00")} below your ${floor.format()} cushion on ${longDate(lowWater.date)}, when your balance reaches ${money(lowWater.balance)}.`
                 : `You are projected to run out of money on ${longDate(lowWater.date)}, reaching ${money(lowWater.balance)}.`}
           </p>
-          <p className="mt-2 max-w-2xl text-sm text-zinc-500">
-            That is before any extra spending. Moving a bill, or moving money in before then, is
-            what closes it.
-          </p>
+          <ShortfallClosing close={close} by={lowWater?.date ?? null} />
         </>
       ) : (
         <>
@@ -248,6 +250,105 @@ function Headline({
         )}
       </p>
     </section>
+  );
+}
+
+/**
+ * What would actually close the shortfall (P16-34 revised, ADR-048).
+ *
+ * The line this replaces named the fix — *"moving money in before then"* —
+ * **without checking whether the household could perform it**, which is the
+ * difference between advice and a slogan. One display was serving two opposite
+ * situations: for a family with a funded emergency fund it over-alarmed, and for
+ * one without it under-stated a real solvency problem.
+ *
+ * Four branches, because there are four different sentences:
+ *
+ *   - **covered** — a TIMING problem. Name the transfer, the date, and what is
+ *     left afterwards, so the household can act today.
+ *   - **partly covered** — the reserve helps and does not finish. What is still
+ *     short is the number that matters, so it is the one in the sentence.
+ *   - **uncovered** — a SOLVENCY problem, and the app says so plainly rather
+ *     than gesturing at money that is not there.
+ *   - **reserve unknown** — the app does not know where the cash sits, so it
+ *     refuses to guess (ADR-033 §1) and links to the screen that fixes it.
+ *
+ * ── What this deliberately does not say ────────────────────────────────────
+ * **No emergency-fund target.** Whether what remains is still *enough* is
+ * `/plan`'s question, answered there against a full `AdviceInput`; computing a
+ * second "how many months" here is how two numbers come to disagree on one
+ * screen (ADR-048 §5). **No transfer button, and no offer to make one** — money
+ * movement is permanently out of scope. This is a sentence about a number, not
+ * an instruction.
+ */
+function ShortfallClosing({
+  close,
+  by,
+}: {
+  readonly close: ShortfallClose | null;
+  readonly by: string | null;
+}): React.JSX.Element {
+  const deadline = by === null ? "then" : longDate(by);
+
+  // No classification: the projection is short but nobody asked what covers it.
+  // The original sentence, which is true in every case and useful in none of
+  // them — the honest fallback rather than a guess about the reserve.
+  if (close === null) {
+    return (
+      <p className="mt-2 max-w-2xl text-sm text-zinc-500">
+        That is before any extra spending. Moving a bill, or moving money in before then, is what
+        closes it.
+      </p>
+    );
+  }
+
+  if (close.kind === "reserve_unknown") {
+    return (
+      <p className="mt-2 max-w-2xl text-sm text-zinc-500">
+        {close.unclassifiedCount === 1
+          ? "One of your cash accounts is not classified yet"
+          : `${close.unclassifiedCount} of your cash accounts are not classified yet`}
+        , so this page cannot tell whether your savings would cover this.{" "}
+        <Link href="/accounts" className="underline">
+          Say which accounts are savings
+        </Link>{" "}
+        and it will.
+      </p>
+    );
+  }
+
+  if (close.kind === "uncovered") {
+    return (
+      <p className="mt-2 max-w-2xl text-sm text-zinc-500">
+        {close.reserveAccountCount === 0
+          ? "No savings account is set up here, so there is nothing on file to move in."
+          : "Your savings accounts have nothing in them to move across."}{" "}
+        Closing this needs a bill to move, spending to come down, or money from somewhere this app
+        does not track.
+      </p>
+    );
+  }
+
+  if (close.kind === "partly_covered") {
+    return (
+      <p className="mt-2 max-w-2xl text-sm text-zinc-500">
+        Your savings would help but not finish it: moving all {money(close.reserveTotal)} in before{" "}
+        {deadline} still leaves you {money(close.stillShort)} short. A bill has to move, or spending
+        has to come down.
+      </p>
+    );
+  }
+
+  return (
+    <p className="mt-2 max-w-2xl text-sm text-zinc-500">
+      Your savings covers this. Moving {money(close.transferAmount)} in before {deadline} keeps you
+      above the line, and leaves {money(close.remainingAfterTransfer)} of your{" "}
+      {money(close.reserveTotal)} in savings.{" "}
+      <Link href="/plan" className="underline">
+        Whether that is still enough
+      </Link>{" "}
+      is a separate question.
+    </p>
   );
 }
 

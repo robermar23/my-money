@@ -20,8 +20,9 @@ import {
 } from "./events.ts";
 import { projectDailyBalance } from "./project.ts";
 import type { ObligationRow, OperatingBalance, UpcomingOccurrence } from "./queries.ts";
-import { listObligations, listOperatingBalances, listUpcomingOccurrences } from "./queries.ts";
+import { listCashBalancesByTier, listObligations, listUpcomingOccurrences } from "./queries.ts";
 import { residualDailyRate } from "./residual.ts";
+import { type ShortfallClose, classifyShortfall } from "./shortfall-close.ts";
 import { projectionStatus } from "./status.ts";
 import type { ProjectionResult } from "./types.ts";
 
@@ -116,6 +117,17 @@ export interface CashFlowSnapshot {
   /** Detected candidates awaiting review; `0` unless the count was needed. */
   readonly candidateCount: number;
   /**
+   * What would close the projected shortfall, or `null` when there is not one
+   * (ADR-048).
+   *
+   * A SECOND SENTENCE about `projection.safeToSpend.shortfall`, never a second
+   * number. Nothing here entered the walk: the projected line, the low-water
+   * mark and safe-to-spend are byte-identical to what they were before this
+   * field existed, and ADR-038 §6 requires that they stay that way — a line that
+   * quietly absorbed savings could never say the household is overspending.
+   */
+  readonly shortfallClose: ShortfallClose | null;
+  /**
    * Whole months of transaction history behind the rate.
    *
    * Carried on the snapshot rather than left inside `inputsUsed` so the page can
@@ -139,13 +151,16 @@ export async function loadCashFlow(options: LoadCashFlowOptions = {}): Promise<C
   const now = options.now ?? new Date();
   const today = options.today ?? isoDate(now);
 
-  const [household, operating, obligations, income, earliestTxn] = await Promise.all([
+  const [household, cash, obligations, income, earliestTxn] = await Promise.all([
     loadHousehold(),
-    listOperatingBalances(),
+    listCashBalancesByTier(),
     listObligations({ includeInactive: true }),
     loadIncomeSettings(),
     earliestTransactionDate(),
   ]);
+  // Operating cash is what the projection walks — ADR-038 §6, unchanged. The
+  // reserve travels beside it and never enters the walk.
+  const operating = cash.operating;
 
   const cashFloor = household.profile?.cashFloor ?? DEFAULT_CASH_FLOOR;
   const horizonDays = household.profile?.projectionHorizonDays ?? DEFAULT_PROJECTION_HORIZON_DAYS;
@@ -304,8 +319,50 @@ export async function loadCashFlow(options: LoadCashFlowOptions = {}): Promise<C
     obligations,
     occurrences: horizonOccurrences,
     candidateCount,
+    shortfallClose: shortfallCloseFor(projection, cash),
     historyMonths,
   };
+}
+
+/**
+ * Classify the shortfall against reserve cash, if there is a shortfall to
+ * classify (ADR-048).
+ *
+ * Gated on `STATED_FIGURE_STATUSES` through the projection's own clamp: a rung
+ * too thin to print a figure from is too thin to say anything about closing it,
+ * and `insufficient_history` zeroes the discretionary rate, so its "shortfall"
+ * would be a fact about a projection the app has already labelled untrustworthy.
+ *
+ * An unsnapshotted reserve account contributes NOTHING rather than zero — the
+ * same rule day zero follows above, and for the same reason: an unknown balance
+ * and an empty account are different statements, and treating the first as the
+ * second would tell a household their shortfall is uncovered when it may not be.
+ *
+ * @param projection - The completed projection. Read, never modified.
+ * @param cash - Both cash tiers and the un-triaged count.
+ * @returns The classification, or `null` when the projection is not short.
+ */
+function shortfallCloseFor(
+  projection: ProjectionResult,
+  cash: { readonly reserve: readonly OperatingBalance[]; readonly unclassifiedCount: number },
+): ShortfallClose | null {
+  const { shortfall, clampedAtZero } = projection.safeToSpend;
+  if (!clampedAtZero || shortfall === null) return null;
+
+  let reserveTotal = Money.zero(CURRENCY);
+  let reserveAccountCount = 0;
+  for (const account of cash.reserve) {
+    if (account.balance === null) continue;
+    reserveTotal = reserveTotal.add(Money.fromString(account.balance, CURRENCY));
+    reserveAccountCount += 1;
+  }
+
+  return classifyShortfall({
+    shortfall,
+    reserveTotal: reserveTotal.toString(),
+    reserveAccountCount,
+    unclassifiedCount: cash.unclassifiedCount,
+  });
 }
 
 /**

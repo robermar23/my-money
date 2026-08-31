@@ -36,6 +36,18 @@ import postgres from "postgres";
  *      computations, which is the failure that design exists to prevent. The
  *      figure is scraped off the page and asserted verbatim on the card.
  *
+ * A fifth assertion arrives with CF-C1..C3 (ADR-047), extending this flow
+ * rather than opening a fourth one — CLAUDE.md caps the Playwright suite at
+ * three critical paths, and this IS the cash-flow path:
+ *
+ *   5. **A bill the app was already told about gets dated too.** The household
+ *      recorded its loan terms, so the calendar proposes the payment without
+ *      waiting to recognize it in bank text — pre-filled from the household's
+ *      OWN payments rather than from principal-and-interest, because escrow
+ *      makes those differ by more than the matcher's tolerance. Confirming it
+ *      must again MOVE money onto a date rather than add any, which is the same
+ *      invariant as (3) arriving through a different door.
+ *
  * Nothing here touches the network: the cash-flow layer has no egress by
  * construction (see privacy-egress.test.ts), and no prices are needed because
  * the projection walks operating cash only.
@@ -72,6 +84,8 @@ function monthsBack(n: number, day: number): string {
 
 const checkingId = randomUUID();
 const sourceId = randomUUID();
+const loanAccountId = randomUUID();
+const liabilityId = randomUUID();
 
 const rentCategoryId = randomUUID();
 const groceriesId = randomUUID();
@@ -91,6 +105,23 @@ const HISTORY_MONTHS = 7;
 /** The landlord, spelled identically every month — this is what groups. */
 const RENT_PAYEE = "RAVENSWOOD PROPERTY MGMT";
 const RENT_AMOUNT = "-1850.00";
+
+/**
+ * The mortgage: stated terms AND observed payments, deliberately disagreeing.
+ *
+ * $250,000 at 5.5% over 360 months is **$1,419.48** of principal and interest,
+ * and the payments that actually leave the account are **$1,750.00** — the
+ * $330.52 difference is escrow, and it is 23% of P&I, comfortably outside the
+ * matcher's ±15% band. That gap is the entire reason ADR-047 §6 prefers the
+ * observed figure: propose P&I here and the sweep would report a bill that did
+ * not post, every month, on a mortgage paid on time.
+ *
+ * Five payments rather than six, so every one of them sits comfortably inside
+ * the six-month observation window whatever day of the month the suite runs.
+ */
+const MORTGAGE_PAYEE = "SUNWEST MTG ACH PMT";
+const MORTGAGE_AMOUNT = "-1750.00";
+const MORTGAGE_MONTHS = 5;
 
 /** The headline figure on `/plan/cashflow`, as rendered — e.g. `"$4,612.40"`. */
 async function headlineFigure(page: Page): Promise<string> {
@@ -127,7 +158,7 @@ test.describe("phase 16: a detected bill becomes a date, and a number", () => {
       await sql.unsafe(`TRUNCATE
         users, accounts, account_snapshots, transactions, categories, category_groups,
         household_profile, household_members, recommendation_dismissals,
-        income_sources, scheduled_obligations, obligation_occurrences, alerts
+        income_sources, liabilities, scheduled_obligations, obligation_occurrences, alerts
         CASCADE`);
 
       // ── The operating account ───────────────────────────────────────────
@@ -143,6 +174,20 @@ test.describe("phase 16: a detected bill becomes a date, and a number", () => {
       await sql`
         INSERT INTO account_snapshots (account_id, date, balance)
         VALUES (${checkingId}, ${daysAgo(0)}, '9500.00')
+      `;
+
+      // ── The loan, and the terms the household stated ────────────────────
+      // A `liabilities` row is what makes this bill knowable without the app
+      // having to recognize the servicer's descriptor first (ADR-047).
+      await sql`
+        INSERT INTO accounts (id, name, institution, type, currency)
+        VALUES (${loanAccountId}, 'Home Mortgage', 'Sunwest', 'loan', 'USD')
+      `;
+      await sql`
+        INSERT INTO liabilities
+          (id, account_id, name, principal_at_origination, annual_rate, term_months, start_date)
+        VALUES (${liabilityId}, ${loanAccountId}, 'Sunwest Mortgage',
+                '250000.00', '0.055000', 360, ${monthsBack(72, 1)})
       `;
 
       // ── Categories ──────────────────────────────────────────────────────
@@ -193,6 +238,17 @@ test.describe("phase 16: a detected bill becomes a date, and a number", () => {
           name: "ACME CORP PAYROLL",
           category: salaryId,
         });
+        // The mortgage, on the 5th, at the ESCROWED amount — what the bank
+        // actually took, not what the amortization formula says.
+        if (i <= MORTGAGE_MONTHS) {
+          rows.push({
+            id: randomUUID(),
+            date: monthsBack(i, 5),
+            amount: MORTGAGE_AMOUNT,
+            name: `${MORTGAGE_PAYEE} ${2000 + i}`,
+            category: rentCategoryId,
+          });
+        }
         // Two irregular grocery runs a month, at three different stores.
         rows.push({
           id: randomUUID(),
@@ -268,7 +324,13 @@ test.describe("phase 16: a detected bill becomes a date, and a number", () => {
     // The landlord is found by grouping the user's own payee strings — the
     // month-varying reference number (`… 1007`) is normalized away, which is
     // the whole reason seven differently-suffixed charges are one series.
-    const rentRow = page
+    // Scoped to the detector's own section. The loan proposal above it names
+    // the landlord too when it collides, and an unscoped `li` lookup would
+    // resolve to whichever came first in the DOM.
+    const suggestions = page
+      .locator("section")
+      .filter({ has: page.getByRole("heading", { name: "Suggestions" }) });
+    const rentRow = suggestions
       .locator("li")
       .filter({ hasText: new RegExp(RENT_PAYEE, "i") })
       .first();
@@ -362,7 +424,79 @@ test.describe("phase 16: a detected bill becomes a date, and a number", () => {
       .filter({ has: page.getByRole("heading", { name: "What is coming" }) });
     await expect(upcoming.getByText(new RegExp(RENT_PAYEE, "i")).first()).toBeVisible();
 
-    // ── 7. The dashboard agrees, to the cent ────────────────────────────────
+    // ── 7. A bill the app was ALREADY TOLD about (ADR-047) ──────────────────
+    // Everything above was learned by guessing at bank text. The mortgage is the
+    // one bill whose schedule the household stated outright, and waiting to
+    // recognize a payment it already described is a strange thing for the app to
+    // do. Keep the figure first: like the rent, the mortgage is currently inside
+    // the flat spending rate and nowhere else.
+    const beforeLoan = await safeToSpend(page);
+
+    await page.goto("/plan/cashflow/review");
+    const loanSection = page
+      .locator("section")
+      .filter({ has: page.getByRole("heading", { name: "From your loan terms" }) });
+    await expect(loanSection).toBeVisible();
+
+    const loanRow = loanSection
+      .locator("li")
+      .filter({ hasText: /Sunwest Mortgage/i })
+      .first();
+    await expect(loanRow).toBeVisible();
+
+    // The proposal is the household's OWN payment, and principal-and-interest
+    // is shown beside it rather than instead of it — the gap between the two is
+    // their escrow, and this is where they get to see it (ADR-047 §6).
+    await expect(loanRow).toContainText("$1,750.00");
+    await expect(loanRow).toContainText(/principal and interest/i);
+    await expect(loanRow).toContainText(`across ${MORTGAGE_MONTHS} payments`);
+    // Payments were observed, so the P&I-only caveat is NOT shown.
+    await expect(loanRow).not.toContainText(/property tax, insurance and PMI are not in it/i);
+
+    // The detector found this series too — a legitimately different row, which
+    // nothing structural can merge. So the app discloses it before the click
+    // rather than letting the household date the same money twice.
+    await expect(loanRow).toContainText(/not both/i);
+
+    await loanRow.getByRole("button", { name: "Add to calendar" }).click();
+    await expect(
+      page
+        .locator("section")
+        .filter({ has: page.getByRole("heading", { name: "Confirmed bills" }) })
+        .getByText(/Sunwest Mortgage/i)
+        .first(),
+    ).toBeVisible();
+
+    execSync(
+      "node --import tsx --import ./scripts/loaders/register.mjs src/worker/run-once.ts project-cashflow-daily",
+      {
+        cwd: process.cwd(),
+        env: { ...process.env, DATABASE_URL: databaseUrl() },
+        stdio: "inherit",
+      },
+    );
+
+    // The bill is on the calendar, and it explains where it came from — a
+    // household that never typed this in by hand should not have to wonder.
+    await page.goto("/plan/cashflow");
+    const withLoan = page
+      .locator("section")
+      .filter({ has: page.getByRole("heading", { name: "What is coming" }) });
+    await expect(withLoan.getByText(/Sunwest Mortgage/i).first()).toBeVisible();
+    await expect(withLoan.getByText(/from your loan terms/i).first()).toBeVisible();
+
+    // THE SAME INVARIANT, through the new door. The mortgage was already inside
+    // observed spend, so confirming it must RE-DATE that money rather than add
+    // it. A `liability_id` overloaded into `detection_key` would make the
+    // occurrence unmatchable, leave the payment in the rate, and cost the
+    // household ~$3,500 of headroom it never lost.
+    const afterLoan = await safeToSpend(page);
+    expect(
+      afterLoan,
+      `confirming a stated loan schedule cost $${(beforeLoan - afterLoan).toFixed(2)} — that is a double-count, not a projection`,
+    ).toBeGreaterThan(beforeLoan - 1750);
+
+    // ── 8. The dashboard agrees, to the cent ────────────────────────────────
     const figure = (await headlineFigure(page)).trim();
     expect(figure).toMatch(/^\$[\d,]+\.\d{2}$/);
 

@@ -7,6 +7,7 @@ import { listOpenAlerts } from "@/lib/alerts/queries.ts";
 import { spendingSummary } from "@/lib/analytics/spending.ts";
 import { budgetVsActual, monthRange } from "@/lib/budgets/queries.ts";
 import { type CashFlowSnapshot, loadCashFlow } from "@/lib/cashflow/loader.ts";
+import type { ShortfallClose } from "@/lib/cashflow/shortfall-close.ts";
 import { MIN_HISTORY_MONTHS } from "@/lib/cashflow/status.ts";
 import { savingsRateInputs } from "@/lib/income/queries.ts";
 import { savingsRate } from "@/lib/income/savings-rate.ts";
@@ -260,6 +261,12 @@ export type CashFlowCard =
       readonly lowWater: { readonly date: string; readonly balance: string } | null;
       /** Decimal fraction in [0,1]; `null` = nothing to measure (never the same as 0). */
       readonly coverage: string | null;
+      /**
+       * What would close the shortfall, or `null` when there is not one
+       * (ADR-048). The card says it in one clause; `/plan/cashflow` says it in
+       * full. Neither of them changes the figure.
+       */
+      readonly shortfallClose: ShortfallClose | null;
       /** Suggestions waiting, for the run-rate-only fix link. */
       readonly candidateCount: number;
       /** The next occurrence still expected to move money, or `null`. */
@@ -643,6 +650,7 @@ function buildCashFlow(snapshot: CashFlowSnapshot): CashFlowCard {
     safeToSpend: projection.safeToSpend.amount,
     clampedAtZero: projection.safeToSpend.clampedAtZero,
     shortfall: projection.safeToSpend.shortfall,
+    shortfallClose: snapshot.shortfallClose,
     floor: projection.safeToSpend.floor,
     horizonDays: projection.horizonDays,
     lowWater: projection.lowWaterMark,
