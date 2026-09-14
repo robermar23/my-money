@@ -1,3 +1,4 @@
+import type { ShortfallClose } from "@/lib/cashflow/shortfall-close.ts";
 import type { CashFlowCard as CashFlowCardData } from "@/lib/dashboard/loader.ts";
 import { Money } from "@/lib/money/money.ts";
 import { DashboardCard } from "./card.tsx";
@@ -44,6 +45,32 @@ function percent(fraction: string): string {
   return `${Math.round(Number(fraction) * 100)}%`;
 }
 
+/**
+ * One clause on what would close the gap (CF-B6, ADR-048).
+ *
+ * The same four cases `/plan/cashflow` renders, in a card's worth of words. The
+ * card's job is to say whether this is a *timing* problem or a *solvency* one —
+ * the amounts, the date and the caveats belong on the page the deep link goes
+ * to. It states no emergency-fund target, for the reason ADR-048 §5 gives.
+ *
+ * @param close - The classification, or `null` when nobody asked.
+ * @param currency - For formatting the one figure a clause may carry.
+ * @returns A sentence, or the empty string when there is nothing to add.
+ */
+function closingClause(close: ShortfallClose | null, currency: string): string {
+  if (close === null) return "";
+  switch (close.kind) {
+    case "covered":
+      return "Your savings covers it.";
+    case "partly_covered":
+      return `Your savings leaves ${Money.fromString(close.stillShort, currency).format()} of it uncovered.`;
+    case "uncovered":
+      return "There is no savings on file to cover it.";
+    case "reserve_unknown":
+      return "Classify your cash accounts to see whether savings covers it.";
+  }
+}
+
 /** `"2026-07-14"` → `"July 14"`, in UTC so a calendar date never shifts a day. */
 function dayLabel(iso: string): string {
   return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
@@ -85,7 +112,16 @@ export function CashFlowCard({
     >
       {data.clampedAtZero ? (
         <>
-          <div className="font-mono text-2xl text-red-600 tabular-nums dark:text-red-400">
+          {/* CF-B6: a gap the emergency fund covers is a timing problem, and a
+              red figure on the landing page says "crisis". The number is the
+              same either way — only how loudly it is stated changes. */}
+          <div
+            className={`font-mono text-2xl tabular-nums ${
+              data.shortfallClose?.kind === "covered"
+                ? "text-amber-700 dark:text-amber-400"
+                : "text-red-600 dark:text-red-400"
+            }`}
+          >
             {data.shortfall === null
               ? "Short"
               : `− ${Money.fromString(data.shortfall, currency).format()}`}
@@ -95,7 +131,8 @@ export function CashFlowCard({
               ? `You are projected to fall below your cushion within ${data.horizonDays} days.`
               : `That is how far below ${
                   hasFloor ? `your ${floor.format()} cushion` : "empty"
-                } you are projected to go on ${dayLabel(data.lowWater.date)}.`}
+                } you are projected to go on ${dayLabel(data.lowWater.date)}.`}{" "}
+            {closingClause(data.shortfallClose, currency)}
           </p>
         </>
       ) : (

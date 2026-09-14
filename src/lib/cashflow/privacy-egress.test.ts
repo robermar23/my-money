@@ -173,6 +173,13 @@ describe("P16-36 — the cash-flow layer imports nothing that could reach the ne
     "@/lib/income/queries.ts",
     "@/lib/income/schedule.ts",
     "@/lib/money/money.ts",
+    // CF-A2 / ADR-047. Closed-form amortization over terms the user typed in —
+    // no rate feed, no servicer lookup, no quote service. It is the same
+    // function the advice layer has called for the minimum payment since Phase
+    // 15, and it is arithmetic: `monthlyPayment` and `balanceAtMonth` take a
+    // principal, a rate and a term and return Decimal math. If a future edit
+    // ever gives this module a network shape, that is what this entry is for.
+    "@/lib/mortgage/amortization.ts",
     "@/lib/schedule/cadence.ts",
     "@/lib/schedule/occurrences.ts",
   ];
@@ -191,6 +198,8 @@ describe("P16-36 — the cash-flow layer imports nothing that could reach the ne
       "safe-to-spend.ts", // the number on the dashboard
       "loader.ts", // the one DB-reading assembly point
       "alerts.ts", // the three new alert types
+      "liability-obligations.ts", // the stated loan schedule (CF-A2)
+      "shortfall-close.ts", // the reserve classification (CF-B1)
     ]) {
       expect(
         paths.some((p) => p.endsWith(expected)),
@@ -282,10 +291,20 @@ describe("P16-36 — the detector recognizes no vendor", () => {
    * up here.
    */
   it("carries no merchant, biller or vendor vocabulary", () => {
-    for (const path of [join(CASHFLOW_DIR, "payee-key.ts"), NORMALIZE]) {
+    // `liability-obligations.ts` joins the list at CF-C1. It is the newest place
+    // a vocabulary would be tempting — "these are the twenty big mortgage
+    // servicers" would improve the match rate, and would also be a hard-coded
+    // list of who this household banks with, one edit away from becoming a
+    // lookup. What that module actually matches on is an AMOUNT band around
+    // arithmetic over terms the user typed in, which needs no directory at all.
+    for (const path of [
+      join(CASHFLOW_DIR, "payee-key.ts"),
+      join(CASHFLOW_DIR, "liability-obligations.ts"),
+      NORMALIZE,
+    ]) {
       const src = code(path);
       expect(src, `${path} names a vendor table`).not.toMatch(
-        /\b(?:MERCHANTS?|BILLERS?|VENDORS?|BRANDS?|KNOWN_PAYEES?)\b/,
+        /\b(?:MERCHANTS?|BILLERS?|VENDORS?|BRANDS?|KNOWN_PAYEES?|SERVICERS?|LENDERS?)\b/,
       );
       // A local directory would be data, and data of that size arrives as an
       // import — the allowlist above forbids a new one, and this forbids the

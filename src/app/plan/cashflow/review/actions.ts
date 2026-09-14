@@ -6,6 +6,8 @@ import {
   CANDIDATE_DISMISSAL_RULE_ID,
   candidateSubjectKey,
   findCandidate,
+  findLiabilityCandidate,
+  liabilitySubjectKey,
 } from "@/lib/cashflow/candidate-loader.ts";
 import {
   DEFAULT_PROJECTION_HORIZON_DAYS,
@@ -21,8 +23,10 @@ import {
 import { loadHousehold } from "@/lib/household/queries.ts";
 import {
   confirmCandidateSchema,
+  confirmLiabilityCandidateSchema,
   deactivateObligationSchema,
   dismissCandidateSchema,
+  dismissLiabilityCandidateSchema,
   obligationSchema,
 } from "@/lib/schemas/cashflow.ts";
 import { revalidatePath } from "next/cache";
@@ -181,6 +185,8 @@ export async function confirmCandidateAction(
       amountMode: parsed.data.amountMode,
       source: "detected",
       detectionKey: parsed.data.detectionKey,
+      // A detected series is proposed by bank text, not by stated loan terms.
+      liabilityId: null,
       // From the SERVER's candidate, never from the form — see the file header.
       confidence: candidate.confidence,
       notes: null,
@@ -268,6 +274,179 @@ export async function restoreCandidateAction(
   return { ok: true };
 }
 
+/* --------------------------------------------------- liability candidates */
+
+/**
+ * Confirm a schedule proposed from stated loan terms (CF-A5, ADR-047).
+ *
+ * The same preview → confirm boundary the detected path uses, and the same
+ * division of labour: **the form supplies the user's EDITS, the server supplies
+ * the PROVENANCE.** Only four fields cross from the browser — name, amount,
+ * category, and which account the money leaves — and every one of them is
+ * something a person could reasonably disagree with. The cadence, the anchor,
+ * the start date and `amount_mode` are re-derived here from the household's own
+ * loan terms and payments, so a hand-crafted POST cannot assert a schedule the
+ * app never proposed.
+ *
+ * Two guards worth naming:
+ *
+ *   1. **The account must be one the candidate itself offered.** A uuid that
+ *      parses is not a checking account the household could pay from, and
+ *      attaching the largest bill in the month to the wrong balance moves the
+ *      low-water date — which is the one number this whole surface exists to
+ *      state.
+ *   2. **`detection_key` is written NULL, on purpose** (ADR-047 §4). The matcher
+ *      matches on that column; a synthetic key would match no transaction that
+ *      will ever exist, so the occurrence would stay unmatched and the residual
+ *      would keep the payment inside the flat daily rate while the calendar
+ *      also dated it. Confirming here must RE-DATE spend the projection already
+ *      contained, never add any.
+ *
+ * @param _prev - Previous action state (unused; required by useActionState).
+ * @param formData - The loan's identity plus the four editable fields.
+ * @returns `ok` with the new id, or a user-facing `error`.
+ */
+export async function confirmLiabilityCandidateAction(
+  _prev: CashFlowActionResult,
+  formData: FormData,
+): Promise<CashFlowActionResult> {
+  await requireUser();
+
+  const parsed = confirmLiabilityCandidateSchema.safeParse({
+    liabilityId: field(formData, "liabilityId"),
+    accountId: field(formData, "accountId"),
+    categoryId: field(formData, "categoryId") ?? "",
+    label: field(formData, "label"),
+    expectedAmount: field(formData, "expectedAmount"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  // Checked before re-derivation, for the reason the detected path documents: a
+  // confirmed loan is filtered out of the candidate list, so without this a
+  // double-click would report "no longer available" — true, but unhelpful.
+  const alreadyConfirmed = (await listObligations({ includeInactive: true })).some(
+    (row) => row.liabilityId === parsed.data.liabilityId,
+  );
+  if (alreadyConfirmed) return { error: "That loan's payment is already on your calendar." };
+
+  const candidate = await findLiabilityCandidate(parsed.data.liabilityId, { today: todayIso() });
+  if (!candidate) {
+    return {
+      error: "That suggestion is no longer available — reload the page to see the current list.",
+    };
+  }
+
+  const payable = candidate.accountOptions.some(
+    (account) => account.accountId === parsed.data.accountId,
+  );
+  if (!payable) {
+    return { error: "Pick one of your everyday accounts for this payment to come out of." };
+  }
+
+  let id: string;
+  try {
+    id = await upsertObligation({
+      accountId: parsed.data.accountId,
+      categoryId: parsed.data.categoryId,
+      label: parsed.data.label,
+      expectedAmount: parsed.data.expectedAmount,
+      // A loan payment leaves; there is no other direction it could go.
+      direction: "outflow",
+      currency: "USD",
+      // Monthly by construction — the schedule amortizes in `term_months`.
+      cadence: "monthly",
+      // From the SERVER's candidate, never from the form — see the header.
+      anchorDate: candidate.anchorDate,
+      startDate: candidate.startDate,
+      // Left open rather than computed from the term: a household that
+      // refinances or overpays would otherwise find its calendar quietly ending
+      // on a date nobody chose (ADR-047 §7).
+      endDate: null,
+      active: true,
+      amountMode: candidate.amountMode,
+      source: "liability",
+      // ADR-047 §4 — the mechanism, not an omission. See the header.
+      detectionKey: null,
+      liabilityId: parsed.data.liabilityId,
+      // Nothing was guessed, so nothing is graded.
+      confidence: null,
+      notes: null,
+    });
+  } catch {
+    // The partial UNIQUE index on (liability_id) doing its job. Reachable only
+    // by two confirmations racing past the check above — the index, not
+    // application bookkeeping, is what makes the outcome one row.
+    return { error: "That loan's payment is already on your calendar." };
+  }
+
+  await materializeThroughHorizon(id);
+  revalidateCashFlowSurfaces();
+  return { ok: true, createdId: id };
+}
+
+/**
+ * Hide a liability candidate, permanently or until a date.
+ *
+ * A household that pays its mortgage from an account this app does not track
+ * gets a proposal it should refuse, and refusing has to be one click. Stored in
+ * `recommendation_dismissals` under the shared candidate rule id with the
+ * subject key `"liability <id>"` — no new table (ADR-047 §5).
+ *
+ * @param _prev - Previous action state (unused; required by useActionState).
+ * @param formData - `liabilityId`, optional `snoozeDays`.
+ * @returns `ok`, or a message when validation fails.
+ */
+export async function dismissLiabilityCandidateAction(
+  _prev: CashFlowActionResult,
+  formData: FormData,
+): Promise<CashFlowActionResult> {
+  await requireUser();
+
+  const parsed = dismissLiabilityCandidateSchema.safeParse({
+    liabilityId: field(formData, "liabilityId"),
+    snoozeDays: field(formData, "snoozeDays") ?? "",
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  }
+
+  const now = new Date();
+  const days = parsed.data.snoozeDays?.trim();
+  const snoozeUntil =
+    days === undefined || days.length === 0
+      ? null
+      : new Date(now.getTime() + Number(days) * 86_400_000);
+
+  await dismissRecommendation(
+    CANDIDATE_DISMISSAL_RULE_ID,
+    liabilitySubjectKey(parsed.data.liabilityId),
+    snoozeUntil,
+    now,
+  );
+  revalidateCashFlowSurfaces();
+  return { ok: true };
+}
+
+/**
+ * Bring a dismissed liability candidate back.
+ *
+ * @param liabilityId - The loan whose proposal should return.
+ * @returns `ok` whether or not a row existed — undoing an already-undone
+ *   dismissal is not an error, it is the state the user asked for.
+ */
+export async function restoreLiabilityCandidateAction(
+  liabilityId: string,
+): Promise<CashFlowActionResult> {
+  await requireUser();
+  if (liabilityId.trim().length === 0) return { error: "Missing the suggestion to restore" };
+
+  await undismissRecommendation(CANDIDATE_DISMISSAL_RULE_ID, liabilitySubjectKey(liabilityId));
+  revalidateCashFlowSurfaces();
+  return { ok: true };
+}
+
 /* ------------------------------------------------------------- obligations */
 
 /**
@@ -333,6 +512,10 @@ export async function saveObligationAction(
     amountMode: parsed.data.amountMode,
     source: existing?.source ?? "manual",
     detectionKey: existing?.detectionKey ?? null,
+    // Provenance is re-read from the stored row, never taken from the form —
+    // the same rule `detectionKey` and `confidence` follow. A hand-crafted POST
+    // must not be able to claim a schedule came from a loan the user stated.
+    liabilityId: existing?.liabilityId ?? null,
     confidence: existing?.confidence ?? null,
     notes: parsed.data.notes,
   });

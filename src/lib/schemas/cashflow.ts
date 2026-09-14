@@ -160,6 +160,66 @@ export const confirmCandidateSchema = z
 export type ConfirmCandidateInput = z.infer<typeof confirmCandidateSchema>;
 
 /**
+ * Confirm a schedule proposed from stated loan terms (CF-A5, ADR-047).
+ *
+ * Deliberately the NARROWEST of the three write schemas, and the difference is
+ * the point. A detected candidate carries its whole shape here because the
+ * detector guessed all of it and the user may correct any of it. A liability
+ * candidate guessed nothing: the cadence is `monthly` by construction (the loan
+ * amortizes in `term_months`), the anchor and start date come from the
+ * household's own payments, and `amount_mode` follows from whether those
+ * payments exist. So the form carries only what a person could reasonably
+ * disagree with — the name, the amount, the category, and which account the
+ * money leaves — and the action reads every other field from the SERVER's
+ * freshly derived candidate.
+ *
+ * `liabilityId` lands in `scheduled_obligations.liability_id` and hits the
+ * partial UNIQUE index, so a double-click confirms once.
+ *
+ * Note what is absent: `source`, `detectionKey`, `confidence`, `cadence`,
+ * `anchorDate`, `startDate`, `amountMode`. Provenance is never form data
+ * (P16-24), and a field the form cannot assert is a field a hand-crafted POST
+ * cannot forge.
+ */
+export const confirmLiabilityCandidateSchema = z
+  .object({
+    liabilityId: z.string().uuid("Missing the loan"),
+    // Validated against the candidate's OWN operating accounts in the action —
+    // a uuid here only proves the shape, not that the household could pay from
+    // it. Attaching the largest bill in the month to the wrong balance moves
+    // the low-water date, which is the number this page exists to state.
+    accountId: z.string().uuid("Pick the account this is paid from"),
+    categoryId: optionalText(z.string().uuid("Pick a category from the list")),
+    label: z.string().trim().min(1, "A name is required").max(LABEL_MAX),
+    expectedAmount: nonNegativeMoneySchema,
+  })
+  .transform((value) => ({ ...value, categoryId: blankToNull(value.categoryId) }));
+
+export type ConfirmLiabilityCandidateInput = z.infer<typeof confirmLiabilityCandidateSchema>;
+
+/**
+ * Dismiss or snooze a liability candidate (CF-A5).
+ *
+ * Same two-state model and same storage as {@link dismissCandidateSchema} —
+ * `recommendation_dismissals` under the shared `obligation_candidate` rule id,
+ * with the subject key `"liability <liabilityId>"` (ADR-047 §5). A household
+ * that pays its mortgage from an account this app does not track should be able
+ * to make the suggestion go away in one click.
+ */
+export const dismissLiabilityCandidateSchema = z.object({
+  liabilityId: z.string().uuid("Missing the loan"),
+  snoozeDays: optionalText(
+    z
+      .string()
+      .trim()
+      .regex(/^\d{1,4}$/, "Use a whole number of days")
+      .refine((s) => Number(s) >= 1, { message: "A snooze must be at least one day" }),
+  ),
+});
+
+export type DismissLiabilityCandidateInput = z.infer<typeof dismissLiabilityCandidateSchema>;
+
+/**
  * Dismiss or snooze a candidate (P16-24).
  *
  * Blank `snoozeDays` dismisses indefinitely; a number suppresses the candidate

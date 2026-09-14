@@ -1,4 +1,8 @@
-import type { ObligationAmountMode, ObligationDirection } from "@/db/schema/index.ts";
+import type {
+  ObligationAmountMode,
+  ObligationDirection,
+  ObligationSource,
+} from "@/db/schema/index.ts";
 import type { ObligationCadence } from "@/lib/schedule/cadence.ts";
 
 /**
@@ -54,6 +58,53 @@ export interface CandidateView {
   readonly evidence: readonly EvidenceView[];
 }
 
+/**
+ * A schedule proposed from stated loan terms, as the review list renders it
+ * (CF-A5, ADR-047).
+ *
+ * A separate shape from {@link CandidateView} rather than a widening of it, for
+ * the same reason the two are rendered as two sections: one is a guess with a
+ * confidence grade attached, the other is a fact the household already told the
+ * app. Merging them would produce a type whose `confidence` and `detectionKey`
+ * are meaningless half the time, and a list that asks the user to grade a fact
+ * as if it were a heuristic.
+ */
+export interface LiabilityCandidateView {
+  readonly liabilityId: string;
+  /** `null` when the app cannot tell which account pays it — see `accountOptions`. */
+  readonly accountId: string | null;
+  /** Every everyday account, so the row can offer a selector. */
+  readonly accountOptions: readonly AccountView[];
+  readonly label: string;
+  /** Raw, for the editable field. */
+  readonly expectedAmount: string;
+  readonly expectedDisplay: string;
+  /** Computed principal-and-interest, always shown beside the proposal. */
+  readonly scheduledDisplay: string;
+  /** Median of the household's own payments; `null` when too few were seen. */
+  readonly observedDisplay: string | null;
+  /** Median absolute deviation of those payments; `null` with none. */
+  readonly spreadDisplay: string | null;
+  readonly observedCount: number;
+  /** True when the figure is P&I alone, so escrow and PMI are NOT in it. */
+  readonly escrowCaveat: boolean;
+  readonly amountMode: ObligationAmountMode;
+  readonly anchorDate: string;
+  readonly startDate: string;
+  /** A raw bank description of the recognized payments, or `null`. */
+  readonly sampleName: string | null;
+  readonly evidence: readonly EvidenceView[];
+  /**
+   * A sentence naming a detected suggestion that looks like the same payment,
+   * or `null`.
+   *
+   * ADR-047 cannot prevent this by structure — a detected series and a stated
+   * loan schedule are two legitimately different rows — so it is handled by
+   * DISCLOSURE. Confirming both would put the same money on the calendar twice.
+   */
+  readonly collision: string | null;
+}
+
 /** A confirmed obligation, as the management list renders it. */
 export interface ObligationView {
   readonly id: string;
@@ -73,8 +124,14 @@ export interface ObligationView {
   readonly endDate: string | null;
   readonly active: boolean;
   readonly amountMode: ObligationAmountMode;
-  /** `'detected'` still means the user confirmed it (ADR-036 §2). */
-  readonly source: "detected" | "manual";
+  /**
+   * Which door the proposal came through. **Every value still means the user
+   * confirmed it** (ADR-036 §2) — `'liability'` says the schedule was pre-filled
+   * from loan terms the household had already stated (ADR-047 §3).
+   */
+  readonly source: ObligationSource;
+  /** Set only on a `'liability'` row. Drives the "from your loan terms" note. */
+  readonly liabilityId: string | null;
   readonly confidence: "high" | "medium" | "low" | null;
   readonly notes: string | null;
 }

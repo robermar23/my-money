@@ -66,6 +66,7 @@ async function seedObligation(over: Partial<ObligationPatch> = {}): Promise<stri
     amountMode: "fixed",
     source: "detected",
     detectionKey: DETECTION_KEY,
+    liabilityId: null,
     confidence: "high",
     notes: null,
     ...over,

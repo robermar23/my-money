@@ -130,6 +130,9 @@ export async function projectCashFlowDailyProcessor(
       lowWaterMark: snapshot.projection.lowWaterMark,
       horizonDays: snapshot.projection.horizonDays,
       coverage: snapshot.projection.coverage,
+      // ADR-048 §4: the grade, not a silence. A shortfall the emergency fund
+      // covers drops to `info` and is still written.
+      close: snapshot.shortfallClose,
     },
     missed: sweep.missAlerts,
     amountChanges: sweep.amountChanges,

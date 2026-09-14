@@ -139,6 +139,122 @@ describe("projectedShortfallAlerts", () => {
     expect(alert?.severity).toBe("critical");
   });
 
+  it("drops to info when the household's savings covers the gap", () => {
+    // ADR-048 §4. A family with a funded emergency fund and a timing gap is not
+    // in the same situation as one that cannot cover the month, and a red
+    // interruption for the first teaches them to ignore the second.
+    const [alert] = projectedShortfallAlerts(
+      shortfall({
+        close: {
+          kind: "covered",
+          shortfall: "688.00",
+          reserveTotal: "14400.00",
+          transferAmount: "688.00",
+          remainingAfterTransfer: "13712.00",
+          reserveAccountCount: 1,
+        },
+      }),
+    );
+
+    expect(alert?.severity).toBe("info");
+    expect(alert?.detail.shortfallClose).toBe("covered");
+  });
+
+  it("still WRITES the covered alert rather than suppressing it", () => {
+    // The part that matters. A monthly raid on the emergency fund is a real
+    // finding, and the monthly repetition of an `info` alert is how that pattern
+    // becomes visible. Silence would hide the one thing worth noticing about a
+    // household that is technically fine every single month.
+    const alerts = projectedShortfallAlerts(
+      shortfall({
+        close: {
+          kind: "covered",
+          shortfall: "688.00",
+          reserveTotal: "14400.00",
+          transferAmount: "688.00",
+          remainingAfterTransfer: "13712.00",
+          reserveAccountCount: 1,
+        },
+      }),
+    );
+    expect(alerts).toHaveLength(1);
+  });
+
+  it("keeps a covered shortfall at info even when the balance goes negative", () => {
+    // Overdrawn is about the checking account; covered is about whether the
+    // household can fix it before then. The second is the more useful fact, and
+    // it is the one that decides how loudly to speak.
+    const [alert] = projectedShortfallAlerts(
+      shortfall({
+        lowWaterMark: { date: "2026-03-14", balance: "-420.00" },
+        close: {
+          kind: "covered",
+          shortfall: "688.00",
+          reserveTotal: "14400.00",
+          transferAmount: "688.00",
+          remainingAfterTransfer: "13712.00",
+          reserveAccountCount: 1,
+        },
+      }),
+    );
+    expect(alert?.severity).toBe("info");
+  });
+
+  it("keeps the full severity when the reserve only partly covers it", () => {
+    const [alert] = projectedShortfallAlerts(
+      shortfall({
+        close: {
+          kind: "partly_covered",
+          shortfall: "688.00",
+          reserveTotal: "200.00",
+          transferAmount: "200.00",
+          remainingAfterTransfer: "0.00",
+          stillShort: "488.00",
+          reserveAccountCount: 1,
+        },
+      }),
+    );
+    expect(alert?.severity).toBe("warning");
+  });
+
+  it("keeps the full severity when it cannot tell where the cash sits", () => {
+    // Not knowing where the money is is not a reason to be quieter about
+    // running out of it.
+    const [alert] = projectedShortfallAlerts(
+      shortfall({
+        close: { kind: "reserve_unknown", shortfall: "688.00", unclassifiedCount: 2 },
+      }),
+    );
+    expect(alert?.severity).toBe("warning");
+  });
+
+  it("grades as it always did when no classification was supplied", () => {
+    // The fallback is the LOUDER answer. An unclassified shortfall must never
+    // be quietly downgraded by a caller that simply did not ask the question.
+    const [alert] = projectedShortfallAlerts(shortfall({ close: null }));
+    expect(alert?.severity).toBe("warning");
+    expect(alert?.detail.shortfallClose).toBeNull();
+  });
+
+  it("does not change the dedup key when the grade changes", () => {
+    // A shortfall that becomes covered is the same standing condition, not a new
+    // one. Re-firing on the grade would be the nightly nag ADR-026 rejects.
+    const plain = projectedShortfallAlerts(shortfall())[0];
+    const graded = projectedShortfallAlerts(
+      shortfall({
+        close: {
+          kind: "covered",
+          shortfall: "688.00",
+          reserveTotal: "14400.00",
+          transferAmount: "688.00",
+          remainingAfterTransfer: "13712.00",
+          reserveAccountCount: 1,
+        },
+      }),
+    )[0];
+    expect(graded?.dedupHash).toBe(plain?.dedupHash);
+  });
+
   it("stays silent when there is no operating account to project", () => {
     expect(projectedShortfallAlerts(shortfall({ status: "no_operating_account" }))).toEqual([]);
   });

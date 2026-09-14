@@ -1,4 +1,5 @@
 import type { ObligationCandidate } from "./detect.ts";
+import type { LiabilityCandidate } from "./liability-obligations.ts";
 
 /**
  * filterCandidates: decide which proposals the user should actually see
@@ -108,4 +109,65 @@ export function filterCandidates(
   return candidates.filter(
     (candidate) => !suppressed.has(seriesKey(candidate.accountId, candidate.payeeKey)),
   );
+}
+
+/* ------------------------------------------------- liability candidates */
+
+/** A liability candidate the user has rejected, indefinitely or for a while. */
+export interface DismissedLiabilityKey {
+  readonly liabilityId: string;
+  /** NULL = rejected indefinitely; a timestamp = suppressed only until then. */
+  readonly snoozeUntil: Date | null;
+}
+
+export interface FilterLiabilityCandidatesOptions {
+  /** `liability_id` of every obligation on file, active or not. */
+  readonly confirmed: readonly (string | null)[];
+  readonly dismissed: readonly DismissedLiabilityKey[];
+  /** The instant to evaluate snoozes against. Explicit, as above. */
+  readonly now: Date;
+}
+
+/**
+ * Remove liability candidates the user has already confirmed or rejected
+ * (CF-A4, ADR-047 §5).
+ *
+ * A sibling of {@link filterCandidates} rather than a widening of it. The two
+ * suppress on different identities — one on `(account, detection_key)`, the
+ * other on `liability_id` — and a single function taking both would need a
+ * branch per call anyway, plus a shape where half the fields are meaningless.
+ * The SEMANTICS are deliberately identical: confirmed suppresses because the
+ * partial UNIQUE index would reject a second row anyway, an indefinite
+ * dismissal suppresses forever, and a snooze suppresses only until it lapses,
+ * exclusive at the instant (ADR-032 §3).
+ *
+ * @param candidates - Proposals from `liabilityCandidates`, in its order.
+ * @param options - Confirmed `liability_id`s, dismissals, and the reference
+ *   instant.
+ * @returns The surviving candidates, order preserved. Nothing is mutated.
+ */
+export function filterLiabilityCandidates(
+  candidates: readonly LiabilityCandidate[],
+  options: FilterLiabilityCandidatesOptions,
+): LiabilityCandidate[] {
+  const suppressed = new Set<string>();
+
+  for (const liabilityId of options.confirmed) {
+    // NULL identifies no loan — it is precisely why the unique index is partial
+    // — so a detected or manual obligation suppresses nothing here.
+    if (liabilityId === null) continue;
+    suppressed.add(liabilityId);
+  }
+
+  for (const dismissal of options.dismissed) {
+    if (
+      dismissal.snoozeUntil !== null &&
+      dismissal.snoozeUntil.getTime() <= options.now.getTime()
+    ) {
+      continue;
+    }
+    suppressed.add(dismissal.liabilityId);
+  }
+
+  return candidates.filter((candidate) => !suppressed.has(candidate.liabilityId));
 }

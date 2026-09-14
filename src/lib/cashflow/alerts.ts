@@ -1,6 +1,7 @@
 import type { ObligationAmountMode, ObligationDirection } from "@/db/schema/index.ts";
 import { type DetectedAlert, dedupHash } from "@/lib/alerts/rules.ts";
 import { Money } from "@/lib/money/money.ts";
+import type { ShortfallClose } from "./shortfall-close.ts";
 import { STATED_FIGURE_STATUSES } from "./status.ts";
 import type { LowWaterMark, ProjectionStatus, SafeToSpend } from "./types.ts";
 
@@ -98,6 +99,16 @@ export interface ShortfallInput {
   readonly horizonDays: number;
   /** Share of trailing spend attributable to confirmed bills; `null` = nothing to measure. */
   readonly coverage: string | null;
+  /**
+   * What would close the shortfall, when the loader could work it out
+   * (ADR-048 §4). `null` means the question was not asked — an older caller, or
+   * a projection that is not short — and grades exactly as it did before.
+   *
+   * Optional on purpose: this rule's job is to decide how loudly to speak, and a
+   * missing classification must fall back to the louder answer rather than
+   * silently downgrading an alert nobody classified.
+   */
+  readonly close?: ShortfallClose | null;
 }
 
 /** One occurrence whose match window closed with nothing found. */
@@ -155,7 +166,21 @@ export function shortfallDedupHash(lowWaterDate: string): string {
  * confirmed bills that is still projected short is short for reasons the
  * run-rate already sees.
  *
- * @param input - The projection's status, safe-to-spend, and low-water mark.
+ * ── Graded by the reserve, never silenced by it (ADR-048 §4) ──────────────
+ * A household with a funded emergency fund and a $300 timing gap is not in the
+ * same situation as one that cannot cover the month, and a red interruption for
+ * the first teaches them to ignore the second. So a `covered` shortfall drops to
+ * `info` — **and is still written**. A monthly raid on the emergency fund is a
+ * real finding, and the monthly repetition of an `info` alert is exactly how
+ * that pattern becomes visible. Suppressing it entirely would hide the one thing
+ * worth noticing about a household that is technically fine every single month.
+ *
+ * `partly_covered` keeps the full severity: the reserve helps, and the household
+ * is still short afterwards. `reserve_unknown` keeps it too — not knowing where
+ * the cash sits is not a reason to be quieter about running out of it.
+ *
+ * @param input - The projection's status, safe-to-spend, low-water mark, and —
+ *   when the loader worked it out — what would close the gap.
  * @returns At most one alert. `critical` when the balance itself goes negative
  *   — below your own buffer and actually overdrawn are different sentences.
  */
@@ -165,16 +190,25 @@ export function projectedShortfallAlerts(input: ShortfallInput): DetectedAlert[]
   if (input.lowWaterMark === null) return [];
 
   const overdrawn = Money.fromString(input.lowWaterMark.balance, CURRENCY).isNegative();
+  const covered = input.close?.kind === "covered";
 
   return [
     {
       type: "projected_shortfall",
-      severity: overdrawn ? "critical" : "warning",
+      // The dedup key is deliberately untouched by the grading: a shortfall that
+      // becomes covered is the same standing condition, not a new one, and
+      // re-firing on the grade would be the nightly nag ADR-026 rejects.
+      severity: covered ? "info" : overdrawn ? "critical" : "warning",
       dedupHash: shortfallDedupHash(input.lowWaterMark.date),
-      // Figure-free by construction — see the module header.
-      title: overdrawn
-        ? "Your checking balance is projected to go negative"
-        : "Your projected balance dips below your cash floor",
+      // Figure-free by construction — see the module header. A covered
+      // shortfall gets its own sentence rather than the alarming one: the
+      // household is not about to run out, they are about to have to move
+      // money, and those read very differently at 07:00.
+      title: covered
+        ? "Your savings will need to cover a gap this month"
+        : overdrawn
+          ? "Your checking balance is projected to go negative"
+          : "Your projected balance dips below your cash floor",
       detail: {
         lowWaterDate: input.lowWaterMark.date,
         lowWaterBalance: input.lowWaterMark.balance,
@@ -183,6 +217,11 @@ export function projectedShortfallAlerts(input: ShortfallInput): DetectedAlert[]
         horizonDays: input.horizonDays,
         coverage: input.coverage,
         status: input.status,
+        // The classification travels as a flat string, not as the union
+        // itself: the alerts page renders `detail` with `String(v)` per key, so
+        // a nested object would land on screen as "[object Object]". The
+        // amounts it would have carried are already here.
+        shortfallClose: input.close?.kind ?? null,
         href: PROJECTION_HREF,
       },
     },
