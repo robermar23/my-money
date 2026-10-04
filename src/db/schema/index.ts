@@ -35,3 +35,4 @@ export * from "./household.ts";
 export * from "./recommendation-dismissals.ts";
 export * from "./scheduled-obligations.ts";
 export * from "./obligation-occurrences.ts";
+export * from "./planned-expenses.ts";
