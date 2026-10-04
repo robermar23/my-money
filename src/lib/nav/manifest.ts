@@ -47,6 +47,7 @@ export type NavGroupId =
   | "dashboard"
   | "accounts"
   | "investing"
+  | "analysis"
   | "planning"
   | "settings"
   | "utilities";
@@ -58,12 +59,31 @@ export interface NavGroup {
 }
 
 /**
- * The five bar groups, in render order. Each group's **first item is its
- * landing page** — clicking a trigger's primary link goes there.
+ * The six bar groups, in render order. Each group's **first item is its landing
+ * page** — clicking a trigger's primary link goes there.
  *
- * ADR-035 caps this at **six**. A seventh group means the taxonomy is wrong,
- * not that the bar needs another slot; the designated upgrade is a left
- * sidebar (PLAN_NAV §6.1), which is a re-grouping decision, not an append.
+ * ADR-035 caps this at **six**, and as of P18-26 all six are used. A seventh
+ * group means the taxonomy is wrong, not that the bar needs another slot; the
+ * designated upgrade is a left sidebar (PLAN_NAV §6.1), which is a re-grouping
+ * decision, not an append.
+ *
+ * ── Why Analysis and Planning are two groups (P18-26) ────────────────────
+ * They were one, and adding `/plan/sinking` made it **eight** items against
+ * ADR-035 §3's cap of ~7 — which the guard in
+ * [resolve.test.ts](./resolve.test.ts) enforces. The cap was not the problem it
+ * looked like: the group was overfull because it held **two taxonomies**. The
+ * four `/analysis` pages look backwards at what happened; the four `/plan` pages
+ * look forwards at what is coming. Splitting them uses the sixth slot ADR-035 §2
+ * reserves for exactly this, keeps every destination in the bar and in the ⌘K
+ * palette, and gives each section a strip of its real siblings instead of seven
+ * neighbours from the other half.
+ *
+ * The alternatives are recorded because they are the tempting ones. **Folding
+ * `/plan/cashflow/review` under Cash flow** with a `match` prefix fits in 7 but
+ * drops a real destination out of the palette, and ADR-035 §5 calls the palette
+ * the escape hatch that makes the hierarchy safe. **Raising the cap to 8** would
+ * amend a locked ADR as a side effect of shipping a feature — the thing Phase
+ * 18 declined to do to ADR-034's waterfall when the same pressure came up.
  */
 export const NAV_GROUPS: readonly NavGroup[] = [
   {
@@ -124,8 +144,8 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     ],
   },
   {
-    id: "planning",
-    label: "Planning",
+    id: "analysis",
+    label: "Analysis",
     items: [
       {
         href: "/analysis",
@@ -147,6 +167,12 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         label: "Review queue",
         description: "Uncategorized transactions waiting on a decision",
       },
+    ],
+  },
+  {
+    id: "planning",
+    label: "Planning",
+    items: [
       {
         href: "/plan",
         label: "Guidance",
@@ -156,6 +182,11 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         href: "/plan/cashflow",
         label: "Cash flow",
         description: "Projected daily balance, safe to spend, and the bills ahead",
+      },
+      {
+        href: "/plan/sinking",
+        label: "Sinking funds",
+        description: "What your known irregular costs require you to be holding now",
       },
       {
         href: "/plan/cashflow/review",

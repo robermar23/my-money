@@ -15,7 +15,7 @@ export default function AnalysisLayout({
 }): React.JSX.Element {
   return (
     <>
-      <SectionNav groupId="planning" />
+      <SectionNav groupId="analysis" />
       {children}
     </>
   );

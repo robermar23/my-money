@@ -163,9 +163,11 @@ async function assertGroupedNav(page: Page): Promise<void> {
   const original = page.viewportSize();
   await page.setViewportSize({ width: 1024, height: 800 });
 
-  // Five group entries: Dashboard is a plain link (single-item group), the
-  // other four are disclosure triggers.
-  const triggers = ["Accounts", "Investing", "Planning", "Settings"];
+  // Six group entries: Dashboard is a plain link (single-item group), the other
+  // five are disclosure triggers. "Analysis" arrived with P18-26, which split
+  // the overfull Planning group — so the no-wrap assertion below is now load
+  // bearing for the sixth slot ADR-035 §2 caps the bar at.
+  const triggers = ["Accounts", "Investing", "Analysis", "Planning", "Settings"];
   await expect(nav.getByRole("link", { name: "Dashboard", exact: true })).toBeVisible();
   for (const label of triggers) {
     await expect(nav.getByRole("button", { name: label, exact: true })).toBeVisible();

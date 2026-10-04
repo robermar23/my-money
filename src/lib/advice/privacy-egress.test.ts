@@ -136,11 +136,11 @@ describe("P15-39 — the advice engine imports nothing that could reach the netw
     // the same category as the amortization entry directly above.
     "@/lib/schedule/occurrences.ts",
     "@/lib/alerts/rules.ts",
-    // P18-18/P18-20: the sinking-fund phase. Justified against THIS test's
+    // P18-18/P18-20/P18-22: the sinking-fund phase. Justified against THIS test's
     // purpose rather than waved through as in-repo. `queries.ts` is the only
     // one that touches the database and it is the same category as this
     // directory's own two readers: `server-only`, two `db.select` calls, no
-    // client and no fetcher. The other four are pure arithmetic over strings —
+    // client and no fetcher. The other five are pure arithmetic over strings —
     // `requirement`, `availability` and `status` hold no I/O at all, and
     // `constants.ts` is checked-in numbers, which is the same posture
     // [advice/constants.ts](./constants.ts) takes for every benchmark here.
@@ -153,6 +153,10 @@ describe("P15-39 — the advice engine imports nothing that could reach the netw
     "@/lib/sinking/requirement.ts",
     "@/lib/sinking/availability.ts",
     "@/lib/sinking/status.ts",
+    // P18-22 moved the audit trail out of the rule so the page and the card
+    // cite one list. It imports this directory's own `shared.ts` and
+    // `emergency-fund.ts` and nothing else — no I/O to add.
+    "@/lib/sinking/inputs.ts",
   ];
 
   it("audits a non-empty set of advice modules", () => {

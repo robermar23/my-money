@@ -1,18 +1,12 @@
 import { Money } from "@/lib/money/money.ts";
 import { sinkingAvailability } from "@/lib/sinking/availability.ts";
 import { SINKING_HORIZON_MONTHS } from "@/lib/sinking/constants.ts";
+import { sinkingInputsUsed } from "@/lib/sinking/inputs.ts";
 import { sinkingHorizon, sinkingRequirement } from "@/lib/sinking/requirement.ts";
 import { sinkingStatus } from "@/lib/sinking/status.ts";
 import type { AdviceInput } from "../snapshot.ts";
-import {
-  type InputUsed,
-  type Recommendation,
-  type Rule,
-  type Severity,
-  recommendationId,
-} from "../types.ts";
-import { reserveMonthsFor } from "./emergency-fund.ts";
-import { baselineConfidence, notRecorded, shown } from "./shared.ts";
+import { type Recommendation, type Rule, type Severity, recommendationId } from "../types.ts";
+import { baselineConfidence } from "./shared.ts";
 
 /**
  * The sinking-fund rule (Phase 18, PLAN18 P18-20, ADR-046).
@@ -23,8 +17,11 @@ import { baselineConfidence, notRecorded, shown } from "./shared.ts";
  * in March; one that does not meets it with a credit card, in the one month it
  * was always going to arrive.
  *
- * This module decides nothing arithmetical. The requirement, the availability
- * and the status are the three pure functions in
+ * This module decides nothing arithmetical, and since P18-22 it does not even
+ * decide what to credit: the audit trail comes from
+ * [sinking/inputs.ts](../../sinking/inputs.ts), so the card and `/plan/sinking`
+ * cite the same inputs as well as state the same figure. The requirement, the
+ * availability and the status are the three pure functions in
  * [src/lib/sinking](../../sinking/requirement.ts), called here over
  * `input.knownFutureCosts` — which is why `/plan/sinking` and this card
  * **cannot** disagree (ADR-046 consequence 1): there is one computation and two
@@ -75,12 +72,6 @@ import { baselineConfidence, notRecorded, shown } from "./shared.ts";
 /** The practice being implemented, named plainly (ADR-032 §2). */
 const HEURISTIC = "Set aside a known irregular cost evenly across the months before it is due";
 
-/** Where a household records a cost, and reads the itemized table. */
-const SINKING_HREF = "/plan/sinking";
-
-/** How the reserve tier is built, in the emergency-fund rule's own words. */
-const RESERVE_SOURCE = "Balances in accounts with a savings or money-market subtype";
-
 export const sinkingFundRule: Rule = {
   id: "sinking_fund",
   title: "Sinking funds",
@@ -93,15 +84,9 @@ export const sinkingFundRule: Rule = {
     const requirement = sinkingRequirement(input.knownFutureCosts, input.today, horizon);
     const availability = sinkingAvailability(input, requirement);
     const status = sinkingStatus(requirement, availability);
-    const reserveTarget = reserveMonthsFor(input);
-
-    const reserveInput = shown(
-      "Reserve savings",
-      availability.reserveTotal,
-      "money",
-      RESERVE_SOURCE,
-      "/accounts",
-    );
+    // One list for both renderers (ADR-046 consequence 1), branching on the
+    // same status resolved above rather than on a second set of null checks.
+    const inputsUsed = sinkingInputsUsed(input, requirement, availability);
 
     // ── Degradation 1: no essential baseline, so no target (ADR-046 §4) ────
     if (availability.emergencyTarget === null) {
@@ -120,22 +105,9 @@ export const sinkingFundRule: Rule = {
           currentValue: null,
           suggestedValue: null,
           impact: null,
-          // The cost list is deliberately NOT listed here, even when it is
-          // also empty. The audit trail shows what the rule read, and without a
-          // target this branch never got as far as needing a requirement to
-          // compare — so naming the costs would add a second "fix this" link
-          // behind the one that actually unblocks the figure, and a count of
-          // `0` presented as a known value is the `null` ≠ `"0.00"` mistake in
-          // the audit trail itself.
-          inputsUsed: [
-            notRecorded(
-              "Essential monthly expenses",
-              "money",
-              "Median monthly spend in categories marked essential, plus minimum debt service",
-              "/settings/categories",
-            ),
-            reserveInput,
-          ],
+          // Two inputs, and the cost list deliberately absent even when it is
+          // also empty — see `sinkingInputsUsed`, which owns that call.
+          inputsUsed,
           confidence: "low",
         },
       ];
@@ -147,28 +119,6 @@ export const sinkingFundRule: Rule = {
     const emergencyTarget = Money.fromString(availability.emergencyTarget, input.currency);
     const reserveTotal = Money.fromString(availability.reserveTotal, input.currency);
     const gap = Money.fromString(availability.gap ?? "0.00", input.currency);
-
-    const targetInput = shown(
-      "Emergency-fund target",
-      availability.emergencyTarget,
-      "money",
-      `${reserveTarget.months} months of essential expenses, held before anything is set aside for a dated cost`,
-      "/settings/household",
-    );
-    const baselineInput = shown(
-      "Essential monthly expenses",
-      input.essentials.baseline ?? "0.00",
-      "money",
-      `Median of ${input.essentials.basisMonths} months of essential spend, plus ${input.essentials.minimumDebtService} of minimum debt service`,
-      "/settings/categories",
-    );
-    const monthsInput = shown(
-      "Reserve target",
-      `${reserveTarget.months}`,
-      "months",
-      reserveTarget.reason,
-      "/settings/household",
-    );
 
     // ── Degradation 2: nothing recorded to require (ADR-046 §5) ────────────
     if (status === "no_costs_recorded") {
@@ -186,43 +136,11 @@ export const sinkingFundRule: Rule = {
           currentValue: null,
           suggestedValue: null,
           impact: null,
-          inputsUsed: [
-            notRecorded(
-              "Known upcoming costs",
-              "count",
-              `No costs recorded between ${requirement.horizonFrom} and ${requirement.horizonTo}`,
-              SINKING_HREF,
-            ),
-            reserveInput,
-            targetInput,
-            baselineInput,
-            monthsInput,
-          ],
+          inputsUsed,
           confidence: "low",
         },
       ];
     }
-
-    const inputsUsed: InputUsed[] = [
-      shown(
-        "Set aside required today",
-        requirement.requiredToday,
-        "money",
-        `${requirement.costCount} known costs due in the next ${SINKING_HORIZON_MONTHS} months`,
-        SINKING_HREF,
-      ),
-      reserveInput,
-      targetInput,
-      shown(
-        "Reserve above your emergency-fund target",
-        availability.available ?? "0.00",
-        "money",
-        "Reserve savings minus the emergency-fund target — one pot cannot do both jobs",
-        "/accounts",
-      ),
-      baselineInput,
-      monthsInput,
-    ];
 
     // The baseline's own honesty is what the target rests on, so the shipped
     // grader decides this rather than a threshold invented here (ADR-046 §7).

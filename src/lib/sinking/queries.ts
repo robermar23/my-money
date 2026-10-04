@@ -6,8 +6,10 @@ import type { ObligationOccurrenceStatus } from "@/db/schema/obligation-occurren
 import type { PlannedExpenseStatus } from "@/db/schema/planned-expenses.ts";
 import type { ObligationDirection } from "@/db/schema/scheduled-obligations.ts";
 import type { ObligationCadence } from "@/lib/schedule/cadence.ts";
-import { and, asc, eq, inArray, lte } from "drizzle-orm";
+import { parseIsoDate } from "@/lib/schedule/occurrences.ts";
+import { and, asc, eq, gte, inArray, lte } from "drizzle-orm";
 import { SINKING_ELIGIBLE_CADENCES } from "./cadence.ts";
+import { COLLISION_TOLERANCE, type CollidableOccurrence } from "./collisions.ts";
 import { SINKING_HORIZON_MONTHS } from "./constants.ts";
 import {
   type CostStreamObligation,
@@ -19,16 +21,27 @@ import { sinkingHorizonEnd } from "./requirement.ts";
 import type { KnownFutureCost } from "./types.ts";
 
 /**
- * The sinking fund's only database reads (P18-19, ADR-032 §1, ADR-045 §7).
+ * The sinking fund's only database reads (P18-19, P18-22, ADR-032 §1,
+ * ADR-045 §7).
  *
- * Two queries and a call to the pure {@link buildCostStream}. Nothing here
- * decides anything: no money is computed, no date is expanded, no cost is
- * filtered on a rule the stream builder does not already own. That split is what
+ * Three functions: the cost stream the requirement is computed from, the full
+ * planned-expense list the manager renders, and the occurrence window a
+ * collision check compares against. Nothing here decides anything: no money is
+ * computed, no date is expanded, no cost is filtered on a rule a pure module in
+ * this directory does not already own. That split is what
  * keeps the `sinking_fund` rule and every pure module in this directory testable
  * with no database at all — the property ADR-032 §1 established for advice and
  * this phase inherits unchanged.
  *
- * Called from [advice/snapshot.ts](../advice/snapshot.ts)'s existing
+ * **Reads only.** The writes live in [mutations.ts](./mutations.ts), and the
+ * split is not tidiness: `src/lib/advice/` imports this module, and
+ * [privacy-egress.test.ts](../advice/privacy-egress.test.ts)'s allowlist is how
+ * that import is justified. A rule that evaluates a recommendation must not be
+ * one `import` away from a function that can write a row, and keeping the two
+ * in separate files is what makes that reviewable rather than asserted.
+ *
+ * {@link loadKnownFutureCosts} is called from
+ * [advice/snapshot.ts](../advice/snapshot.ts)'s existing
  * `Promise.all`. It depends on nothing else in the snapshot, so it must not
  * become another sequential pass; the loader's two-pass shape exists because the
  * essential baseline folds in debt service, and this has no such ordering.
@@ -180,4 +193,109 @@ export async function loadKnownFutureCosts(
     obligations: [...obligations.values()],
     occurrences,
   });
+}
+
+/** One `planned_expenses` row as the manager renders it, `notes` included. */
+export interface PlannedExpenseRecord {
+  readonly id: string;
+  readonly label: string;
+  readonly amount: string;
+  readonly currency: string;
+  readonly dueDate: string;
+  readonly accrualStartDate: string;
+  readonly categoryId: string | null;
+  readonly status: PlannedExpenseStatus;
+  readonly notes: string | null;
+}
+
+/**
+ * Every planned expense the household has recorded, whatever became of it.
+ *
+ * **Deliberately unfiltered**, unlike {@link loadKnownFutureCosts}: this feeds
+ * the manager, where a `paid` or `cancelled` row has to stay visible with its
+ * status (ADR-043 §3 — deactivate, never delete). The requirement reads the
+ * other query and is unaffected by anything here.
+ *
+ * `notes` IS selected here and nowhere else in the phase, because this is the
+ * one surface that lets the household edit it back. It is PII: it is rendered
+ * into a form field and never logged, never indexed, never sent anywhere
+ * (CLAUDE.md §Privacy, and the table's own header).
+ *
+ * @returns Rows ascending by `(dueDate, id)` — the same order the cost stream
+ *   uses, so the table and the itemization read alike.
+ */
+export async function listPlannedExpenses(): Promise<readonly PlannedExpenseRecord[]> {
+  const rows = await db
+    .select({
+      id: plannedExpenses.id,
+      label: plannedExpenses.label,
+      amount: plannedExpenses.amount,
+      currency: plannedExpenses.currency,
+      dueDate: plannedExpenses.dueDate,
+      accrualStartDate: plannedExpenses.accrualStartDate,
+      categoryId: plannedExpenses.categoryId,
+      status: plannedExpenses.status,
+      notes: plannedExpenses.notes,
+    })
+    .from(plannedExpenses)
+    .orderBy(asc(plannedExpenses.dueDate), asc(plannedExpenses.id));
+
+  return rows.map((row) => ({ ...row, status: row.status as PlannedExpenseStatus }));
+}
+
+/**
+ * Occurrences a candidate planned expense could be a duplicate of (ADR-045 §4).
+ *
+ * The rows {@link ../sinking/collisions.ts detectCollisions} needs, and it does
+ * its own eligibility, direction, currency and tolerance filtering — so this
+ * bounds **only the date window**, wide enough that a cost dated either side of
+ * an occurrence still finds it. Re-applying the cadence gate here would put the
+ * rule in two places, and `detectCollisions`'s header says which copy is
+ * authoritative.
+ *
+ * Inactive and inflow obligations are loaded and dropped by the detector rather
+ * than excluded in SQL for the same reason. The row count is small: the window
+ * is weeks wide, not years.
+ *
+ * @param dueDate - The candidate's `YYYY-MM-DD` due date.
+ * @param windowDays - Half-width of the date window. Defaults to
+ *   {@link COLLISION_TOLERANCE}'s own day tolerance, so widening the tolerance
+ *   cannot silently out-run the query that feeds it.
+ * @returns Candidate occurrences, unordered — the detector sorts its output.
+ */
+export async function listCollidableOccurrences(
+  dueDate: string,
+  windowDays: number = COLLISION_TOLERANCE.days,
+): Promise<readonly CollidableOccurrence[]> {
+  const shift = (days: number): string =>
+    new Date(parseIsoDate(dueDate, "due date") + days * 86_400_000).toISOString().slice(0, 10);
+
+  const rows = await db
+    .select({
+      obligationId: obligationOccurrences.obligationId,
+      obligationLabel: scheduledObligations.label,
+      cadence: scheduledObligations.cadence,
+      direction: scheduledObligations.direction,
+      active: scheduledObligations.active,
+      dueDate: obligationOccurrences.dueDate,
+      expectedAmount: obligationOccurrences.expectedAmount,
+      currency: scheduledObligations.currency,
+    })
+    .from(obligationOccurrences)
+    .innerJoin(
+      scheduledObligations,
+      eq(scheduledObligations.id, obligationOccurrences.obligationId),
+    )
+    .where(
+      and(
+        gte(obligationOccurrences.dueDate, shift(-windowDays)),
+        lte(obligationOccurrences.dueDate, shift(windowDays)),
+      ),
+    );
+
+  return rows.map((row) => ({
+    ...row,
+    cadence: row.cadence as ObligationCadence,
+    direction: row.direction as ObligationDirection,
+  }));
 }

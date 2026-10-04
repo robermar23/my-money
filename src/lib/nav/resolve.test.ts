@@ -42,7 +42,7 @@ describe("resolveActive", () => {
     // `/analysis/category/[id]` is not under `/analysis/budgets`, so Overview
     // wins — the case that breaks under naive first-match ordering.
     const match = resolveActive("/analysis/category/9f3c");
-    expect(match?.group.id).toBe("planning");
+    expect(match?.group.id).toBe("analysis");
     expect(match?.item.href).toBe("/analysis");
   });
 
@@ -153,6 +153,29 @@ describe("allDestinations", () => {
   it("has no duplicate hrefs — exactly one item owns each destination", () => {
     const hrefs = allDestinations().map((d) => d.href);
     expect(new Set(hrefs).size).toBe(hrefs.length);
+  });
+});
+
+describe("manifest membership of the deeper /plan routes", () => {
+  /**
+   * The coverage guard below cannot catch a MISSING entry for these.
+   *
+   * It asserts every `page.tsx` resolves to some group, and longest-prefix
+   * resolution means `/plan/sinking` with no manifest entry of its own still
+   * resolves — to `/plan`, its parent. The page keeps working, the bar keeps
+   * rendering, and the destination silently vanishes from the menu and from the
+   * ⌘K palette, which ADR-035 §5 calls the escape hatch that makes the depth
+   * safe. So the entry is asserted directly, by the item it must resolve to.
+   */
+  it.each([
+    ["/plan/sinking", "Sinking funds"],
+    ["/plan/cashflow", "Cash flow"],
+    ["/plan/cashflow/review", "Recurring bills"],
+  ])("%s owns its own manifest item, not its parent's", (route, label) => {
+    const match = resolveActive(route);
+    expect(match?.item.href).toBe(route);
+    expect(match?.item.label).toBe(label);
+    expect(allDestinations().map((d) => d.href)).toContain(route);
   });
 });
 
