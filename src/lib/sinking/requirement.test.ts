@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { Money } from "@/lib/money/money.ts";
 import { describe, expect, it } from "vitest";
-import { sinkingRequirement } from "./requirement.ts";
+import { SINKING_HORIZON_MONTHS } from "./constants.ts";
+import { sinkingHorizon, sinkingHorizonEnd, sinkingRequirement } from "./requirement.ts";
 import { ROUND12_HORIZON, ROUND12_TODAY, round12Costs } from "./round12.fixture.ts";
 import type { KnownFutureCost } from "./types.ts";
 
@@ -245,5 +246,42 @@ describe("sinkingRequirement — purity and currency", () => {
     );
     expect(requirement.requiredToday).toBe("0.00");
     expect(requirement.perMonth).toBe("200.00");
+  });
+});
+
+describe("sinkingHorizon — the one derivation (P18-19)", () => {
+  it("is twelve months from today, by default", () => {
+    // The fixture's own edge, re-derived rather than copied: if this ever
+    // disagrees with ROUND12_HORIZON then every figure in this file is stated
+    // over a window the loader would not have queried.
+    expect(sinkingHorizonEnd(ROUND12_TODAY)).toBe("2027-10-04");
+    expect(SINKING_HORIZON_MONTHS).toBe(12);
+  });
+
+  it("gives the loader and the rule the same far edge", () => {
+    // Two callers, one date. `sinkingHorizonEnd` exists only so the loader —
+    // which bounds two queries and totals nothing — does not have to name a
+    // currency it has no business knowing.
+    expect(sinkingHorizon(ROUND12_TODAY, "USD").to).toBe(sinkingHorizonEnd(ROUND12_TODAY));
+    expect(sinkingHorizon(ROUND12_TODAY, "USD").from).toBe(ROUND12_TODAY);
+    expect(sinkingHorizon(ROUND12_TODAY, "EUR").currency).toBe("EUR");
+  });
+
+  it("clamps the leap day instead of rolling it forward", () => {
+    // 2029 has no 29 February. Rolling forward would move the edge to 1 March
+    // and pull one extra cost into the total on one specific morning every four
+    // years — a one-day drift, which is the size nobody ever notices.
+    expect(sinkingHorizonEnd("2028-02-29")).toBe("2029-02-28");
+  });
+
+  it("clamps onto a short month at any depth", () => {
+    expect(sinkingHorizonEnd("2026-08-31", 1)).toBe("2026-09-30");
+    expect(sinkingHorizonEnd("2026-01-31", 1)).toBe("2026-02-28");
+  });
+
+  it("validates its date through the one shipped parser", () => {
+    // ADR-036 §5: this phase writes no date validation of its own.
+    expect(() => sinkingHorizonEnd("2026-02-30")).toThrow();
+    expect(() => sinkingHorizonEnd("not-a-date")).toThrow();
   });
 });

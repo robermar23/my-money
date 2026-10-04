@@ -87,6 +87,7 @@ describe("ADVICE_RULES", () => {
       "cash_drag",
       "budget_coverage",
       "needs_wants_split",
+      "sinking_fund",
       "waterfall",
     ]);
     expect(new Set(ids).size).toBe(ids.length);

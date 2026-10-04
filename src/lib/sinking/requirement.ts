@@ -1,5 +1,7 @@
 import { Money } from "@/lib/money/money.ts";
+import { parseIsoDate } from "@/lib/schedule/occurrences.ts";
 import { accrue } from "./accrual.ts";
+import { SINKING_HORIZON_MONTHS } from "./constants.ts";
 import type { AccruedCost, KnownFutureCost, SinkingRequirement } from "./types.ts";
 
 /**
@@ -71,6 +73,76 @@ export interface SinkingHorizon {
   readonly to: string;
   /** The currency the totals are stated in, from the household's snapshot. */
   readonly currency: string;
+}
+
+/**
+ * Derive the horizon a sinking figure is stated over (P18-19).
+ *
+ * **The one derivation, shared by every caller**, and that is the whole reason
+ * it is exported rather than inlined three times. The loader filters the cost
+ * stream on these edges; the `sinking_fund` rule totals the stream it is handed
+ * and has to name the same window; `/plan/sinking` prints it. Three copies of
+ * `today + 12 months` is how a page comes to show costs the rule's own header
+ * says are out of scope — and the drift would be a day wide, which is exactly
+ * the size nobody notices.
+ *
+ * ── The leap-day clamp ────────────────────────────────────────────────────
+ * The end is the same day-of-month twelve months out, **clamped to the target
+ * month's real length** rather than allowed to roll forward: 2028-02-29 + 12
+ * months is 2029-02-28, not 2029-03-01. The alternative lets the horizon grow
+ * by a day once every four years, which would quietly pull one extra cost into
+ * the total on one specific morning. Clamping matches what
+ * [schedule/occurrences.ts](../schedule/occurrences.ts) already does when it
+ * walks a monthly cadence onto a short month, so the two never disagree about
+ * where "a month later" is.
+ *
+ * @param today - Inclusive `YYYY-MM-DD` start, normally the snapshot's date.
+ * @param currency - The household's currency, for the totals.
+ * @param months - Horizon depth. Defaults to {@link SINKING_HORIZON_MONTHS} and
+ *   should be left alone outside tests: a caller that narrows the stream's
+ *   window while the rule still derives twelve months would state a total over
+ *   one window beneath a sentence naming another.
+ * @returns The inclusive window and its currency.
+ * @throws If `today` is not a real calendar date — through the one shipped
+ *   parser, so this module still writes no date validation of its own.
+ */
+export function sinkingHorizon(
+  today: string,
+  currency: string,
+  months: number = SINKING_HORIZON_MONTHS,
+): SinkingHorizon {
+  return { from: today, to: sinkingHorizonEnd(today, months), currency };
+}
+
+/**
+ * The horizon's inclusive far edge, without a currency.
+ *
+ * Split out for the one caller that has no business naming a currency: the
+ * loader ([sinking/queries.ts](./queries.ts)) needs this date to bound two
+ * queries and never totals anything, so requiring a currency there would mean
+ * hardcoding `"USD"` in a server module — the module-level constant
+ * {@link sinkingHorizon}'s header declines. Same arithmetic, one derivation.
+ *
+ * @param today - Inclusive `YYYY-MM-DD` start.
+ * @param months - Horizon depth. Defaults to {@link SINKING_HORIZON_MONTHS}.
+ * @returns The inclusive end date, day-of-month clamped — see above.
+ * @throws If `today` is not a real calendar date.
+ */
+export function sinkingHorizonEnd(today: string, months: number = SINKING_HORIZON_MONTHS): string {
+  parseIsoDate(today, "today");
+  const year = Number(today.slice(0, 4));
+  const monthIndex = Number(today.slice(5, 7)) - 1;
+  const day = Number(today.slice(8, 10));
+
+  // Day 0 of the following month is the last day of this one (UTC, no TZ
+  // drift) — the repository's existing idiom for "how long is this month".
+  const endMonth = new Date(Date.UTC(year, monthIndex + months, 1));
+  const endYear = endMonth.getUTCFullYear();
+  const endMonthIndex = endMonth.getUTCMonth();
+  const lastDay = new Date(Date.UTC(endYear, endMonthIndex + 1, 0)).getUTCDate();
+  const pad = (value: number): string => String(value).padStart(2, "0");
+
+  return `${endYear}-${pad(endMonthIndex + 1)}-${pad(Math.min(day, lastDay))}`;
 }
 
 /**

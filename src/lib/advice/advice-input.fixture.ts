@@ -1,6 +1,7 @@
 import type { AccountSubtype } from "@/db/schema/accounts.ts";
 import type { MonthlyTotals } from "@/lib/analytics/spending.ts";
 import { Money } from "@/lib/money/money.ts";
+import type { KnownFutureCost } from "@/lib/sinking/types.ts";
 import { type CashAccountInput, type CashTiers, classifyCashTiers } from "./cash-tiers.ts";
 import type { DebtTerm, MinimumDebtService } from "./debt-terms.ts";
 import type { EssentialBaseline, EssentialMonth } from "./essential-expenses.ts";
@@ -19,8 +20,8 @@ import type {
 /**
  * Test fixtures for {@link AdviceInput} (Phase 15, Batch 3).
  *
- * `AdviceInput` has seventeen slots. Every rule reads three or four of them and
- * needs the other thirteen to merely exist, so without a builder each rule test
+ * `AdviceInput` has eighteen slots. Every rule reads three or four of them and
+ * needs the other fourteen to merely exist, so without a builder each rule test
  * would open with sixty lines of irrelevant scaffolding — and the one line that
  * matters would be invisible inside it.
  *
@@ -282,6 +283,13 @@ export interface AdviceInputOverrides {
   readonly categories?: readonly AdviceCategory[];
   readonly monthlySpend?: readonly MonthlyTotals[];
   readonly holdings?: Partial<AdviceHoldingsTotals>;
+  /**
+   * The sinking-fund cost stream (P18-18). Defaults to **empty**, which is the
+   * honest default for a household that has recorded nothing — and which
+   * ADR-046 §5 makes a degradation rather than a pass, so a rule test that
+   * forgets to pass costs fails loudly instead of quietly reporting `ok`.
+   */
+  readonly knownFutureCosts?: readonly KnownFutureCost[];
 }
 
 const DEFAULT_WINDOW = { from: "2025-09-01", to: "2026-08-15" } as const;
@@ -351,5 +359,6 @@ export function makeAdviceInput(overrides: AdviceInputOverrides = {}): AdviceInp
     categories: overrides.categories ?? [],
     monthlySpend: overrides.monthlySpend ?? [],
     holdings,
+    knownFutureCosts: overrides.knownFutureCosts ?? [],
   };
 }

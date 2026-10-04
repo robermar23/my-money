@@ -136,6 +136,23 @@ describe("P15-39 — the advice engine imports nothing that could reach the netw
     // the same category as the amortization entry directly above.
     "@/lib/schedule/occurrences.ts",
     "@/lib/alerts/rules.ts",
+    // P18-18/P18-20: the sinking-fund phase. Justified against THIS test's
+    // purpose rather than waved through as in-repo. `queries.ts` is the only
+    // one that touches the database and it is the same category as this
+    // directory's own two readers: `server-only`, two `db.select` calls, no
+    // client and no fetcher. The other four are pure arithmetic over strings —
+    // `requirement`, `availability` and `status` hold no I/O at all, and
+    // `constants.ts` is checked-in numbers, which is the same posture
+    // [advice/constants.ts](./constants.ts) takes for every benchmark here.
+    // Nothing under `src/lib/sinking/` reaches the network; P18-33 adds the
+    // same allowlist audit over that directory so this entry does not become a
+    // hole that widens quietly.
+    "@/lib/sinking/queries.ts",
+    "@/lib/sinking/types.ts",
+    "@/lib/sinking/constants.ts",
+    "@/lib/sinking/requirement.ts",
+    "@/lib/sinking/availability.ts",
+    "@/lib/sinking/status.ts",
   ];
 
   it("audits a non-empty set of advice modules", () => {

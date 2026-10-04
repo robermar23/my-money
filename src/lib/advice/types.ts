@@ -90,7 +90,12 @@ export type RuleId =
   /** Batch 4 (P15-25). Declared here so the union has one home. */
   | "budget_coverage"
   /** Batch 4 (P15-26). */
-  | "needs_wants_split";
+  | "needs_wants_split"
+  /**
+   * Phase 18 (P18-18, ADR-046). Reads recorded costs and recorded balances
+   * rather than transaction history, so its `minMonthsHistory` is 0.
+   */
+  | "sinking_fund";
 
 /** How an {@link InputUsed} value should be rendered. Not a unit conversion. */
 export type InputKind = "money" | "percent" | "months" | "count" | "date" | "text";
