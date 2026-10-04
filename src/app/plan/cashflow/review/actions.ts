@@ -29,6 +29,7 @@ import {
   dismissLiabilityCandidateSchema,
   obligationSchema,
 } from "@/lib/schemas/cashflow.ts";
+import { materializationDaysAhead } from "@/lib/sinking/coverage.ts";
 import { revalidatePath } from "next/cache";
 
 /**
@@ -88,6 +89,12 @@ function todayIso(): string {
  * Called after a create or an edit so the projection has rows to read without
  * waiting for the nightly job. Idempotent by construction (ADR-037 §2), so
  * doing it here and again tonight costs one no-op insert.
+ *
+ * The lead is per cadence (P18-11), exactly as the nightly job computes it. This
+ * call site matters as much as that one: without it, a household that has just
+ * confirmed an annual premium would see no occurrence row beyond ~90 days, and
+ * the sinking-fund requirement would omit the very cost they created the
+ * obligation in order to see — until the next nightly run.
  */
 async function materializeThroughHorizon(obligationId: string): Promise<void> {
   const [obligation] = (await listObligations({ includeInactive: true })).filter(
@@ -97,9 +104,11 @@ async function materializeThroughHorizon(obligationId: string): Promise<void> {
 
   const { profile } = await loadHousehold();
   const horizon = profile?.projectionHorizonDays ?? DEFAULT_PROJECTION_HORIZON_DAYS;
-  const through = new Date(Date.now() + (horizon + MATERIALIZATION_LEAD_DAYS) * 86_400_000)
-    .toISOString()
-    .slice(0, 10);
+  const daysAhead = materializationDaysAhead(
+    obligation.cadence,
+    horizon + MATERIALIZATION_LEAD_DAYS,
+  );
+  const through = new Date(Date.now() + daysAhead * 86_400_000).toISOString().slice(0, 10);
 
   await materializeOccurrences(
     {
