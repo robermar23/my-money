@@ -521,6 +521,21 @@ it knows rather than what is true. Adding the account fixes it. Un-triaged cash 
 never counted as savings either — a `NULL` subtype might be a CD, or a second
 checking account already inside the line.
 
+**A one-off cost you record can overlap this window.** A planned expense
+(see [SINKING.md](SINKING.md)) is charged to the projection on its due date and
+tagged *one-off* in the chart. It does **not** change your everyday spending
+rate, which is correct — the residual removes what trailing *observed* spend
+already contains, and a cost dated in the future has not been spent. The
+exception is an *annually recurring* cost recorded as a one-off: its prior-year
+instance may sit inside the 90-day residual window, in which case a version of it
+is charged twice. Enter recurring costs as obligations, which is what the entry
+form's duplicate warning nudges toward.
+
+**A recorded cost is never deduplicated against a confirmed bill.** Both land on
+the line, on purpose — only you know whether the roof and the roof-shaped bill are
+the same roof, and dropping one silently would decide that for you with nothing
+on screen admitting it.
+
 **Plaid's recurring-streams endpoint is deliberately not used.** Local detection
 over data already on the box has zero egress and no per-Item cost, and ADR-033
 §6's manual-first posture applies identically.
@@ -543,6 +558,10 @@ Work down this list — it is ordered by how often each is the cause.
    nothing to the opening balance.
 5. **Check the anchor date and cadence** on the obligation itself. A monthly bill
    anchored on the wrong day moves the low-water date.
+6. **Check whether a cliff is a one-off you recorded.** The tooltip tags it. A
+   cost you entered twice — once here, once as a bill — is charged twice by
+   design; [SINKING.md](SINKING.md#duplicate-entry-is-warned-never-merged) says
+   why.
 
 ---
 
@@ -550,6 +569,10 @@ Work down this list — it is ordered by how often each is the cause.
 
 - [GUIDANCE.md](GUIDANCE.md) — the waterfall and recommendations that decide
   where money *should* go; this doc is about when it actually moves.
+- [SINKING.md](SINKING.md) — what the irregular costs on this calendar require
+  you to be **holding now**. Its second cost source is the obligations this doc
+  describes, and its cadence threshold exists so a monthly bill is not counted
+  both in the residual rate here and in a reserve requirement there.
 - [INCOME.md](INCOME.md) — how paychecks are defined; the projection's inflows
   come from **observed** take-home, not declared gross.
 - [ATTRIBUTION.md](ATTRIBUTION.md) — the backward-looking counterpart: this doc
