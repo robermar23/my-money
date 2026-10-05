@@ -161,6 +161,10 @@ describe("P16-36 — the cash-flow layer imports nothing that could reach the ne
     "@/db/schema/categories.ts",
     "@/db/schema/index.ts",
     "@/db/schema/obligation-occurrences.ts",
+    // P18-28. TYPE-ONLY, for the status union the fourth event kind filters on.
+    // A Drizzle module, so the entry is here rather than taken on trust; the
+    // import erases at build time and pulls no driver into the event expander.
+    "@/db/schema/planned-expenses.ts",
     "@/db/schema/scheduled-obligations.ts",
     "@/lib/advice/cash-tiers.ts",
     "@/lib/advice/debt-terms.ts",
@@ -182,6 +186,14 @@ describe("P16-36 — the cash-flow layer imports nothing that could reach the ne
     "@/lib/mortgage/amortization.ts",
     "@/lib/schedule/cadence.ts",
     "@/lib/schedule/occurrences.ts",
+    // P18-29. One narrow read of `planned_expenses` so a dated one-off cost
+    // reaches the low-water mark instead of being invisible to it. Postgres
+    // only: the module it comes from is `server-only`, imports `@/db/client.ts`
+    // and pure in-repo math, and is itself audited for zero egress by P18-33.
+    // It deliberately does NOT reach `@/lib/sinking/mutations.ts` — the reads
+    // and the writes are separate modules precisely so an allowlist entry
+    // cannot hand a projection the ability to write a row.
+    "@/lib/sinking/queries.ts",
   ];
 
   it("audits a non-empty set of cash-flow modules", () => {

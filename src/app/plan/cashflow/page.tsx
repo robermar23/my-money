@@ -3,7 +3,6 @@ import { loadCashFlow } from "@/lib/cashflow/loader.ts";
 import type { ShortfallClose } from "@/lib/cashflow/shortfall-close.ts";
 import { STATED_FIGURE_STATUSES } from "@/lib/cashflow/status.ts";
 import { Money } from "@/lib/money/money.ts";
-import { SINKING_HORIZON_MONTHS } from "@/lib/sinking/constants.ts";
 import { loadKnownFutureCosts } from "@/lib/sinking/queries.ts";
 import { sinkingHorizon, sinkingRequirement } from "@/lib/sinking/requirement.ts";
 import type { Metadata } from "next";
@@ -17,6 +16,7 @@ import {
   cashFlowNotice,
   groupOccurrencesByWeek,
   longDate,
+  sinkingNoteSentence,
   toProjectionPoints,
 } from "./view-models.ts";
 
@@ -63,6 +63,10 @@ import {
  * indexed queries into the same `sinkingRequirement` the other two surfaces
  * call. It cannot disagree about the figure, and it cannot state the half it is
  * forbidden to state, because it never computes it.
+ *
+ * P18-29 gave the sentence a second job. Recorded costs now land on the
+ * projection as events, so the sentence has to say which of them are already on
+ * the line and which are still past its edge — see {@link SinkingNote}.
  *
  * Zero egress; no figure is logged (CLAUDE.md §Privacy).
  */
@@ -152,7 +156,7 @@ export default async function CashFlowPage(): Promise<React.JSX.Element> {
             </div>
           </section>
 
-          <Upcoming grouped={upcoming} sinking={sinking} />
+          <Upcoming grouped={upcoming} sinking={sinking} horizonTo={snapshot.to} />
         </>
       )}
 
@@ -413,9 +417,11 @@ const STATUS_TONE: Readonly<Record<OccurrenceView["status"], string>> = {
 function Upcoming({
   grouped,
   sinking,
+  horizonTo,
 }: {
   readonly grouped: ReturnType<typeof groupOccurrencesByWeek>;
   readonly sinking: ReturnType<typeof sinkingRequirement>;
+  readonly horizonTo: string;
 }) {
   return (
     <section aria-labelledby="upcoming-heading" className="mt-10">
@@ -448,7 +454,7 @@ function Upcoming({
         </>
       )}
 
-      <SinkingNote sinking={sinking} />
+      <SinkingNote sinking={sinking} horizonTo={horizonTo} />
     </section>
   );
 }
@@ -468,17 +474,32 @@ function Upcoming({
  * Silent when nothing is recorded: a household with no planned costs gets no
  * sentence here rather than a $0.00 that reads as a verdict. `/plan` is where
  * an unrecorded cost list is named as a missing input (ADR-046 §5).
+ *
+ * ── The word P18-29 made wrong, and had to change ─────────────────────────
+ * The sentence used to open *"Beyond this window…"*, which was true when it was
+ * written and became false the moment the projection gained the fourth event
+ * kind: a cost dated inside the horizon is now **on the line above**. The copy
+ * says which, and how many, because the alternative is a page that counts the
+ * same roof in two places and tells the reader the second one is somewhere
+ * else.
+ *
+ * The prose itself moved to {@link sinkingNoteSentence} when that was fixed.
+ * Two branches and four pluralizations around a money figure is logic, and this
+ * bug is the evidence that reviewing it as markup does not catch it.
  */
 function SinkingNote({
   sinking,
-}: { readonly sinking: ReturnType<typeof sinkingRequirement> }): React.JSX.Element | null {
-  if (sinking.costCount === 0) return null;
+  horizonTo,
+}: {
+  readonly sinking: ReturnType<typeof sinkingRequirement>;
+  readonly horizonTo: string;
+}): React.JSX.Element | null {
+  const sentence = sinkingNoteSentence(sinking, horizonTo, money);
+  if (sentence === null) return null;
 
   return (
     <p className="mt-6 max-w-2xl border-zinc-200 border-t pt-4 text-sm text-zinc-500 dark:border-zinc-800">
-      Beyond this window, {sinking.costCount} known {sinking.costCount === 1 ? "cost" : "costs"} in
-      the next {SINKING_HORIZON_MONTHS} months mean you should already be holding{" "}
-      {money(sinking.requiredToday)} for them.{" "}
+      {sentence}{" "}
       <Link href="/plan/sinking" className="underline">
         See what they require
       </Link>

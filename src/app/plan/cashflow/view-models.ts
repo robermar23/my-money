@@ -6,9 +6,12 @@ import type {
 } from "@/db/schema/index.ts";
 import type {
   CashFlowDirection,
+  CashFlowEvent,
   DailyProjectionPoint,
   ProjectionStatus,
 } from "@/lib/cashflow/types.ts";
+import { SINKING_HORIZON_MONTHS } from "@/lib/sinking/constants.ts";
+import type { SinkingRequirement } from "@/lib/sinking/types.ts";
 
 /**
  * The shapes and derivations behind `/plan/cashflow` (P16-31, P16-33, P16-34).
@@ -90,6 +93,17 @@ export interface ChartEventView {
   readonly label: string;
   readonly amountDisplay: string;
   readonly direction: CashFlowDirection;
+  /**
+   * Which kind of event this is, carried so the tooltip can mark a one-off cost
+   * (P18-29).
+   *
+   * The compiler does **not** force this: a `planned_expense` event satisfies
+   * every field above, so the chart happily rendered a $4,000 roof looking
+   * exactly like a recurring bill. That is the one thing a household must be
+   * able to tell apart here — a cliff in the line that is a new roof is a
+   * decision they already made, and a cliff that is the mortgage is not.
+   */
+  readonly kind: Exclude<CashFlowEvent["kind"], "discretionary">;
 }
 
 /** One day of the projection, as the chart island consumes it. */
@@ -248,6 +262,11 @@ function toOccurrenceView(row: OccurrenceInput, format: MoneyFormatter): Occurre
  * rows. The chart states it once, in prose, beneath the axis instead — which is
  * also the honest description of what it is: a rate, not an event.
  *
+ * **Every other kind is kept, including the one P18-28 added.** A recorded cost
+ * inside the horizon is the single largest thing the projection is likely to
+ * show, and it arrives with `kind` so the tooltip can mark it as a one-off
+ * rather than let it read as a bill that will be back next month.
+ *
  * @param points - The projection's daily points, in order.
  * @param format - Server-side money formatter.
  * @returns One view per day, with only the dated events.
@@ -265,11 +284,81 @@ export function toProjectionPoints(
         label: event.label,
         amountDisplay: format(event.amount),
         direction: event.direction,
+        kind: event.kind,
       });
     }
     out.push({ date: point.date, closing: point.closing, events });
   }
   return out;
+}
+
+/**
+ * The sinking-fund sentence at the foot of the bill list (P18-27, P18-29).
+ *
+ * Here rather than in the page for one reason: **it had a bug that markup
+ * review did not catch.** P18-27 wrote it as *"Beyond this window, N known
+ * costs…"*, which was true until P18-29 put the costs inside the window onto
+ * the projection — and then the page counted the same roof twice while telling
+ * the reader the second one was somewhere else. A sentence with two branches
+ * and four pluralizations is logic, and logic that states a money figure
+ * belongs where a test can read it back.
+ *
+ * It states the requirement and **nothing downstream of it**: no
+ * emergency-fund target, no available figure (ADR-046 §9, ADR-048 §5). That is
+ * enforced structurally by the page, which never computes either — this
+ * function could not state them if it wanted to, because they are not in its
+ * arguments.
+ *
+ * @param requirement - The sinking requirement over its own 12-month horizon.
+ * @param horizonTo - The PROJECTION's inclusive far edge, `YYYY-MM-DD`. The
+ *   comparison against it is a plain string compare, which is the same edge the
+ *   projection's own window uses and so cannot drift from it by a timezone.
+ * @param format - Server-side money formatter (CLAUDE.md §Money).
+ * @returns The sentence, or `null` when nothing is recorded — a household with
+ *   no costs gets no sentence rather than a `$0.00` that reads as a verdict.
+ *   `/plan` is where an unrecorded cost list is named as a missing input.
+ */
+export function sinkingNoteSentence(
+  requirement: SinkingRequirement,
+  horizonTo: string,
+  format: MoneyFormatter,
+): string | null {
+  if (requirement.costCount === 0) return null;
+
+  const total = requirement.costCount;
+  // Inclusive, and a plain string comparison: both sides are `YYYY-MM-DD`
+  // (CLAUDE.md §Database), so this is the same edge the projection's own window
+  // uses and cannot drift from it by a timezone.
+  const inside = requirement.costs.filter((accrued) => accrued.cost.dueDate <= horizonTo).length;
+
+  const lead =
+    total === 1
+      ? `Over the next ${SINKING_HORIZON_MONTHS} months, 1 known cost means you should already be holding ${format(requirement.requiredToday)} for it.`
+      : `Over the next ${SINKING_HORIZON_MONTHS} months, ${total} known costs mean you should already be holding ${format(requirement.requiredToday)} for them.`;
+
+  return `${lead} ${tail(total, inside)}`;
+}
+
+/**
+ * Which of those costs the projection above has already charged.
+ *
+ * Four cases rather than interpolated plurals, because the one-cost household
+ * is the common first case and *"All lands inside the window"* is the kind of
+ * sentence that makes a reader distrust the figure beside it.
+ */
+function tail(total: number, inside: number): string {
+  if (total === 1) {
+    return inside === 1
+      ? "It lands inside the window above and is already on the line."
+      : "It falls beyond the window above.";
+  }
+  if (inside === 0) return "None of them land inside the window above.";
+  if (inside === total) {
+    return "All of them land inside the window above and are already on the line.";
+  }
+  const verb = inside === 1 ? "lands" : "land";
+  const is = inside === 1 ? "is" : "are";
+  return `${inside} of them ${verb} inside the window above and ${is} already on the line.`;
 }
 
 /** The half of the thin-history notice that never varies. */

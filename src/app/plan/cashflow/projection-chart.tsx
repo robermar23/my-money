@@ -68,6 +68,11 @@ function shortDate(iso: string): string {
  *
  * The events are the reason this tooltip exists rather than a bare value — a
  * cliff in the line is only useful if you can see it is the mortgage.
+ *
+ * A one-off cost the household recorded is marked as one (P18-29). It is the
+ * same sentence one step further: a cliff that is a new roof is a decision
+ * already made, and a cliff that is the mortgage is not, and the two look
+ * identical in a line chart.
  */
 function ProjectionTooltip({
   active,
@@ -88,7 +93,12 @@ function ProjectionTooltip({
               <span className={event.direction === "inflow" ? "text-emerald-400" : "text-red-400"}>
                 {event.direction === "inflow" ? "+" : "−"}
               </span>
-              <span className="grow">{event.label}</span>
+              <span className="grow">
+                {event.label}
+                {event.kind === "planned_expense" && (
+                  <span className="ml-1.5 text-[0.6875rem] text-zinc-400">one-off</span>
+                )}
+              </span>
               <span className="font-mono tabular-nums">{event.amountDisplay}</span>
             </li>
           ))}

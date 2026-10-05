@@ -1,12 +1,15 @@
 // @vitest-environment node
 
 import type { DailyProjectionPoint } from "@/lib/cashflow/types.ts";
+import { sinkingRequirement } from "@/lib/sinking/requirement.ts";
+import { ROUND12_TODAY, round12Costs } from "@/lib/sinking/round12.fixture.ts";
 import { describe, expect, it } from "vitest";
 import {
   type OccurrenceInput,
   cashFlowNotice,
   groupOccurrencesByWeek,
   longDate,
+  sinkingNoteSentence,
   startOfWeek,
   toProjectionPoints,
 } from "./view-models.ts";
@@ -227,9 +230,117 @@ describe("toProjectionPoints", () => {
     expect(view?.events).toEqual([]);
   });
 
+  it("marks a recorded one-off cost as what it is, beside a bill that looks the same", () => {
+    // P18-29. The compiler cannot catch this: a `planned_expense` event
+    // satisfies every field the tooltip reads, so without `kind` a $4,000 roof
+    // renders identically to a recurring bill. A cliff in the line that is a
+    // roof is a decision the household already made; a cliff that is the
+    // mortgage is not, and those are different things to be told.
+    const [view] = toProjectionPoints(
+      [
+        point({
+          events: [
+            {
+              kind: "obligation",
+              date: TODAY,
+              amount: "2150.00",
+              direction: "outflow",
+              label: "Mortgage",
+              obligationId: "obl-1",
+              amountMode: "fixed",
+            },
+            {
+              kind: "planned_expense",
+              date: TODAY,
+              amount: "4000.00",
+              direction: "outflow",
+              label: "New roof",
+              plannedExpenseId: "pe-1",
+            },
+          ],
+        }),
+      ],
+      fmt,
+    );
+
+    expect(view?.events.map((e) => [e.label, e.kind])).toEqual([
+      ["Mortgage", "obligation"],
+      ["New roof", "planned_expense"],
+    ]);
+  });
+
   it("carries the closing balance through unrounded and signed", () => {
     const [view] = toProjectionPoints([point({ closing: "-312.45" })], fmt);
     expect(view?.closing).toBe("-312.45");
+  });
+});
+
+/**
+ * P18-27 / P18-29 — the sinking-fund sentence.
+ *
+ * Asserted as string literals typed out by hand, the same standard
+ * `/plan/sinking`'s headline is held to: a sentence a household reads a dollar
+ * figure out of is a deliverable, and a test that rebuilds it from the same
+ * template proves nothing. The reason it is tested at all is that the P18-27
+ * version was WRONG after P18-29 — it opened "Beyond this window" while the
+ * costs inside the window had just been added to the line above it.
+ */
+describe("sinkingNoteSentence (P18-27, corrected by P18-29)", () => {
+  const plain = (amount: string) => `$${amount}`;
+
+  function requirementOf(costs: readonly ReturnType<typeof round12Costs>[number][]) {
+    return sinkingRequirement(costs, ROUND12_TODAY, {
+      from: ROUND12_TODAY,
+      to: "2027-10-04",
+      currency: "USD",
+    });
+  }
+
+  it("says how many of the four are already on the line, when some are", () => {
+    // A 60-day-ish window that reaches the water bill (2026-12-04) and stops
+    // short of the car insurance, the dental work and the roof.
+    expect(sinkingNoteSentence(requirementOf(round12Costs()), "2026-12-04", plain)).toBe(
+      "Over the next 12 months, 4 known costs mean you should already be holding $2180.00 for them. 1 of them lands inside the window above and is already on the line.",
+    );
+  });
+
+  it("says none are on the line when the window stops before the first one", () => {
+    expect(sinkingNoteSentence(requirementOf(round12Costs()), "2026-11-30", plain)).toBe(
+      "Over the next 12 months, 4 known costs mean you should already be holding $2180.00 for them. None of them land inside the window above.",
+    );
+  });
+
+  it("says all of them when the window covers every cost", () => {
+    expect(sinkingNoteSentence(requirementOf(round12Costs()), "2027-10-04", plain)).toBe(
+      "Over the next 12 months, 4 known costs mean you should already be holding $2180.00 for them. All of them land inside the window above and are already on the line.",
+    );
+  });
+
+  it("reads as English for a household with exactly one cost", () => {
+    const one = [round12Costs()[0] as ReturnType<typeof round12Costs>[number]];
+
+    expect(sinkingNoteSentence(requirementOf(one), "2026-12-04", plain)).toBe(
+      "Over the next 12 months, 1 known cost means you should already be holding $80.00 for it. It lands inside the window above and is already on the line.",
+    );
+    expect(sinkingNoteSentence(requirementOf(one), "2026-11-30", plain)).toBe(
+      "Over the next 12 months, 1 known cost means you should already be holding $80.00 for it. It falls beyond the window above.",
+    );
+  });
+
+  it("says nothing at all when no cost is recorded", () => {
+    // Not "$0.00 required", which reads as a verdict on a household that has
+    // simply not told the app anything yet (ADR-046 §5). `/plan` is where the
+    // empty list is named as a missing input.
+    expect(sinkingNoteSentence(requirementOf([]), "2026-12-04", plain)).toBeNull();
+  });
+
+  it("never states the emergency-fund target or what is available", () => {
+    // ADR-046 §9 / ADR-048 §5. The page cannot compute either figure, and this
+    // sentence is not given them — but the copy is where a well-meaning edit
+    // would reach for them, so the prohibition is asserted on the output.
+    const sentence = sinkingNoteSentence(requirementOf(round12Costs()), "2026-12-04", plain) ?? "";
+
+    expect(sentence).not.toMatch(/emergency|available|reserve|surplus|short/i);
   });
 });
 

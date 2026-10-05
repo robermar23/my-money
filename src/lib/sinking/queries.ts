@@ -24,9 +24,10 @@ import type { KnownFutureCost } from "./types.ts";
  * The sinking fund's only database reads (P18-19, P18-22, ADR-032 §1,
  * ADR-045 §7).
  *
- * Three functions: the cost stream the requirement is computed from, the full
- * planned-expense list the manager renders, and the occurrence window a
- * collision check compares against. Nothing here decides anything: no money is
+ * Four functions: the cost stream the requirement is computed from, the full
+ * planned-expense list the manager renders, the horizon window the cash-flow
+ * projection charges to days (P18-29), and the occurrence window a collision
+ * check compares against. Nothing here decides anything: no money is
  * computed, no date is expanded, no cost is filtered on a rule a pure module in
  * this directory does not already own. That split is what
  * keeps the `sinking_fund` rule and every pure module in this directory testable
@@ -238,6 +239,72 @@ export async function listPlannedExpenses(): Promise<readonly PlannedExpenseReco
       notes: plannedExpenses.notes,
     })
     .from(plannedExpenses)
+    .orderBy(asc(plannedExpenses.dueDate), asc(plannedExpenses.id));
+
+  return rows.map((row) => ({ ...row, status: row.status as PlannedExpenseStatus }));
+}
+
+/** One recorded cost as the cash-flow projection reads it (P18-29). */
+export interface PlannedExpenseWindowRow {
+  readonly id: string;
+  readonly label: string;
+  readonly amount: string;
+  readonly currency: string;
+  readonly dueDate: string;
+  readonly status: PlannedExpenseStatus;
+}
+
+/**
+ * Recorded costs landing inside a projection horizon (P18-29).
+ *
+ * The third and narrowest read of this table, and the narrowness is the point:
+ * the cash-flow projection needs a label, an amount and a date, so
+ * `accrual_start_date`, `category_id` and above all `notes` are **not
+ * selected**. `notes` is household PII with exactly one surface that renders it
+ * (the manager), and a projection that selected it would put free text into the
+ * module that feeds the alert evaluator (CLAUDE.md §Privacy, ADR-015).
+ *
+ * ── Why not reuse {@link loadKnownFutureCosts} ────────────────────────────
+ * Because that stream merges planned expenses WITH eligible obligation
+ * occurrences, and the projection already expands every obligation from its own
+ * schedule. Feeding the merged stream to the walk would charge every quarterly
+ * and annual bill in the horizon twice — the ADR-038 §2 double count, arriving
+ * through the one door Phase 16 could not have closed.
+ *
+ * `status` is both filtered here and re-checked by
+ * {@link import("@/lib/cashflow/events.ts").expandPlannedExpenseEvents}. The SQL
+ * filter is for the index — `(status, due_date)`, which this table was given
+ * because a household accumulates `paid` rows for years while a handful are ever
+ * `planned`. The re-check is the pure function's own contract, and it is tested
+ * against all three statuses there because that is where it is a rule rather
+ * than a query plan.
+ *
+ * @param from - Inclusive horizon start, `YYYY-MM-DD`. In the projection this is
+ *   today, which is what keeps past-due costs out.
+ * @param to - Inclusive horizon end, `YYYY-MM-DD`.
+ * @returns Rows ascending by `(dueDate, id)`. `status` is always `planned`.
+ */
+export async function listPlannedExpensesInWindow(
+  from: string,
+  to: string,
+): Promise<readonly PlannedExpenseWindowRow[]> {
+  const rows = await db
+    .select({
+      id: plannedExpenses.id,
+      label: plannedExpenses.label,
+      amount: plannedExpenses.amount,
+      currency: plannedExpenses.currency,
+      dueDate: plannedExpenses.dueDate,
+      status: plannedExpenses.status,
+    })
+    .from(plannedExpenses)
+    .where(
+      and(
+        eq(plannedExpenses.status, "planned" satisfies PlannedExpenseStatus),
+        gte(plannedExpenses.dueDate, from),
+        lte(plannedExpenses.dueDate, to),
+      ),
+    )
     .orderBy(asc(plannedExpenses.dueDate), asc(plannedExpenses.id));
 
   return rows.map((row) => ({ ...row, status: row.status as PlannedExpenseStatus }));
