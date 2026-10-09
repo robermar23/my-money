@@ -470,6 +470,15 @@ actually happened, not derived figures.
 
 These are real and stated rather than hidden. None of them is a bug report.
 
+**Unstated paychecks share one household figure.** Observed take-home is a single
+household median; nothing in a deposit says which income source it belongs to.
+A source with a stated take-home (ADR-049) is projected at exactly that figure,
+and every source **without** one splits what remains of the median evenly per
+payday. With unequal paychecks — a salary and a small benefit — the unstated
+ones will be wrong individually while the month still totals correctly. The
+inputs panel's **Take-home per paycheck** line shows how many are stated, and
+`/settings/income` suggests each figure from deposits already on its paydays.
+
 **The residual rate is flat.** It spreads everyday spending evenly across the
 horizon, which ignores weekday clustering and the post-payday spike. A household
 that spends most of its discretionary money in the three days after a paycheck
@@ -574,7 +583,7 @@ Work down this list — it is ordered by how often each is the cause.
   describes, and its cadence threshold exists so a monthly bill is not counted
   both in the residual rate here and in a reserve requirement there.
 - [INCOME.md](INCOME.md) — how paychecks are defined; the projection's inflows
-  come from **observed** take-home, not declared gross.
+  come from **take-home** (stated per source, else observed), never declared gross.
 - [ATTRIBUTION.md](ATTRIBUTION.md) — the backward-looking counterpart: this doc
   projects a window that has not happened, that one explains one that has.
 - [ALERTS.md](ALERTS.md) — the full alert catalog and email setup.

@@ -538,6 +538,59 @@ describe("loadCashFlow — inflows come from observed take-home (ADR-038 §3)", 
     );
     expect(named?.missing).toBe(true);
   });
+
+  it("projects a stated take-home exactly, and shares only the remainder (ADR-049)", async () => {
+    // One $3,000 monthly median, two monthly sources. Unstated, each would get
+    // $1,500 — the even split that put one figure on every payday. Stating
+    // $2,200 for one must land $2,200 on its payday and $800 on the other's.
+    const accountId = await seedAccount("Checking", "checking", "1000.00");
+    await seedSpend(accountId, HISTORY_DAYS, "40.00");
+    const [incomeCategory] = await db
+      .insert(categories)
+      .values({ name: "Salary", kind: "income" })
+      .returning({ id: categories.id });
+    await db.insert(transactions).values(
+      ["2026-02-15", "2026-03-15", "2026-04-15"].map((postedAt) => ({
+        accountId,
+        postedAt,
+        amount: "3000.00",
+        name: "DEPOSIT",
+        fitid: `pay-${postedAt}`,
+        categoryId: incomeCategory?.id ?? null,
+        source: "manual" as const,
+      })),
+    );
+    const base = {
+      cadence: "monthly",
+      grossPerPeriod: "5000.00",
+      currency: "USD",
+      startDate: "2026-01-01",
+      active: true,
+    };
+    await db.insert(incomeSources).values([
+      { ...base, name: "Stated", anchorDate: "2026-01-20", netPerPeriod: "2200.00" },
+      { ...base, name: "Shared", anchorDate: "2026-01-25" },
+    ]);
+
+    const snapshot = await loadCashFlow({ today: TODAY, now: NOW });
+
+    const amounts = new Map<string, Set<string>>();
+    for (const point of snapshot.projection.points) {
+      for (const event of point.events) {
+        if (event.kind !== "income") continue;
+        const set = amounts.get(event.label) ?? new Set<string>();
+        set.add(event.amount);
+        amounts.set(event.label, set);
+      }
+    }
+    expect([...(amounts.get("Stated") ?? [])]).toEqual(["2200.00"]);
+    expect([...(amounts.get("Shared") ?? [])]).toEqual(["800.00"]);
+    const perPaycheck = snapshot.projection.inputsUsed.find(
+      (input) => input.label === "Take-home per paycheck",
+    );
+    expect(perPaycheck?.value).toBe("1 of 2 stated");
+    expect(perPaycheck?.missing).toBe(false);
+  });
 });
 
 describe("loadCashFlow — the horizon and the floor are stated", () => {

@@ -1,0 +1,2 @@
+ALTER TABLE "income_sources" ADD COLUMN "net_per_period" numeric(18, 2);--> statement-breakpoint
+ALTER TABLE "income_sources" ADD CONSTRAINT "income_sources_net_non_negative_check" CHECK ("income_sources"."net_per_period" IS NULL OR "income_sources"."net_per_period" >= 0);

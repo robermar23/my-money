@@ -191,8 +191,9 @@ export function expandObligationEvents(
  * as a missing input (ADR-038 §7/§8) — silence here, visibility there.
  *
  * @param sources - Income sources. Inactive ones are skipped.
- * @param netPerPeriod - Source id → observed take-home per period, from
- *   `observedNetIncome`'s trailing median (ADR-034 §1). Never gross.
+ * @param netPerPeriod - Source id → take-home per period, from `splitTakeHome`:
+ *   stated per source (ADR-049), else a share of `observedNetIncome`'s trailing
+ *   median (ADR-034 §1). Never gross.
  * @param from - Inclusive horizon start, `YYYY-MM-DD`.
  * @param to - Inclusive horizon end, `YYYY-MM-DD`.
  * @returns Events ascending by `(date, label, incomeSourceId)`. Inputs untouched.

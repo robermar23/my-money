@@ -116,6 +116,8 @@ export const incomeSourceSchema = z
     name: z.string().trim().min(1, "Name is required").max(120),
     cadence: z.enum(INCOME_CADENCE_OPTIONS),
     grossPerPeriod: nonNegativeMoneySchema,
+    /** Optional user-stated take-home (ADR-049). Blank = let the projection share observed net. */
+    netPerPeriod: optionalText(nonNegativeMoneySchema),
     currency: z.string().trim().toUpperCase().length(3, "Use a 3-letter currency code"),
     anchorDate: isoDateSchema,
     startDate: isoDateSchema,
@@ -137,10 +139,32 @@ export const incomeSourceSchema = z
   .transform((value) => ({
     ...value,
     endDate: blankToNull(value.endDate),
+    netPerPeriod: blankToNull(value.netPerPeriod),
     notes: blankToNull(value.notes),
   }));
 
 export type IncomeSourceInput = z.infer<typeof incomeSourceSchema>;
+
+/**
+ * The schedule fields the take-home suggestion reads (ADR-049 §2). Gross is
+ * optional — it only orders candidates — and a malformed one is dropped rather
+ * than failing the suggestion.
+ */
+export const takeHomeSuggestionSchema = z
+  .object({
+    cadence: z.enum(INCOME_CADENCE_OPTIONS),
+    anchorDate: isoDateSchema,
+    startDate: isoDateSchema,
+    endDate: optionalText(isoDateSchema),
+    grossPerPeriod: z.string().optional(),
+  })
+  .transform((value) => ({
+    ...value,
+    endDate: blankToNull(value.endDate),
+    grossPerPeriod: nonNegativeMoneySchema.safeParse(value.grossPerPeriod).success
+      ? (value.grossPerPeriod as string)
+      : null,
+  }));
 
 /** The match shapes whose `matchValue` is a percentage rather than dollars. */
 const PERCENT_MATCH_BASES = new Set(["percent_of_gross", "percent_of_contribution"]);

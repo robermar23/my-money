@@ -7,7 +7,6 @@ import type { InputUsed } from "@/lib/advice/types.ts";
 import { spendingSummary } from "@/lib/analytics/spending.ts";
 import { loadHousehold } from "@/lib/household/queries.ts";
 import { loadIncomeSettings } from "@/lib/income/queries.ts";
-import { periodsPerYear } from "@/lib/income/schedule.ts";
 import { Money } from "@/lib/money/money.ts";
 import {
   type PlannedExpenseWindowRow,
@@ -29,6 +28,7 @@ import { listCashBalancesByTier, listObligations, listUpcomingOccurrences } from
 import { residualDailyRate } from "./residual.ts";
 import { type ShortfallClose, classifyShortfall } from "./shortfall-close.ts";
 import { projectionStatus } from "./status.ts";
+import { splitTakeHome } from "./take-home.ts";
 import type { PlannedExpenseEvent, ProjectionResult } from "./types.ts";
 
 /**
@@ -54,7 +54,8 @@ import type { PlannedExpenseEvent, ProjectionResult } from "./types.ts";
  *      run-rate to a dated mortgage charges the mortgage twice and silently
  *      understates safe-to-spend. Attribution uses the occurrence MATCH, so the
  *      subtraction is exact rather than estimated.
- *   §3 Inflows come from observed take-home, never `gross_per_period`.
+ *   §3 Inflows come from take-home (stated per source, ADR-049, else observed),
+ *      never `gross_per_period`.
  *   §5 Safe-to-spend is `min(closing) − floor`, clamped, computed in the engine.
  *   §6 Operating cash only — `checking`/`cash_management`, via the shipped
  *      `tierForSubtype`, so account selection cannot mean two things.
@@ -64,10 +65,10 @@ import type { PlannedExpenseEvent, ProjectionResult } from "./types.ts";
  * ── What this module decides that the ADR did not spell out ────────────────
  * Four things, each stated where it happens:
  *
- *   1. **Take-home is split evenly across pay events**, because
- *      `observedNetIncome` returns one household-level monthly median and
- *      `gross_per_period` — the only per-source weight available — is exactly
- *      the input §3 bans. See {@link netPerPeriod}.
+ *   1. **Take-home is stated per source where the household has stated it**
+ *      (ADR-049), and only the REMAINDER of `observedNetIncome`'s household
+ *      median is split evenly across the other sources' pay events — never
+ *      weighted by `gross_per_period`, the input §3 bans. See `splitTakeHome`.
  *   2. **Already-settled occurrences are removed from the projection.** A
  *      `skipped` bill is not happening and a `matched` one already posted; both
  *      would otherwise be charged to a future day a second time.
@@ -277,7 +278,15 @@ export async function loadCashFlow(options: LoadCashFlowOptions = {}): Promise<C
 
   // ── Inflows (ADR-038 §3) ─────────────────────────────────────────────────
   const activeSources = income.sources.filter((source) => source.active);
-  const perPeriod = netPerPeriod(activeSources, netIncome.trailingMedian);
+  const split = splitTakeHome(
+    activeSources.map((source) => ({
+      id: source.id,
+      cadence: source.cadence,
+      netPerPeriod: source.netPerPeriod,
+    })),
+    netIncome.trailingMedian,
+  );
+  const perPeriod = split.perPeriod;
 
   inputsUsed.push({
     label: "Take-home per month",
@@ -293,6 +302,21 @@ export async function loadCashFlow(options: LoadCashFlowOptions = {}): Promise<C
     missing: netIncome.trailingMedian === null,
     href: "/settings/income",
   });
+  if (activeSources.length > 0) {
+    inputsUsed.push({
+      label: "Take-home per paycheck",
+      value: `${split.stated} of ${activeSources.length} stated`,
+      kind: "text",
+      source:
+        split.unpriced > 0
+          ? `${split.unpriced} paycheck${split.unpriced === 1 ? "" : "s"} not projected — state take-home, or no observed income is left to share`
+          : split.shared > 0
+            ? "The rest share what remains of observed take-home, evenly per payday"
+            : "Every paycheck projects at its stated take-home",
+      missing: split.unpriced > 0,
+      href: "/settings/income",
+    });
+  }
 
   // ── Events ───────────────────────────────────────────────────────────────
   // Two independent reads over the same window, issued together: the recorded
@@ -509,49 +533,6 @@ function attributableOutflow(occurrences: readonly UpcomingOccurrence[]): Money 
     total = total.add(amount);
   }
   return total;
-}
-
-/**
- * Observed take-home, split across every pay event the active sources produce.
- *
- * ADR-038 §3 names the amount (observed net) and the dates (each source's own
- * cadence) but not how one household-level median divides across several
- * paychecks. The only per-source weight the schema offers is
- * `gross_per_period`, which is precisely the input §3 forbids — projecting
- * gross overstates every inflow by the whole withholding stack, and using it as
- * a *ratio* would smuggle the same distortion in through the side door.
- *
- * So the split is even per pay event: annual take-home divided by the total
- * number of pay events a year across all active sources. Two unequal paychecks
- * are therefore each projected at their average, which shifts money between pay
- * dates but never changes the monthly total — and the low-water mark, which is
- * what the household acts on, moves by at most the gap between two paydays.
- * Division is `Money.divFloor`: erring low on an INFLOW is the safe direction.
- *
- * @param sources - Active income sources.
- * @param monthlyMedian - `observedNetIncome`'s trailing median, or `null`.
- * @returns Source id → per-period take-home. Empty when there is no median, so
- *   `expandIncomeEvents` skips every source rather than projecting a $0 paycheck.
- */
-function netPerPeriod(
-  sources: readonly { id: string; cadence: string }[],
-  monthlyMedian: string | null,
-): ReadonlyMap<string, string> {
-  const out = new Map<string, string>();
-  if (monthlyMedian === null || sources.length === 0) return out;
-
-  const median = Money.fromString(monthlyMedian, CURRENCY);
-  if (median.isNegative() || median.isZero()) return out;
-
-  let eventsPerYear = 0;
-  for (const source of sources) {
-    eventsPerYear += periodsPerYear(source.cadence as never);
-  }
-  if (eventsPerYear === 0) return out;
-
-  const perEvent = median.mul(12).divFloor(eventsPerYear);
-  for (const source of sources) out.set(source.id, perEvent.toString());
-  return out;
 }
 
 /** An `ObligationRow` narrowed to what the event expander reads. */

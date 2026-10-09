@@ -674,3 +674,21 @@ way to record it.
   pass before it is concentrated in an index.
 
 Implemented under **ADR-043 → ADR-046** (IDEAS.md §11 Decision Log) via [PLAN18.md](PLAN18.md).
+
+### 2026-10-08 — Take-home per paycheck on income sources (in scope)
+
+The owner reported the cash-flow calendar was wrong for their income set: every payday — a
+biweekly salary and two monthly SSA benefits of $3,251 and $1,625 — showed the same $2,787.67.
+The cause was ADR-038 §3's even split of one household take-home median across all pay events,
+which is exact only when paychecks are alike. The owner approved storing a **take-home per
+period** on each source, and asked that the form **recommend it from deposits** already found.
+
+- **In scope:** an optional, user-stated `income_sources.net_per_period`; the projection lands it
+  exactly on that source's paydays and shares only the remainder of observed take-home among
+  unstated sources; the income form suggests candidates from deposits that line up with the
+  source's own paydays, each named by payee, never auto-applied.
+- **Still out of scope:** withholding, tax math, deduction stacks, paystubs. The 2026-08-09
+  "no net pay" line is amended to "no net pay *computed*": the figure is what the household says
+  reaches the bank, not something derived from gross.
+
+Implemented under **ADR-049** (IDEAS.md §11 Decision Log).

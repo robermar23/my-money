@@ -8,15 +8,21 @@ import {
   type ContributionRuleInput as ContributionRuleMath,
   computeContribution,
 } from "@/lib/income/contribution.ts";
-import { countMaterializedContributions } from "@/lib/income/queries.ts";
+import { countMaterializedContributions, listIncomeDeposits } from "@/lib/income/queries.ts";
 import { savingsRate } from "@/lib/income/savings-rate.ts";
 import { periodsPerYear } from "@/lib/income/schedule.ts";
+import {
+  LOOKBACK_DAYS,
+  TOLERANCE_DAYS,
+  suggestTakeHome,
+} from "@/lib/income/take-home-suggestion.ts";
 import { Money } from "@/lib/money/money.ts";
 import { QUEUE_NAMES, materializeContributionsQueue } from "@/lib/queue/queues.ts";
 import {
   contributionPreviewSchema,
   contributionRuleSchema,
   incomeSourceSchema,
+  takeHomeSuggestionSchema,
 } from "@/lib/schemas/income.ts";
 import Decimal from "decimal.js";
 import { and, eq } from "drizzle-orm";
@@ -77,6 +83,7 @@ export async function createIncomeSourceAction(
     name: field(formData, "name"),
     cadence: field(formData, "cadence"),
     grossPerPeriod: field(formData, "grossPerPeriod"),
+    netPerPeriod: field(formData, "netPerPeriod") ?? "",
     currency: field(formData, "currency") || "USD",
     anchorDate: field(formData, "anchorDate"),
     startDate: field(formData, "startDate"),
@@ -113,6 +120,7 @@ export async function updateIncomeSourceAction(
     name: field(formData, "name"),
     cadence: field(formData, "cadence"),
     grossPerPeriod: field(formData, "grossPerPeriod"),
+    netPerPeriod: field(formData, "netPerPeriod") ?? "",
     currency: field(formData, "currency") || "USD",
     anchorDate: field(formData, "anchorDate"),
     startDate: field(formData, "startDate"),
@@ -178,6 +186,73 @@ export async function deleteIncomeSourceAction(id: string): Promise<IncomeAction
   await db.delete(incomeSources).where(eq(incomeSources.id, id));
   revalidatePath(SETTINGS_PATH);
   return { ok: true };
+}
+
+/** One deposit stream the form can offer as take-home (ADR-049 §2). Pre-formatted. */
+export interface TakeHomeSuggestionView {
+  readonly payee: string;
+  /** Raw money string, written into the field on "Use". */
+  readonly amount: string;
+  readonly amountDisplay: string;
+  readonly latestDisplay: string;
+  readonly latestDate: string;
+  readonly matchedPaydays: number;
+  readonly expectedPaydays: number;
+}
+
+export interface TakeHomeSuggestionResult {
+  error?: string;
+  suggestions?: readonly TakeHomeSuggestionView[];
+}
+
+/**
+ * Propose a take-home figure from deposits that landed on this schedule's
+ * paydays (ADR-049 §2). Read-only: the user picks, the save action writes.
+ *
+ * Takes the schedule as typed in the form rather than a saved id, so a source
+ * being created — or a cadence being edited — gets a suggestion before save.
+ *
+ * @param input - The in-progress cadence, anchor, lifespan and (as a ranking
+ *   hint only) gross.
+ * @returns Up to three candidates, best first; empty when nothing lines up.
+ */
+export async function suggestTakeHomeAction(input: {
+  readonly cadence: string;
+  readonly anchorDate: string;
+  readonly startDate: string;
+  readonly endDate: string;
+  readonly grossPerPeriod: string;
+}): Promise<TakeHomeSuggestionResult> {
+  await requireUser();
+  const parsed = takeHomeSuggestionSchema.safeParse(input);
+  if (!parsed.success) return { suggestions: [] };
+
+  const today = new Date().toISOString().slice(0, 10);
+  const from = new Date(
+    Date.parse(`${today}T00:00:00Z`) - (LOOKBACK_DAYS + TOLERANCE_DAYS) * 86_400_000,
+  )
+    .toISOString()
+    .slice(0, 10);
+  const deposits = await listIncomeDeposits({ from, to: today });
+  let candidates: ReturnType<typeof suggestTakeHome>;
+  try {
+    candidates = suggestTakeHome(parsed.data, deposits, today);
+  } catch {
+    // A regex-valid but unreal date ("2026-02-30") mid-typing: no suggestion yet.
+    return { suggestions: [] };
+  }
+
+  return {
+    suggestions: candidates.map((c) => ({
+      payee: c.payee,
+      amount: c.amount,
+      amountDisplay: Money.fromString(c.amount, "USD").format(),
+      latestDisplay: Money.fromString(c.latestAmount, "USD").format(),
+      latestDate: c.latestDate,
+      matchedPaydays: c.matchedPaydays,
+      expectedPaydays: c.expectedPaydays,
+    })),
+  };
 }
 
 /* -------------------------------------------------------------------- rules */
