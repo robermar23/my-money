@@ -22,8 +22,11 @@ import { retirementContributions } from "./retirement-contributions.ts";
  * and (2) as the denominator of the dashboard savings rate.
  *
  * It is NOT payroll (CLAUDE.md §Domain Scope, restated in FEATURE.md 2026-08-09):
- * no net pay, no withholding, no FICA, no deduction stack, no paycheck stub. We
- * store *gross per period* and nothing about taxes. It is also not a
+ * no withholding, no FICA, no deduction stack, no paycheck stub, no tax math. We
+ * store *gross per period* plus — since ADR-049 — an optional, user-stated
+ * *take-home per period* that the cash-flow projection lands on the payday. That
+ * figure is what the household SAYS reaches the bank (prefilled from deposits
+ * that already did), never something derived from gross. It is also not a
  * budgeting-income ledger — Phase 8 budgets stay expense-side.
  *
  * Multiple rows are the point (ADR-030): a job change mid-year is a new source
@@ -49,6 +52,13 @@ export const incomeSources = pgTable(
     cadence: text("cadence").notNull(),
     /** GROSS pay per period — never net. A money string, never a float. */
     grossPerPeriod: numeric("gross_per_period", { precision: 18, scale: 2 }).notNull(),
+    /**
+     * TAKE-HOME per period as the user states it (ADR-049), or NULL when unstated.
+     * The only per-source amount the cash-flow projection (ADR-038 §3) may land on
+     * a payday; sources without one share whatever observed take-home remains.
+     * Never computed from `gross_per_period`.
+     */
+    netPerPeriod: numeric("net_per_period", { precision: 18, scale: 2 }),
     currency: text("currency").notNull().default("USD"),
     /**
      * A known-real pay date used to PHASE the schedule (which Friday is a
@@ -80,6 +90,10 @@ export const incomeSources = pgTable(
     grossNonNegativeCheck: check(
       "income_sources_gross_non_negative_check",
       sql`${table.grossPerPeriod} >= 0`,
+    ),
+    netNonNegativeCheck: check(
+      "income_sources_net_non_negative_check",
+      sql`${table.netPerPeriod} IS NULL OR ${table.netPerPeriod} >= 0`,
     ),
     // An open-ended source has no end date; a closed one ends on/after it began.
     dateOrderCheck: check(

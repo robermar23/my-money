@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   type IncomeSourceInput,
   type ObligationInput,
+  type PlannedExpenseInput,
   expandIncomeEvents,
   expandObligationEvents,
+  expandPlannedExpenseEvents,
 } from "./events.ts";
 
 /**
@@ -29,6 +31,17 @@ function obligation(over: Partial<ObligationInput> = {}): ObligationInput {
     startDate: "2020-01-01",
     endDate: null,
     active: true,
+    ...over,
+  };
+}
+
+function cost(over: Partial<PlannedExpenseInput> = {}): PlannedExpenseInput {
+  return {
+    id: "pe-1",
+    label: "New roof",
+    amount: "4000.00",
+    dueDate: "2026-02-15",
+    status: "planned",
     ...over,
   };
 }
@@ -257,5 +270,134 @@ describe("expandIncomeEvents", () => {
     expect(() =>
       expandIncomeEvents([source()], new Map([["inc-1", "-2480.00"]]), "2026-01-01", "2026-01-31"),
     ).toThrow(/negative/i);
+  });
+});
+
+/**
+ * P18-29 — the fourth event kind.
+ *
+ * There is no cadence here and no lifecycle, so almost nothing in the
+ * obligation expander's behaviour carries over. What is left is the one
+ * question that matters: **which recorded costs are real charges against a
+ * future day?** Getting it wrong in the permissive direction puts a cost the
+ * household has already paid back onto the calendar; getting it wrong in the
+ * restrictive direction hides a $4,000 charge from the low-water mark, which
+ * ADR-038 §3 names as the dangerous one.
+ */
+describe("expandPlannedExpenseEvents", () => {
+  it("emits one outflow per recorded cost inside the window", () => {
+    const events = expandPlannedExpenseEvents([cost()], "2026-01-01", "2026-03-01");
+
+    expect(events).toEqual([
+      {
+        kind: "planned_expense",
+        date: "2026-02-15",
+        amount: "4000.00",
+        direction: "outflow",
+        label: "New roof",
+        plannedExpenseId: "pe-1",
+      },
+    ]);
+  });
+
+  it("includes a cost falling on either edge of the inclusive window", () => {
+    const events = expandPlannedExpenseEvents(
+      [cost({ id: "a", dueDate: "2026-01-01" }), cost({ id: "b", dueDate: "2026-03-01" })],
+      "2026-01-01",
+      "2026-03-01",
+    );
+
+    expect(events.map((e) => e.date)).toEqual(["2026-01-01", "2026-03-01"]);
+  });
+
+  it("emits nothing for a cost dated past the horizon", () => {
+    expect(
+      expandPlannedExpenseEvents([cost({ dueDate: "2026-09-01" })], "2026-01-01", "2026-03-01"),
+    ).toEqual([]);
+  });
+
+  it("emits nothing for a paid cost", () => {
+    expect(
+      expandPlannedExpenseEvents([cost({ status: "paid" })], "2026-01-01", "2026-03-01"),
+    ).toEqual([]);
+  });
+
+  it("emits nothing for a cancelled cost", () => {
+    expect(
+      expandPlannedExpenseEvents([cost({ status: "cancelled" })], "2026-01-01", "2026-03-01"),
+    ).toEqual([]);
+  });
+
+  it("emits nothing for a past-due cost, because the window starts today", () => {
+    // ADR-043 §6 built no matcher, so nothing ever settles a planned expense
+    // automatically and an overdue row sits there `planned` indefinitely. It
+    // must not be charged to a future day: the money either already left or
+    // never will, and the projection cannot tell which. The horizon's own start
+    // date is what excludes it — there is no second past-due rule in this file,
+    // because a projection always walks forward from today.
+    expect(
+      expandPlannedExpenseEvents([cost({ dueDate: "2025-12-20" })], "2026-01-01", "2026-03-01"),
+    ).toEqual([]);
+  });
+
+  it("normalizes an unpadded amount the way the obligation path does", () => {
+    const events = expandPlannedExpenseEvents(
+      [cost({ amount: "4000" })],
+      "2026-01-01",
+      "2026-03-01",
+    );
+
+    expect(events[0]?.amount).toBe("4000.00");
+  });
+
+  it("reads a negative amount as the magnitude it is", () => {
+    // The column is a magnitude and the form cannot submit a negative, but a
+    // sign that reached here would otherwise become an INFLOW on the walk —
+    // a $4,000 cost that pays the household, moving the low-water mark in the
+    // direction nobody would think to question.
+    const events = expandPlannedExpenseEvents(
+      [cost({ amount: "-4000.00" })],
+      "2026-01-01",
+      "2026-03-01",
+    );
+
+    expect(events[0]).toMatchObject({ amount: "4000.00", direction: "outflow" });
+  });
+
+  it("orders several costs on the same day deterministically", () => {
+    const events = expandPlannedExpenseEvents(
+      [
+        cost({ id: "z", label: "Wedding", dueDate: "2026-02-15" }),
+        cost({ id: "a", label: "Wedding", dueDate: "2026-02-15" }),
+        cost({ id: "m", label: "Dental", dueDate: "2026-02-15" }),
+      ],
+      "2026-01-01",
+      "2026-03-01",
+    );
+
+    expect(events.map((e) => [e.label, e.plannedExpenseId])).toEqual([
+      ["Dental", "m"],
+      ["Wedding", "a"],
+      ["Wedding", "z"],
+    ]);
+  });
+
+  it("rejects a due date that is not a real calendar date", () => {
+    expect(() =>
+      expandPlannedExpenseEvents([cost({ dueDate: "2026-02-30" })], "2026-01-01", "2026-03-01"),
+    ).toThrow();
+  });
+
+  it("returns nothing on an inverted window rather than everything", () => {
+    expect(expandPlannedExpenseEvents([cost()], "2026-03-01", "2026-01-01")).toEqual([]);
+  });
+
+  it("does not mutate its inputs", () => {
+    const rows = [cost()];
+    const snapshot = structuredClone(rows);
+
+    expandPlannedExpenseEvents(rows, "2026-01-01", "2026-03-01");
+
+    expect(rows).toEqual(snapshot);
   });
 });

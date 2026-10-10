@@ -41,6 +41,11 @@ export default async function IncomeSettingsPage(): Promise<React.JSX.Element> {
     cadence: source.cadence,
     grossPerPeriod: source.grossPerPeriod,
     grossDisplay: Money.fromString(source.grossPerPeriod, source.currency).format(),
+    netPerPeriod: source.netPerPeriod ?? "",
+    netDisplay:
+      source.netPerPeriod === null
+        ? null
+        : Money.fromString(source.netPerPeriod, source.currency).format(),
     currency: source.currency,
     anchorDate: source.anchorDate,
     startDate: source.startDate,
@@ -93,8 +98,9 @@ export default async function IncomeSettingsPage(): Promise<React.JSX.Element> {
           savings rate reflect money you actually invested.
         </p>
         <p className="mt-2 max-w-3xl text-xs text-zinc-500">
-          This is not payroll: only gross pay and the contribution are stored, never withholding or
-          net pay. Nothing here leaves this machine.
+          This is not payroll: gross pay, the contribution, and — if you state it — the take-home
+          that reaches your bank are stored, never withholding or taxes. Take-home is what the cash
+          flow projection lands on each payday. Nothing here leaves this machine.
         </p>
       </div>
 

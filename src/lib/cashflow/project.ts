@@ -5,11 +5,10 @@ import { safeToSpend } from "./safe-to-spend.ts";
 import type {
   CashFlowEvent,
   DailyProjectionPoint,
+  DatedCashFlowEvent,
   DiscretionaryEvent,
-  IncomeEvent,
   InputUsed,
   LowWaterMark,
-  ObligationEvent,
   ProjectionResult,
   ProjectionStatus,
 } from "./types.ts";
@@ -41,11 +40,19 @@ import type {
  * everyday spending" row on all 365 days buries the real ones.
  *
  * ── Why `events` cannot contain a discretionary event ──────────────────────
- * The input type accepts `IncomeEvent | ObligationEvent` — deliberately NOT the
- * full {@link CashFlowEvent} union. The residual is the walk's own contribution;
- * a caller that could also pass one would be able to double-count discretionary
- * spend, which is the very defect ADR-038 §2 exists to prevent, reintroduced by
- * a different door. The compiler closes that door.
+ * The input type accepts {@link DatedCashFlowEvent} — the full
+ * {@link CashFlowEvent} union MINUS the discretionary member. The residual is
+ * the walk's own contribution; a caller that could also pass one would be able
+ * to double-count discretionary spend, which is the very defect ADR-038 §2
+ * exists to prevent, reintroduced by a different door. The compiler closes that
+ * door.
+ *
+ * P18-28 widened this from a hand-listed `IncomeEvent | ObligationEvent` for a
+ * reason worth keeping: a hand-listed pair meant the fourth event kind
+ * type-checked everywhere, reached the walk nowhere, and silently went missing
+ * from the projection — which is precisely the overstatement ADR-038 §3 calls
+ * the dangerous direction. Subtracting the one excluded kind states the actual
+ * rule, so a fifth kind is admitted by default and only the residual is named.
  *
  * ── Why `coverage` is read off the residual ────────────────────────────────
  * The result reports `input.residual.coverage` rather than taking coverage as a
@@ -78,11 +85,11 @@ export interface ProjectionInput {
    */
   readonly openingBalance: string;
   /**
-   * Dated income and obligation events, in any order. Events outside the
-   * horizon are ignored. See the header on why discretionary events are not
-   * accepted here.
+   * Dated income, obligation and planned-expense events, in any order. Events
+   * outside the horizon are ignored. See the header on why discretionary events
+   * are not accepted here.
    */
-  readonly events: readonly (IncomeEvent | ObligationEvent)[];
+  readonly events: readonly DatedCashFlowEvent[];
   /** The residual rate and its coverage, from {@link residualDailyRate}. */
   readonly residual: ResidualRate;
   /** The household's stated buffer. Echoed, and subtracted by safe-to-spend. */
@@ -94,10 +101,8 @@ export interface ProjectionInput {
 }
 
 /** Bucket events by `YYYY-MM-DD`, preserving the caller's order within a day. */
-function groupByDate(
-  events: readonly (IncomeEvent | ObligationEvent)[],
-): Map<string, (IncomeEvent | ObligationEvent)[]> {
-  const byDate = new Map<string, (IncomeEvent | ObligationEvent)[]>();
+function groupByDate(events: readonly DatedCashFlowEvent[]): Map<string, DatedCashFlowEvent[]> {
+  const byDate = new Map<string, DatedCashFlowEvent[]>();
   for (const event of events) {
     const bucket = byDate.get(event.date);
     if (bucket === undefined) {

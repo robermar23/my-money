@@ -169,6 +169,20 @@
       "when": 1788142700964,
       "tag": "0023_pink_demogoblin",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791125292013,
+      "tag": "0024_burly_wither",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791515412678,
+      "tag": "0025_charming_invaders",
+      "breakpoints": true
     }
   ]
 }

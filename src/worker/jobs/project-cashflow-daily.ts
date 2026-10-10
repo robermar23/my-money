@@ -11,6 +11,7 @@ import { loadCashFlow } from "@/lib/cashflow/loader.ts";
 import { materializeOccurrences } from "@/lib/cashflow/materialize.ts";
 import { listMaterializableObligations, sweepOccurrences } from "@/lib/cashflow/sweep.ts";
 import { loadHousehold } from "@/lib/household/queries.ts";
+import { materializationDaysAhead } from "@/lib/sinking/coverage.ts";
 import type { Job } from "bullmq";
 import { and, eq, inArray, isNull, notInArray } from "drizzle-orm";
 
@@ -43,6 +44,11 @@ import { and, eq, inArray, isNull, notInArray } from "drizzle-orm";
  * application bookkeeping:
  *
  *   - Materialization is `ON CONFLICT (obligation_id, due_date) DO NOTHING`.
+ *     This is also what makes P18-11's **widened lead** a safe change to a
+ *     shipped repeatable job: a longer window adds only the tail, and every due
+ *     date already written is a no-op insert. The job's schedule, its queue and
+ *     its repeat options are untouched — the only change is the `through` date,
+ *     computed per cadence.
  *   - The sweep only ever decides rows still marked `scheduled`, inside a single
  *     transaction.
  *   - Alerts are `ON CONFLICT (dedup_hash) DO NOTHING`.
@@ -107,10 +113,22 @@ export async function projectCashFlowDailyProcessor(
   // a re-materialization before the line can be drawn.
   const household = await loadHousehold();
   const horizonDays = household.profile?.projectionHorizonDays ?? DEFAULT_PROJECTION_HORIZON_DAYS;
-  const through = shiftDays(today, horizonDays + MATERIALIZATION_LEAD_DAYS);
+  const cashFlowDaysAhead = horizonDays + MATERIALIZATION_LEAD_DAYS;
 
   let materialized = 0;
   for (const obligation of await listMaterializableObligations()) {
+    // The lead is PER CADENCE (P18-11, ADR-045 consequence 2). The sinking-fund
+    // requirement reads materialized occurrence rows rather than re-expanding
+    // schedules, so it can only see as far as this loop has written — and at the
+    // cash-flow defaults that is about 90 days against a 365-day horizon, which
+    // would silently omit every annual and semiannual cost beyond it. Quarterly,
+    // semiannual and annual obligations therefore run ~13 months out; monthly
+    // and shorter ones keep the cash-flow lead untouched, because a weekly bill
+    // materialized 13 months ahead is 56 rows nobody reads.
+    const through = shiftDays(
+      today,
+      materializationDaysAhead(obligation.cadence, cashFlowDaysAhead),
+    );
     // One obligation at a time, each idempotent on its own. A malformed
     // schedule stops the run — see the failure-path note in the header — but
     // everything already written stays written and the re-run resumes from it.

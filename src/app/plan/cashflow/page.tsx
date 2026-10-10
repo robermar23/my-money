@@ -3,6 +3,8 @@ import { loadCashFlow } from "@/lib/cashflow/loader.ts";
 import type { ShortfallClose } from "@/lib/cashflow/shortfall-close.ts";
 import { STATED_FIGURE_STATUSES } from "@/lib/cashflow/status.ts";
 import { Money } from "@/lib/money/money.ts";
+import { loadKnownFutureCosts } from "@/lib/sinking/queries.ts";
+import { sinkingHorizon, sinkingRequirement } from "@/lib/sinking/requirement.ts";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { InputsUsed } from "../inputs-used.tsx";
@@ -14,6 +16,7 @@ import {
   cashFlowNotice,
   groupOccurrencesByWeek,
   longDate,
+  sinkingNoteSentence,
   toProjectionPoints,
 } from "./view-models.ts";
 
@@ -47,6 +50,24 @@ import {
  * figure — a schedule, labelled as one. `run_rate_only` renders everything, with
  * its rung named. Each names its missing input and links to the fix (P16-33).
  *
+ * ── The sinking-fund sentence, and what it may not say ───────────────────
+ * P18-27, bound by ADR-046 §9 and ADR-048 §5. A household looking at dated
+ * money is already asking the question, so one sentence names what their known
+ * irregular costs require and links to `/plan/sinking`. It states **no**
+ * emergency-fund target and **no** available figure — that pairing is the other
+ * page's answer, and ADR-048 §5 gives the reason: `reserveMonthsFor()` needs a
+ * full `AdviceInput`, and reaching for one here is precisely how a second
+ * implementation of "how many months" gets written.
+ *
+ * So this page composes the requirement and **nothing downstream of it**: two
+ * indexed queries into the same `sinkingRequirement` the other two surfaces
+ * call. It cannot disagree about the figure, and it cannot state the half it is
+ * forbidden to state, because it never computes it.
+ *
+ * P18-29 gave the sentence a second job. Recorded costs now land on the
+ * projection as events, so the sentence has to say which of them are already on
+ * the line and which are still past its edge — see {@link SinkingNote}.
+ *
  * Zero egress; no figure is logged (CLAUDE.md §Privacy).
  */
 
@@ -65,7 +86,15 @@ function money(amount: string): string {
 export default async function CashFlowPage(): Promise<React.JSX.Element> {
   await requireUser();
 
-  const snapshot = await loadCashFlow();
+  // One clock for the page. `loadCashFlow` would default to the same date, but
+  // two independent `new Date()` calls can straddle midnight, and the bills
+  // list and the sinking sentence would then be dated a day apart.
+  const today = new Date().toISOString().slice(0, 10);
+  const [snapshot, knownFutureCosts] = await Promise.all([
+    loadCashFlow({ today }),
+    loadKnownFutureCosts(today),
+  ]);
+  const sinking = sinkingRequirement(knownFutureCosts, today, sinkingHorizon(today, CURRENCY));
   const { projection } = snapshot;
 
   const notice = cashFlowNotice(projection.status, {
@@ -127,7 +156,7 @@ export default async function CashFlowPage(): Promise<React.JSX.Element> {
             </div>
           </section>
 
-          <Upcoming grouped={upcoming} />
+          <Upcoming grouped={upcoming} sinking={sinking} horizonTo={snapshot.to} />
         </>
       )}
 
@@ -385,7 +414,15 @@ const STATUS_TONE: Readonly<Record<OccurrenceView["status"], string>> = {
 };
 
 /** The upcoming schedule, grouped by week, with what the cap left out counted. */
-function Upcoming({ grouped }: { readonly grouped: ReturnType<typeof groupOccurrencesByWeek> }) {
+function Upcoming({
+  grouped,
+  sinking,
+  horizonTo,
+}: {
+  readonly grouped: ReturnType<typeof groupOccurrencesByWeek>;
+  readonly sinking: ReturnType<typeof sinkingRequirement>;
+  readonly horizonTo: string;
+}) {
   return (
     <section aria-labelledby="upcoming-heading" className="mt-10">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -416,7 +453,57 @@ function Upcoming({ grouped }: { readonly grouped: ReturnType<typeof groupOccurr
           )}
         </>
       )}
+
+      <SinkingNote sinking={sinking} horizonTo={horizonTo} />
     </section>
+  );
+}
+
+/**
+ * The one sentence Phase 18 adds here (P18-27, ADR-046 §9 / ADR-048 §5).
+ *
+ * A household reading a bill calendar is already asking what the costs *past*
+ * the horizon need, so the answer goes where the question is asked rather than
+ * waiting to be discovered under Planning. One sentence, one link.
+ *
+ * It names the requirement and the horizon, and **says nothing about the
+ * emergency-fund target or what is available against it** — that pairing is
+ * `/plan/sinking`'s answer, and this component cannot state it because the page
+ * never computes it (see the module header).
+ *
+ * Silent when nothing is recorded: a household with no planned costs gets no
+ * sentence here rather than a $0.00 that reads as a verdict. `/plan` is where
+ * an unrecorded cost list is named as a missing input (ADR-046 §5).
+ *
+ * ── The word P18-29 made wrong, and had to change ─────────────────────────
+ * The sentence used to open *"Beyond this window…"*, which was true when it was
+ * written and became false the moment the projection gained the fourth event
+ * kind: a cost dated inside the horizon is now **on the line above**. The copy
+ * says which, and how many, because the alternative is a page that counts the
+ * same roof in two places and tells the reader the second one is somewhere
+ * else.
+ *
+ * The prose itself moved to {@link sinkingNoteSentence} when that was fixed.
+ * Two branches and four pluralizations around a money figure is logic, and this
+ * bug is the evidence that reviewing it as markup does not catch it.
+ */
+function SinkingNote({
+  sinking,
+  horizonTo,
+}: {
+  readonly sinking: ReturnType<typeof sinkingRequirement>;
+  readonly horizonTo: string;
+}): React.JSX.Element | null {
+  const sentence = sinkingNoteSentence(sinking, horizonTo, money);
+  if (sentence === null) return null;
+
+  return (
+    <p className="mt-6 max-w-2xl border-zinc-200 border-t pt-4 text-sm text-zinc-500 dark:border-zinc-800">
+      {sentence}{" "}
+      <Link href="/plan/sinking" className="underline">
+        See what they require
+      </Link>
+    </p>
   );
 }
 

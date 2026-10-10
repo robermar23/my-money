@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { expandObligationEvents } from "./events.ts";
 import { DISCRETIONARY_LABEL, type ProjectionInput, projectDailyBalance } from "./project.ts";
 import type { ResidualRate } from "./residual.ts";
-import type { ObligationEvent } from "./types.ts";
+import type { ObligationEvent, PlannedExpenseEvent } from "./types.ts";
 
 /**
  * P16-17 — the daily balance walk (ADR-038).
@@ -50,7 +50,49 @@ function bill(date: string, amount: string, label = "Mortgage"): ObligationEvent
   };
 }
 
+function cost(date: string, amount: string, label = "New roof"): PlannedExpenseEvent {
+  return {
+    kind: "planned_expense",
+    date,
+    amount,
+    direction: "outflow",
+    label,
+    plannedExpenseId: `pe-${label}`,
+  };
+}
+
 describe("projectDailyBalance", () => {
+  it("charges a recorded one-off cost on its own day (P18-28)", () => {
+    // The fourth event kind reaching the walk, which is the whole reason the
+    // union was changed: a $4,000 cost inside the horizon has to be able to
+    // move the balance, and before P18-28 the input type could not hold one.
+    const result = projectDailyBalance(
+      input({ events: [cost("2026-03-10", "4000.00")], openingBalance: "5000.00" }),
+    );
+
+    const day = result.points.find((point) => point.date === "2026-03-10");
+    expect(day?.outflow).toBe("4000.00");
+    expect(day?.closing).toBe("1000.00");
+    // And it is the LOW point of an otherwise flat horizon, with its own date.
+    expect(result.lowWaterMark).toEqual({ date: "2026-03-10", balance: "1000.00" });
+  });
+
+  it("adds a cost and a bill landing on the same day rather than choosing one", () => {
+    // ADR-045 §4 warns about a possible duplicate at ENTRY and never merges,
+    // because only the household knows whether the roof and the roof-shaped
+    // bill are the same roof. The walk must therefore charge both.
+    const result = projectDailyBalance(
+      input({
+        events: [bill("2026-03-10", "2150.00"), cost("2026-03-10", "4000.00")],
+        openingBalance: "10000.00",
+      }),
+    );
+
+    const day = result.points.find((point) => point.date === "2026-03-10");
+    expect(day?.outflow).toBe("6150.00");
+    expect(day?.events).toHaveLength(2);
+  });
+
   it("walks a flat horizon with no events and no rate", () => {
     const result = projectDailyBalance(input());
 

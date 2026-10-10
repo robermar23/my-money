@@ -2,8 +2,9 @@
 
 import { INCOME_CADENCE_OPTIONS } from "@/lib/schemas/income.ts";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import {
+  type TakeHomeSuggestionView,
   backfillContributionsAction,
   createIncomeSourceAction,
   deleteContributionRuleAction,
@@ -11,6 +12,7 @@ import {
   saveContributionRuleAction,
   setContributionRuleActiveAction,
   setIncomeSourceActiveAction,
+  suggestTakeHomeAction,
   updateIncomeSourceAction,
 } from "./actions.ts";
 import { RuleForm } from "./rule-form.tsx";
@@ -200,6 +202,11 @@ function SourceCard({
           </h3>
           <p className="mt-1 text-sm text-zinc-500">
             <span className="font-mono">{source.grossDisplay}</span> gross ·{" "}
+            {source.netDisplay !== null && (
+              <>
+                <span className="font-mono">{source.netDisplay}</span> take-home ·{" "}
+              </>
+            )}
             {CADENCE_LABELS[source.cadence] ?? source.cadence} · paydays phased from{" "}
             {source.anchorDate} · from {source.startDate}
             {source.endDate ? ` to ${source.endDate}` : ""}
@@ -418,6 +425,7 @@ function SourceFields({
   const [name, setName] = useState(source?.name ?? "");
   const [cadence, setCadence] = useState(source?.cadence ?? "biweekly");
   const [grossPerPeriod, setGrossPerPeriod] = useState(source?.grossPerPeriod ?? "");
+  const [netPerPeriod, setNetPerPeriod] = useState(source?.netPerPeriod ?? "");
   const [currency, setCurrency] = useState(source?.currency ?? "USD");
   const [anchorDate, setAnchorDate] = useState(source?.anchorDate ?? today);
   const [startDate, setStartDate] = useState(source?.startDate ?? today);
@@ -431,6 +439,7 @@ function SourceFields({
     fd.set("name", name);
     fd.set("cadence", cadence);
     fd.set("grossPerPeriod", grossPerPeriod);
+    fd.set("netPerPeriod", netPerPeriod);
     fd.set("currency", currency);
     fd.set("anchorDate", anchorDate);
     fd.set("startDate", startDate);
@@ -476,6 +485,12 @@ function SourceFields({
             />
           </div>
         </div>
+        <TakeHomeField
+          id={id}
+          value={netPerPeriod}
+          onChange={setNetPerPeriod}
+          schedule={{ cadence, anchorDate, startDate, endDate, grossPerPeriod }}
+        />
         <div>
           <label className={labelClass} htmlFor={`cadence-${id}`}>
             Pay cadence
@@ -564,6 +579,102 @@ function SourceFields({
           Cancel
         </button>
       </div>
+    </div>
+  );
+}
+
+/** How long the schedule fields must sit still before the suggestion is re-read. */
+const SUGGEST_DEBOUNCE_MS = 400;
+
+/**
+ * Take-home per paycheck, with candidates read from deposits that already
+ * landed on this schedule's paydays (ADR-049 §2).
+ *
+ * Suggestions are offered, never applied: each names its payee and how many
+ * paydays it matched, so the user confirms a deposit stream — two benefits from
+ * one payer on one day are two separate rows to choose between.
+ */
+function TakeHomeField({
+  id,
+  value,
+  onChange,
+  schedule,
+}: {
+  readonly id: string;
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+  readonly schedule: {
+    readonly cadence: string;
+    readonly anchorDate: string;
+    readonly startDate: string;
+    readonly endDate: string;
+    readonly grossPerPeriod: string;
+  };
+}): React.JSX.Element {
+  const [suggestions, setSuggestions] = useState<readonly TakeHomeSuggestionView[] | null>(null);
+  const { cadence, anchorDate, startDate, endDate, grossPerPeriod } = schedule;
+
+  useEffect(() => {
+    let stale = false;
+    const timer = setTimeout(() => {
+      suggestTakeHomeAction({ cadence, anchorDate, startDate, endDate, grossPerPeriod })
+        .then((result) => {
+          if (!stale) setSuggestions(result.suggestions ?? []);
+        })
+        .catch(() => {
+          if (!stale) setSuggestions([]);
+        });
+    }, SUGGEST_DEBOUNCE_MS);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [cadence, anchorDate, startDate, endDate, grossPerPeriod]);
+
+  return (
+    <div>
+      <label className={labelClass} htmlFor={`net-${id}`}>
+        Take-home per period{" "}
+        <span className="font-normal text-zinc-400">(what reaches the bank; optional)</span>
+      </label>
+      <input
+        id={`net-${id}`}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={suggestions?.[0]?.amount ?? "2400.00"}
+        inputMode="decimal"
+        className={`mt-1 w-full ${inputClass}`}
+      />
+      {suggestions === null ? (
+        <p className="mt-1 text-xs text-zinc-500">Looking for matching deposits…</p>
+      ) : suggestions.length === 0 ? (
+        <p className="mt-1 text-xs text-zinc-500">
+          No income deposits line up with these paydays yet. Leave blank to share observed take-home
+          evenly.
+        </p>
+      ) : (
+        <ul className="mt-1 space-y-1" aria-label="Take-home found in deposits">
+          {suggestions.map((s) => (
+            <li
+              key={`${s.payee}-${s.amount}`}
+              className="flex flex-wrap items-center gap-x-2 text-xs text-zinc-500"
+            >
+              <button
+                type="button"
+                onClick={() => onChange(s.amount)}
+                disabled={value === s.amount}
+                className="rounded border border-zinc-300 px-1.5 py-0.5 font-mono text-zinc-800 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200"
+              >
+                {value === s.amount ? `Using ${s.amountDisplay}` : `Use ${s.amountDisplay}`}
+              </button>
+              <span>
+                {s.payee} · {s.matchedPaydays} of {s.expectedPaydays} paydays · latest{" "}
+                {s.latestDisplay} on {s.latestDate}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

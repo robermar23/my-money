@@ -583,3 +583,112 @@ to what a screen says**, not additions to what the app computes.
 
 Implemented under **ADR-047 → ADR-048** (IDEAS.md §11 Decision Log) via
 [PLAN_CASHFLOW_GAPS.md](PLAN_CASHFLOW_GAPS.md).
+
+### 2026-09-13 — Sinking funds: the annual and one-off costs a monthly budget cannot represent (in scope)
+
+Source: [IDEAS3.md](IDEAS3.md) Round 12. The owner's question is about the bill everyone saw
+coming: *"Car insurance is $1,340 in March. I know it, and it still hurts every year."*
+
+The diagnosis is structural, not motivational. Budgets are monthly; families do not fail on
+monthly, they fail on **annual, semiannual, and irregular** — insurance, property tax, tuition,
+Christmas, the vet, the HVAC that was always going to die. A monthly budget cannot represent a
+cost that arrives once a year, so when it arrives it reads as a **blown month** instead of a
+**known cost**. Phase 18 answers it with one number and one sentence: *"You should be holding
+$2,180 against the four known costs in the next 12 months. Your reserve above your
+emergency-fund target is $600."*
+
+Sinking funds are lifted into scope on exactly the grounds ADR-018 lifted budgets, ADR-030
+lifted income, ADR-032 lifted guidance, ADR-036 lifted timing and ADR-039 lifted attribution:
+**the owner explicitly asked**, and this file is where that is recorded. Three properties make it
+safe to say yes. It **computes a requirement and stores no funding state** — a function of dated
+costs and today's date, shown beside an unpartitioned real balance. It is **deterministic
+arithmetic with a stated formula** (one division, ADR-044). And it closes its gap with **one
+narrow table**, because the recurring half of the problem is already solved: `scheduled_obligations`
+has carried `quarterly`, `semiannual` and `annual` cadences since Phase 16, so the round's own
+$1,340 insurance bill is representable today — what is missing is the accrual arithmetic, not a
+way to record it.
+
+- **In scope (newly added):**
+  - **Planned expenses** (`planned_expenses`) — a named, dated, amount-bearing **one-off** cost:
+    a roof, a wedding, a deposit, this December's Christmas. Manual entry only. No cadence column
+    — a cost that repeats is a scheduled obligation, which already expands, materializes, matches
+    and alerts (ADR-043).
+  - **Accrual math** (`src/lib/sinking/accrual.ts`) — straight-line over whole months from a
+    stated funding start; `requiredToday` computed with **one** division so it equals the bill
+    exactly on the due date (ADR-044).
+  - **A known-future-cost stream** spanning planned expenses **and** non-monthly obligation
+    occurrences, with a compile-checked cadence threshold (ADR-045).
+  - **A `sinking_fund` advice rule** — the requirement against the reserve tier above the
+    emergency-fund target, degrading to `unknown_input` honestly (ADR-046).
+  - **`/plan/sinking`** — the headline sentence, the itemized cost table, and the planned-expense
+    manager; one Planning nav item; one sentence plus a link on `/plan/cashflow`.
+  - **Planned expenses on the calendar** — a fourth `CashFlowEvent` kind, so a $4,000 cost inside
+    the projection horizon moves the low-water mark instead of being invisible to it.
+- **The line between a sinking fund and an envelope, stated once.** An envelope system
+  **partitions a real balance** and constrains spending against the partitions; its state lives
+  in the database and diverges from the bank. A sinking fund as built here **computes a
+  requirement** and **displays it beside an unpartitioned balance**. Nothing is reserved, nothing
+  is moved, and if every planned expense is deleted the money is exactly where it was. The test
+  for any future task: **does it make the app store a number that says where money "is" other
+  than the account it is actually in?** If yes, the design is wrong. The schema enforces this by
+  absence — no `funded_amount`, no `funded` status, no `funding_account_id`, no contributions
+  table, and no `account_id` on a planned expense at all.
+- **The correctness rule that defines this phase:** obligations of **monthly or shorter** cadence
+  are **excluded** from the requirement. A monthly bill is paid out of the month's income — it is
+  already inside the essential baseline that sizes the emergency-fund target, and already inside
+  the trailing spend behind the cash-flow residual. Including it would demand a second copy of
+  money the household already budgets monthly: roughly $16,000 of "required reserve" against
+  $2,700 a month of ordinary bills, telling a solvent family it is catastrophically behind. The
+  exclusion is an exhaustive compile-time mapping, so a new cadence without a verdict fails the
+  build.
+- **A deliberate refinement of Round 12's stated formula.** The round says *"required balance today
+  = elapsed months × the monthly rate."* Taken literally that rounds twice — $1,340 over 7 months is
+  $191.43 a month, and seven of those is $1,340.01. ADR-044 computes `amount × elapsed ÷ total`
+  with one division instead. Recorded here so the deviation is found rather than discovered.
+- **Reaffirmed OUT of scope (not relaxed):** **envelope budgeting or any virtual-bucket partition**
+  of a real balance (ADR-018 unamended); **user-authored goals with funding rules, progress
+  tracking or per-goal projections** (ADR-022 unamended — a planned expense is a dated bill you
+  already know about, not a goal you chose); **front-loaded or paycheck-aligned funding schedules**
+  (a funding rule is a goal); **money movement of any kind** — no transfer, allocation, or "move
+  $180 into this bucket" action; **double-entry accounting or a general ledger**; **tax math**;
+  **probabilistic projection**; **a transaction matcher for planned expenses** (`Mark paid` is one
+  click); **a `cadence: 'irregular'`** (it would mean "we do not know", which is not a schedule);
+  **any AI or LLM over financial data** (§Privacy hard-no). Crossing any of these needs a new
+  FEATURE.md decision first.
+- **Privacy stance:** zero egress, again literally. Nothing under `src/lib/sinking/` makes or
+  transitively imports an outbound request — no insurance-price lookup, no "typical cost of a new
+  roof" service, no benchmark, no enrichment. **This phase does create new PII**, which the last
+  two did not: `planned_expenses.label` and `.notes` are free text a household writes about itself
+  (*"Emma's braces"*, *"Mom's care-home deposit"*). They **never appear in a log line**, **never
+  reach the content-free notification email** (ADR-015), **are not added to the search index**,
+  and never leave local Postgres. `pg_dump` covers the table under ADR-014's encrypted-backup path
+  with no change. A regression test enforces all of it.
+- **Four things deliberately not shipped, recorded so the absence is not read as an oversight:**
+  **no alert type** — Round 12 does not ask for one, a "cost due soon and you are short" signal is
+  forward-looking input health (Round 16's job), and ADR-015 is not touched; **no new worker job** —
+  if the existing `project-cashflow-daily` materializer's lead is widened for non-monthly cadences
+  so annual occurrences exist 12 months out, that is a change to a shipped job, not a new one;
+  **no dashboard tile** — the dashboard gained a cash-flow card in Phase 16, and a set-aside
+  requirement is a page you visit when you plan, not a number you need at a glance; and **no search
+  indexing of planned expenses** — the most sensitive free text in the app deserves its own privacy
+  pass before it is concentrated in an index.
+
+Implemented under **ADR-043 → ADR-046** (IDEAS.md §11 Decision Log) via [PLAN18.md](PLAN18.md).
+
+### 2026-10-08 — Take-home per paycheck on income sources (in scope)
+
+The owner reported the cash-flow calendar was wrong for their income set: every payday — a
+biweekly salary and two monthly SSA benefits of $3,251 and $1,625 — showed the same $2,787.67.
+The cause was ADR-038 §3's even split of one household take-home median across all pay events,
+which is exact only when paychecks are alike. The owner approved storing a **take-home per
+period** on each source, and asked that the form **recommend it from deposits** already found.
+
+- **In scope:** an optional, user-stated `income_sources.net_per_period`; the projection lands it
+  exactly on that source's paydays and shares only the remainder of observed take-home among
+  unstated sources; the income form suggests candidates from deposits that line up with the
+  source's own paydays, each named by payee, never auto-applied.
+- **Still out of scope:** withholding, tax math, deduction stacks, paystubs. The 2026-08-09
+  "no net pay" line is amended to "no net pay *computed*": the figure is what the household says
+  reaches the bank, not something derived from gross.
+
+Implemented under **ADR-049** (IDEAS.md §11 Decision Log).

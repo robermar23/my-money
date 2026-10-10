@@ -7,8 +7,11 @@ import type { InputUsed } from "@/lib/advice/types.ts";
 import { spendingSummary } from "@/lib/analytics/spending.ts";
 import { loadHousehold } from "@/lib/household/queries.ts";
 import { loadIncomeSettings } from "@/lib/income/queries.ts";
-import { periodsPerYear } from "@/lib/income/schedule.ts";
 import { Money } from "@/lib/money/money.ts";
+import {
+  type PlannedExpenseWindowRow,
+  listPlannedExpensesInWindow,
+} from "@/lib/sinking/queries.ts";
 import { min } from "drizzle-orm";
 import { loadCandidates } from "./candidate-loader.ts";
 import { DEFAULT_CASH_FLOOR, DEFAULT_PROJECTION_HORIZON_DAYS } from "./constants.ts";
@@ -17,6 +20,7 @@ import {
   type ObligationInput,
   expandIncomeEvents,
   expandObligationEvents,
+  expandPlannedExpenseEvents,
 } from "./events.ts";
 import { projectDailyBalance } from "./project.ts";
 import type { ObligationRow, OperatingBalance, UpcomingOccurrence } from "./queries.ts";
@@ -24,7 +28,8 @@ import { listCashBalancesByTier, listObligations, listUpcomingOccurrences } from
 import { residualDailyRate } from "./residual.ts";
 import { type ShortfallClose, classifyShortfall } from "./shortfall-close.ts";
 import { projectionStatus } from "./status.ts";
-import type { ProjectionResult } from "./types.ts";
+import { splitTakeHome } from "./take-home.ts";
+import type { PlannedExpenseEvent, ProjectionResult } from "./types.ts";
 
 /**
  * The cash-flow layer's one assembly function (P16-30, ADR-032 §1 applied to
@@ -49,7 +54,8 @@ import type { ProjectionResult } from "./types.ts";
  *      run-rate to a dated mortgage charges the mortgage twice and silently
  *      understates safe-to-spend. Attribution uses the occurrence MATCH, so the
  *      subtraction is exact rather than estimated.
- *   §3 Inflows come from observed take-home, never `gross_per_period`.
+ *   §3 Inflows come from take-home (stated per source, ADR-049, else observed),
+ *      never `gross_per_period`.
  *   §5 Safe-to-spend is `min(closing) − floor`, clamped, computed in the engine.
  *   §6 Operating cash only — `checking`/`cash_management`, via the shipped
  *      `tierForSubtype`, so account selection cannot mean two things.
@@ -57,18 +63,50 @@ import type { ProjectionResult } from "./types.ts";
  *   §8 Every figure carries its inputs, in the shipped `InputUsed` shape.
  *
  * ── What this module decides that the ADR did not spell out ────────────────
- * Three things, each stated where it happens:
+ * Four things, each stated where it happens:
  *
- *   1. **Take-home is split evenly across pay events**, because
- *      `observedNetIncome` returns one household-level monthly median and
- *      `gross_per_period` — the only per-source weight available — is exactly
- *      the input §3 bans. See {@link netPerPeriod}.
+ *   1. **Take-home is stated per source where the household has stated it**
+ *      (ADR-049), and only the REMAINDER of `observedNetIncome`'s household
+ *      median is split evenly across the other sources' pay events — never
+ *      weighted by `gross_per_period`, the input §3 bans. See `splitTakeHome`.
  *   2. **Already-settled occurrences are removed from the projection.** A
  *      `skipped` bill is not happening and a `matched` one already posted; both
  *      would otherwise be charged to a future day a second time.
  *   3. **Candidates are only counted when there are no confirmed obligations**,
  *      because that count exists solely to drive the run-rate-only fix link, and
  *      detection over two years of transactions is not free.
+ *   4. **Recorded one-off costs are charged to their due date** (P18-29), and
+ *      are read in a currency the walk can actually add. See
+ *      {@link plannedExpenseEvents}.
+ *
+ * ── What the fourth event kind does NOT change (P18-30) ───────────────────
+ * The residual rate, and therefore `coverage` and the figure safe-to-spend is
+ * computed from. The rate is `observed spend` minus `expense attributable to
+ * CONFIRMED OBLIGATIONS` (ADR-038 §2), and a planned expense is neither: it
+ * contributes nothing to {@link attributableOutflow}, which reads
+ * `obligation_occurrences` alone. That is the correct answer rather than an
+ * oversight, and the reasoning is the subtraction's own — the residual removes
+ * what trailing observed spend ALREADY CONTAINS, and a cost dated in the future
+ * has not been spent yet. Subtracting it would understate the everyday rate for
+ * a payment that has not happened, which overstates safe-to-spend twice over.
+ * [loader.test.ts](./loader.test.ts) asserts it end to end — before and after
+ * the same cost, with the rate, its stated value and `coverage` all compared —
+ * because "nothing changed" is a claim and not an observation until something
+ * fails when it does. It is asserted HERE rather than in `residual.test.ts`
+ * because `residualDailyRate` cannot see a planned expense at all: a pure test
+ * of it would prove only that a function is unaware of an input it was never
+ * given, which is the tautology, not the claim.
+ *
+ * **The one known limitation** is the mirror image, and it is documented rather
+ * than guessed at: an *annually recurring* cost a household records as a
+ * one-off planned expense may have its PRIOR-YEAR instance sitting inside the
+ * 90-day residual window, in which case the projection charges a version of it
+ * twice — once spread through the rate, once on its due date. Nothing here can
+ * tell that case from a genuinely new cost that happens to resemble last
+ * quarter's spending, and a heuristic that guessed would be wrong silently. The
+ * mitigation is the documented one: enter recurring costs as obligations, which
+ * is what the entry form's collision warning already nudges toward (ADR-045 §4,
+ * and P18-34 records it in `docs/SINKING.md`).
  *
  * Nothing here makes a network call, and no figure is logged (CLAUDE.md
  * §Privacy).
@@ -240,7 +278,15 @@ export async function loadCashFlow(options: LoadCashFlowOptions = {}): Promise<C
 
   // ── Inflows (ADR-038 §3) ─────────────────────────────────────────────────
   const activeSources = income.sources.filter((source) => source.active);
-  const perPeriod = netPerPeriod(activeSources, netIncome.trailingMedian);
+  const split = splitTakeHome(
+    activeSources.map((source) => ({
+      id: source.id,
+      cadence: source.cadence,
+      netPerPeriod: source.netPerPeriod,
+    })),
+    netIncome.trailingMedian,
+  );
+  const perPeriod = split.perPeriod;
 
   inputsUsed.push({
     label: "Take-home per month",
@@ -256,9 +302,31 @@ export async function loadCashFlow(options: LoadCashFlowOptions = {}): Promise<C
     missing: netIncome.trailingMedian === null,
     href: "/settings/income",
   });
+  if (activeSources.length > 0) {
+    inputsUsed.push({
+      label: "Take-home per paycheck",
+      value: `${split.stated} of ${activeSources.length} stated`,
+      kind: "text",
+      source:
+        split.unpriced > 0
+          ? `${split.unpriced} paycheck${split.unpriced === 1 ? "" : "s"} not projected — state take-home, or no observed income is left to share`
+          : split.shared > 0
+            ? "The rest share what remains of observed take-home, evenly per payday"
+            : "Every paycheck projects at its stated take-home",
+      missing: split.unpriced > 0,
+      href: "/settings/income",
+    });
+  }
 
   // ── Events ───────────────────────────────────────────────────────────────
-  const horizonOccurrences = await listUpcomingOccurrences(from, to);
+  // Two independent reads over the same window, issued together: the recorded
+  // costs depend on nothing the occurrences produce, so a second sequential
+  // round trip would be latency bought for nothing (P18-29, and P18-35 measures
+  // what the phase added to this page).
+  const [horizonOccurrences, planned] = await Promise.all([
+    listUpcomingOccurrences(from, to),
+    listPlannedExpensesInWindow(from, to),
+  ]);
   const settled = new Set(
     horizonOccurrences
       .filter((row) => row.status === "skipped" || row.status === "matched")
@@ -274,6 +342,42 @@ export async function loadCashFlow(options: LoadCashFlowOptions = {}): Promise<C
     from,
     to,
   );
+  const { events: plannedEvents, skipped: plannedSkipped } = plannedExpenseEvents(
+    planned,
+    from,
+    to,
+  );
+
+  inputsUsed.push({
+    label: "One-off costs you recorded",
+    value:
+      plannedEvents.length === 0
+        ? null
+        : Money.sum(
+            plannedEvents.map((event) => Money.fromString(event.amount, CURRENCY)),
+            CURRENCY,
+          ).format(),
+    kind: "money",
+    source:
+      plannedEvents.length === 0
+        ? "No one-off costs are recorded inside this window"
+        : `${plannedEvents.length} recorded cost${plannedEvents.length === 1 ? "" : "s"}, charged on the date you gave`,
+    // An empty list is NOT RECORDED rather than zero (ADR-046 §5): a household
+    // with no rows has not told the app it expects nothing irregular, and a
+    // "$0.00" here would read as the projection having checked and found none.
+    missing: plannedEvents.length === 0,
+    href: "/plan/sinking",
+  });
+  if (plannedSkipped.length > 0) {
+    inputsUsed.push({
+      label: "Costs in another currency",
+      value: plannedSkipped.join(", "),
+      kind: "text",
+      source: "Left out of the projection rather than added at face value",
+      missing: true,
+      href: "/plan/sinking",
+    });
+  }
 
   // ── Honesty ladder (ADR-038 §7) ──────────────────────────────────────────
   const historyMonths = monthsSince(earliestTxn, today);
@@ -299,7 +403,7 @@ export async function loadCashFlow(options: LoadCashFlowOptions = {}): Promise<C
     from,
     to,
     openingBalance: opening.toString(),
-    events: [...obligationEvents, ...incomeEvents],
+    events: [...obligationEvents, ...incomeEvents, ...plannedEvents],
     // Under three months of data there is no honest rate, so the line carries
     // the dated events alone rather than a number invented from six weeks.
     residual:
@@ -322,6 +426,47 @@ export async function loadCashFlow(options: LoadCashFlowOptions = {}): Promise<C
     shortfallClose: shortfallCloseFor(projection, cash),
     historyMonths,
   };
+}
+
+/**
+ * Expand recorded costs the walk can actually add, and name the ones it cannot.
+ *
+ * The projection is single-currency (`CURRENCY` above, ADR-038's whole
+ * arithmetic), and `planned_expenses.currency` is a column. Nothing writes a
+ * second currency today — the entry form takes it from the household snapshot —
+ * but the column exists, so the decision has to exist too, and there are only
+ * three honest ones:
+ *
+ *   - **Convert** — ruled out here. Cross-currency arithmetic must go through
+ *     `fx_rates` at the relevant date (CLAUDE.md §Money, CRITICAL), and the
+ *     projection has no rate in scope. Guessing parity is the one thing that
+ *     must never happen to a money figure.
+ *   - **Throw** — rejected. It is one row in a render path; a household with a
+ *     single foreign cost recorded would lose the whole projection page.
+ *   - **Skip and SAY SO** — this. The event is left out and the cost is named as
+ *     a missing input with its own link, which is the shape ADR-038 §7/§8
+ *     already uses for an unsnapshotted account a few lines above. A silent
+ *     filter would understate outflow, and understated outflow overstates
+ *     safe-to-spend: the optimistic direction ADR-038 §3 calls dangerous.
+ *
+ * @param rows - The window's recorded costs, from `listPlannedExpensesInWindow`.
+ * @param from - Inclusive horizon start. Today, in the projection.
+ * @param to - Inclusive horizon end.
+ * @returns The events, and the LABELS of any cost left out. Labels are PII and
+ *   go to the page's audit trail only — never to a log or an alert email.
+ */
+function plannedExpenseEvents(
+  rows: readonly PlannedExpenseWindowRow[],
+  from: string,
+  to: string,
+): { events: PlannedExpenseEvent[]; skipped: string[] } {
+  const usable: PlannedExpenseWindowRow[] = [];
+  const skipped: string[] = [];
+  for (const row of rows) {
+    if (row.currency === CURRENCY) usable.push(row);
+    else skipped.push(row.label);
+  }
+  return { events: expandPlannedExpenseEvents(usable, from, to), skipped };
 }
 
 /**
@@ -388,49 +533,6 @@ function attributableOutflow(occurrences: readonly UpcomingOccurrence[]): Money 
     total = total.add(amount);
   }
   return total;
-}
-
-/**
- * Observed take-home, split across every pay event the active sources produce.
- *
- * ADR-038 §3 names the amount (observed net) and the dates (each source's own
- * cadence) but not how one household-level median divides across several
- * paychecks. The only per-source weight the schema offers is
- * `gross_per_period`, which is precisely the input §3 forbids — projecting
- * gross overstates every inflow by the whole withholding stack, and using it as
- * a *ratio* would smuggle the same distortion in through the side door.
- *
- * So the split is even per pay event: annual take-home divided by the total
- * number of pay events a year across all active sources. Two unequal paychecks
- * are therefore each projected at their average, which shifts money between pay
- * dates but never changes the monthly total — and the low-water mark, which is
- * what the household acts on, moves by at most the gap between two paydays.
- * Division is `Money.divFloor`: erring low on an INFLOW is the safe direction.
- *
- * @param sources - Active income sources.
- * @param monthlyMedian - `observedNetIncome`'s trailing median, or `null`.
- * @returns Source id → per-period take-home. Empty when there is no median, so
- *   `expandIncomeEvents` skips every source rather than projecting a $0 paycheck.
- */
-function netPerPeriod(
-  sources: readonly { id: string; cadence: string }[],
-  monthlyMedian: string | null,
-): ReadonlyMap<string, string> {
-  const out = new Map<string, string>();
-  if (monthlyMedian === null || sources.length === 0) return out;
-
-  const median = Money.fromString(monthlyMedian, CURRENCY);
-  if (median.isNegative() || median.isZero()) return out;
-
-  let eventsPerYear = 0;
-  for (const source of sources) {
-    eventsPerYear += periodsPerYear(source.cadence as never);
-  }
-  if (eventsPerYear === 0) return out;
-
-  const perEvent = median.mul(12).divFloor(eventsPerYear);
-  for (const source of sources) out.set(source.id, perEvent.toString());
-  return out;
 }
 
 /** An `ObligationRow` narrowed to what the event expander reads. */

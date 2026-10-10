@@ -1,19 +1,27 @@
+import type { PlannedExpenseStatus } from "@/db/schema/planned-expenses.ts";
 import type {
   ObligationAmountMode,
   ObligationDirection,
 } from "@/db/schema/scheduled-obligations.ts";
 import { Money } from "@/lib/money/money.ts";
 import type { ObligationCadence } from "@/lib/schedule/cadence.ts";
-import { occurrenceDatesBetween } from "@/lib/schedule/occurrences.ts";
-import type { IncomeEvent, ObligationEvent } from "./types.ts";
+import { occurrenceDatesBetween, parseIsoDate } from "@/lib/schedule/occurrences.ts";
+import type { IncomeEvent, ObligationEvent, PlannedExpenseEvent } from "./types.ts";
 
 /**
  * Event expansion — turning schedules into dated money (P16-14, ADR-038 §1/§3).
  *
- * Pure and I/O-free. Both functions are thin lifecycle wrappers around the ONE
- * occurrence expander (`occurrenceDatesBetween`, ADR-036 §5); neither does date
- * math of its own, and that is deliberate — a second copy of clamping arithmetic
- * is how a month-length bug gets fixed on the income side and not the bill side.
+ * Pure and I/O-free. The first two functions are thin lifecycle wrappers around
+ * the ONE occurrence expander (`occurrenceDatesBetween`, ADR-036 §5); neither
+ * does date math of its own, and that is deliberate — a second copy of clamping
+ * arithmetic is how a month-length bug gets fixed on the income side and not
+ * the bill side.
+ *
+ * {@link expandPlannedExpenseEvents} (P18-29) is deliberately NOT that shape. A
+ * planned expense has no cadence to expand and no lifecycle to intersect: it is
+ * one dated row, and the only question is whether it is a real charge against a
+ * day inside the window. Routing it through a cadence expander to produce at
+ * most one date would be machinery pretending to be symmetry.
  *
  * ── What these functions actually decide ───────────────────────────────────
  * Not "when does a monthly bill land" — that is the expander's answer, tested
@@ -65,6 +73,25 @@ export interface ObligationInput {
   /** Inclusive last date; `null` = open-ended. */
   readonly endDate: string | null;
   readonly active: boolean;
+}
+
+/**
+ * A recorded one-off cost, as the projection reads it (P18-29).
+ *
+ * The narrow half of `planned_expenses`. `accrual_start_date`, `category_id`
+ * and `notes` are absent **because the projection has no use for them**: the
+ * accrual window is the sinking fund's question ("how much should already be
+ * set aside?") and the projection asks a different one ("what lands on which
+ * day?"). `notes` in particular is household PII and this module never sees it
+ * (CLAUDE.md §Privacy).
+ */
+export interface PlannedExpenseInput {
+  readonly id: string;
+  readonly label: string;
+  /** Positive magnitude, a `numeric(18,2)` string. */
+  readonly amount: string;
+  readonly dueDate: string;
+  readonly status: PlannedExpenseStatus;
 }
 
 /** An income source, as the projection reads it. `gross_per_period` is absent by design. */
@@ -164,8 +191,9 @@ export function expandObligationEvents(
  * as a missing input (ADR-038 §7/§8) — silence here, visibility there.
  *
  * @param sources - Income sources. Inactive ones are skipped.
- * @param netPerPeriod - Source id → observed take-home per period, from
- *   `observedNetIncome`'s trailing median (ADR-034 §1). Never gross.
+ * @param netPerPeriod - Source id → take-home per period, from `splitTakeHome`:
+ *   stated per source (ADR-049), else a share of `observedNetIncome`'s trailing
+ *   median (ADR-034 §1). Never gross.
  * @param from - Inclusive horizon start, `YYYY-MM-DD`.
  * @param to - Inclusive horizon end, `YYYY-MM-DD`.
  * @returns Events ascending by `(date, label, incomeSourceId)`. Inputs untouched.
@@ -211,4 +239,82 @@ export function expandIncomeEvents(
   }
 
   return events.sort(byDateLabelId((e) => e.incomeSourceId));
+}
+
+/**
+ * Expand recorded one-off costs into dated outflow events (P18-29, ADR-045 §1).
+ *
+ * ── Which costs are real charges against a future day ─────────────────────
+ * Only `planned` ones inside the window, and the three exclusions are each a
+ * different statement:
+ *
+ *   - `paid` — the money already left. It is in observed spend, and charging it
+ *     again to a future day is the double count ADR-038 §2 exists to prevent.
+ *   - `cancelled` — the household said it is not happening. Projecting it is
+ *     worse than forgetting it, exactly as a deactivated obligation would be.
+ *   - **past due** — a cost dated before the window. There is no separate rule
+ *     for this in the code and deliberately so: a projection always walks
+ *     forward from today, so `from` IS today and an overdue row is simply
+ *     outside the window. ADR-043 §6 built no matcher, so nothing ever settles
+ *     a planned expense automatically and an overdue one stays `planned`
+ *     indefinitely; the money either already left (and is in observed spend) or
+ *     never will, and the projection cannot tell which. `/plan/sinking` shows it
+ *     in red and asks the household, which is the only honest resolution.
+ *
+ * ── What this function does NOT do ────────────────────────────────────────
+ * It does not deduplicate against obligations. A cost recorded on the same day
+ * as a confirmed bill is charged twice here, on purpose: ADR-045 §4's collision
+ * check **warns at entry and never merges**, because only the household knows
+ * whether the roof and the roof-shaped bill are the same roof. A projection that
+ * silently dropped one would be deciding that question on their behalf, with no
+ * surface that says it did.
+ *
+ * It also must never be fed {@link import("@/lib/sinking/queries.ts").loadKnownFutureCosts}'s
+ * stream. That stream merges planned expenses WITH eligible obligation
+ * occurrences for the sinking requirement, and those obligations are already
+ * expanded by {@link expandObligationEvents} — passing the merged stream here
+ * would charge every quarterly and annual bill in the horizon twice.
+ *
+ * @param rows - Recorded costs, any status. Filtering is this function's job.
+ * @param from - Inclusive horizon start, `YYYY-MM-DD`. In the projection this is
+ *   today, which is what excludes past-due costs.
+ * @param to - Inclusive horizon end, `YYYY-MM-DD`.
+ * @returns Events ascending by `(date, label, plannedExpenseId)`. Inputs
+ *   untouched. Empty on an inverted window, never inverted output.
+ * @throws If a due date or either window edge is not a real `YYYY-MM-DD` — a
+ *   typo must fail loudly rather than quietly drop a $4,000 cost out of the
+ *   low-water mark.
+ */
+export function expandPlannedExpenseEvents(
+  rows: readonly PlannedExpenseInput[],
+  from: string,
+  to: string,
+): PlannedExpenseEvent[] {
+  parseIsoDate(from, "from");
+  parseIsoDate(to, "to");
+
+  const events: PlannedExpenseEvent[] = [];
+
+  for (const row of rows) {
+    if (row.status !== "planned") continue;
+    // Validated before the comparison, not after: ISO strings compare correctly
+    // as strings, which is also why "2026-02-30" would compare perfectly well
+    // while being no date at all.
+    parseIsoDate(row.dueDate, `planned expense ${row.id} due date`);
+    if (row.dueDate < from || row.dueDate > to) continue;
+
+    events.push({
+      kind: "planned_expense",
+      date: row.dueDate,
+      // `abs`, as the obligation path does: the column is a magnitude, and a
+      // sign that reached here would land on the inflow side of the walk and
+      // move the low-water mark UP by $4,000.
+      amount: Money.fromString(row.amount, CURRENCY).abs().toString(),
+      direction: "outflow",
+      label: row.label,
+      plannedExpenseId: row.id,
+    });
+  }
+
+  return events.sort(byDateLabelId((e) => e.plannedExpenseId));
 }

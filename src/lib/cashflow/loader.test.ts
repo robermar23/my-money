@@ -7,11 +7,13 @@ import {
   householdProfile,
   incomeSources,
   obligationOccurrences,
+  plannedExpenses,
   transactions,
 } from "@/db/schema/index.ts";
 import { Money } from "@/lib/money/money.ts";
 import { eq, inArray, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
+import { cashFlowAlerts } from "./alerts.ts";
 import { loadCashFlow } from "./loader.ts";
 import { materializeOccurrences } from "./materialize.ts";
 import { upsertObligation } from "./queries.ts";
@@ -33,6 +35,9 @@ import { upsertObligation } from "./queries.ts";
  *   3. **An unsnapshotted account is not zero.** It is named as a missing input.
  *   4. **A settled occurrence is not charged again.** A `skipped` bill is not
  *      happening and a `matched` one already posted.
+ *   5. **A recorded one-off cost is charged to its day and to the rate NEVER**
+ *      (P18-29/P18-30). It must move the low-water mark, and it must leave the
+ *      everyday rate and its coverage exactly where they were.
  */
 
 const TODAY = "2026-04-15";
@@ -49,7 +54,7 @@ const HISTORY_DAYS = 130;
 
 async function reset(): Promise<void> {
   await db.execute(
-    sql`TRUNCATE obligation_occurrences, scheduled_obligations, income_sources, account_snapshots, transactions, categories, household_profile, accounts CASCADE`,
+    sql`TRUNCATE planned_expenses, obligation_occurrences, scheduled_obligations, income_sources, account_snapshots, transactions, categories, household_profile, accounts CASCADE`,
   );
 }
 
@@ -533,6 +538,59 @@ describe("loadCashFlow — inflows come from observed take-home (ADR-038 §3)", 
     );
     expect(named?.missing).toBe(true);
   });
+
+  it("projects a stated take-home exactly, and shares only the remainder (ADR-049)", async () => {
+    // One $3,000 monthly median, two monthly sources. Unstated, each would get
+    // $1,500 — the even split that put one figure on every payday. Stating
+    // $2,200 for one must land $2,200 on its payday and $800 on the other's.
+    const accountId = await seedAccount("Checking", "checking", "1000.00");
+    await seedSpend(accountId, HISTORY_DAYS, "40.00");
+    const [incomeCategory] = await db
+      .insert(categories)
+      .values({ name: "Salary", kind: "income" })
+      .returning({ id: categories.id });
+    await db.insert(transactions).values(
+      ["2026-02-15", "2026-03-15", "2026-04-15"].map((postedAt) => ({
+        accountId,
+        postedAt,
+        amount: "3000.00",
+        name: "DEPOSIT",
+        fitid: `pay-${postedAt}`,
+        categoryId: incomeCategory?.id ?? null,
+        source: "manual" as const,
+      })),
+    );
+    const base = {
+      cadence: "monthly",
+      grossPerPeriod: "5000.00",
+      currency: "USD",
+      startDate: "2026-01-01",
+      active: true,
+    };
+    await db.insert(incomeSources).values([
+      { ...base, name: "Stated", anchorDate: "2026-01-20", netPerPeriod: "2200.00" },
+      { ...base, name: "Shared", anchorDate: "2026-01-25" },
+    ]);
+
+    const snapshot = await loadCashFlow({ today: TODAY, now: NOW });
+
+    const amounts = new Map<string, Set<string>>();
+    for (const point of snapshot.projection.points) {
+      for (const event of point.events) {
+        if (event.kind !== "income") continue;
+        const set = amounts.get(event.label) ?? new Set<string>();
+        set.add(event.amount);
+        amounts.set(event.label, set);
+      }
+    }
+    expect([...(amounts.get("Stated") ?? [])]).toEqual(["2200.00"]);
+    expect([...(amounts.get("Shared") ?? [])]).toEqual(["800.00"]);
+    const perPaycheck = snapshot.projection.inputsUsed.find(
+      (input) => input.label === "Take-home per paycheck",
+    );
+    expect(perPaycheck?.value).toBe("1 of 2 stated");
+    expect(perPaycheck?.missing).toBe(false);
+  });
 });
 
 describe("loadCashFlow — the horizon and the floor are stated", () => {
@@ -562,5 +620,235 @@ describe("loadCashFlow — the horizon and the floor are stated", () => {
 
     expect(snapshot.projection.safeToSpend.floor).toBe("400.00");
     expect(snapshot.projection.safeToSpend.amount).toBe("600.00");
+  });
+});
+
+/** One recorded one-off cost. `notes` is deliberately never seeded or read here. */
+async function seedPlannedExpense(over: {
+  label?: string;
+  amount?: string;
+  dueDate?: string;
+  currency?: string;
+  status?: "planned" | "paid" | "cancelled";
+}): Promise<void> {
+  await db.insert(plannedExpenses).values({
+    label: over.label ?? "New roof",
+    amount: over.amount ?? "4000.00",
+    currency: over.currency ?? "USD",
+    dueDate: over.dueDate ?? "2026-05-15",
+    accrualStartDate: "2026-01-15",
+    status: over.status ?? "planned",
+  });
+}
+
+/** The day's everyday-spending event amount, or `null` when the rate is zero. */
+function dailyRateOn(point: { events: readonly { kind: string; amount: string }[] }):
+  | string
+  | null {
+  return point.events.find((event) => event.kind === "discretionary")?.amount ?? null;
+}
+
+describe("loadCashFlow — recorded one-off costs (P18-29)", () => {
+  it("charges a cost inside the horizon to its due date", async () => {
+    const accountId = await seedAccount("Checking", "checking", "50000.00");
+    await seedSpend(accountId, HISTORY_DAYS, "40.00");
+    await seedPlannedExpense({ dueDate: "2026-05-15" });
+
+    const snapshot = await loadCashFlow({ today: TODAY, now: NOW });
+
+    const day = snapshot.projection.points.find((point) => point.date === "2026-05-15");
+    expect(day?.events).toContainEqual(
+      expect.objectContaining({
+        kind: "planned_expense",
+        amount: "4000.00",
+        direction: "outflow",
+        label: "New roof",
+      }),
+    );
+  });
+
+  it("moves the low-water mark by the whole cost, which is the point of the phase", async () => {
+    // Without the fourth event kind a $4,000 cost forty days out is invisible
+    // here, and safe-to-spend overstates by the entire amount — the optimistic
+    // direction ADR-038 §3 calls the dangerous one.
+    const accountId = await seedAccount("Checking", "checking", "50000.00");
+    await seedSpend(accountId, HISTORY_DAYS, "40.00");
+    const before = await loadCashFlow({ today: TODAY, now: NOW });
+
+    await seedPlannedExpense({ dueDate: "2026-05-15" });
+    const after = await loadCashFlow({ today: TODAY, now: NOW });
+
+    const lowBefore = Money.fromString(before.projection.lowWaterMark?.balance ?? "0.00", "USD");
+    const lowAfter = Money.fromString(after.projection.lowWaterMark?.balance ?? "0.00", "USD");
+    expect(lowBefore.sub(lowAfter).toString()).toBe("4000.00");
+    expect(before.projection.safeToSpend.amount).not.toBe(after.projection.safeToSpend.amount);
+  });
+
+  it("leaves a cost dated past the horizon out of the projection entirely", async () => {
+    const accountId = await seedAccount("Checking", "checking", "50000.00");
+    await seedSpend(accountId, HISTORY_DAYS, "40.00");
+    const before = await loadCashFlow({ today: TODAY, now: NOW });
+
+    // Nine months out: inside the sinking fund's twelve-month horizon, well
+    // outside the sixty-day projection. `/plan/sinking` is where it is answered.
+    await seedPlannedExpense({ dueDate: "2027-01-15" });
+    const after = await loadCashFlow({ today: TODAY, now: NOW });
+
+    expect(totalOutflow(after.projection.points).toString()).toBe(
+      totalOutflow(before.projection.points).toString(),
+    );
+  });
+
+  it.each([["paid"], ["cancelled"]] as const)(
+    "charges nothing for a %s cost, even one dated inside the horizon",
+    async (status) => {
+      const accountId = await seedAccount("Checking", "checking", "50000.00");
+      await seedSpend(accountId, HISTORY_DAYS, "40.00");
+      const before = await loadCashFlow({ today: TODAY, now: NOW });
+
+      await seedPlannedExpense({ dueDate: "2026-05-15", status });
+      const after = await loadCashFlow({ today: TODAY, now: NOW });
+
+      expect(totalOutflow(after.projection.points).toString()).toBe(
+        totalOutflow(before.projection.points).toString(),
+      );
+    },
+  );
+
+  it("keeps a cost the walk cannot add out of it, and names it rather than dropping it", async () => {
+    // No surface writes a second currency today, but the column exists. The
+    // event is left out because converting without `fx_rates` is the one thing
+    // that must never happen to a money figure (CLAUDE.md §Money) — and it is
+    // NAMED, because a silent filter understates outflow.
+    const accountId = await seedAccount("Checking", "checking", "50000.00");
+    await seedSpend(accountId, HISTORY_DAYS, "40.00");
+    const before = await loadCashFlow({ today: TODAY, now: NOW });
+
+    await seedPlannedExpense({ label: "Paris flat", currency: "EUR", dueDate: "2026-05-15" });
+    const after = await loadCashFlow({ today: TODAY, now: NOW });
+
+    expect(totalOutflow(after.projection.points).toString()).toBe(
+      totalOutflow(before.projection.points).toString(),
+    );
+    expect(after.projection.inputsUsed).toContainEqual(
+      expect.objectContaining({ label: "Costs in another currency", missing: true }),
+    );
+  });
+
+  it("names an empty cost list as not recorded rather than as zero", async () => {
+    const accountId = await seedAccount("Checking", "checking", "50000.00");
+    await seedSpend(accountId, HISTORY_DAYS, "40.00");
+
+    const snapshot = await loadCashFlow({ today: TODAY, now: NOW });
+
+    // ADR-046 §5, and the `null` != "0.00" rule the whole advice phase rests on:
+    // a household with no rows has not told the app it expects nothing
+    // irregular, and a "$0.00" here would read as the projection having checked.
+    expect(snapshot.projection.inputsUsed).toContainEqual(
+      expect.objectContaining({
+        label: "One-off costs you recorded",
+        value: null,
+        missing: true,
+        href: "/plan/sinking",
+      }),
+    );
+  });
+
+  it("states the cost in the audit trail once there is one", async () => {
+    const accountId = await seedAccount("Checking", "checking", "50000.00");
+    await seedSpend(accountId, HISTORY_DAYS, "40.00");
+    await seedPlannedExpense({ dueDate: "2026-05-15" });
+
+    const snapshot = await loadCashFlow({ today: TODAY, now: NOW });
+
+    expect(snapshot.projection.inputsUsed).toContainEqual(
+      expect.objectContaining({
+        label: "One-off costs you recorded",
+        value: "$4,000.00",
+        missing: false,
+      }),
+    );
+  });
+});
+
+/**
+ * P18-30 — the residual-rate interaction, checked rather than assumed.
+ *
+ * The analogue of ADR-038 §2 for this phase, and the answer is that **nothing
+ * is owed**. The residual subtracts what trailing observed spend already
+ * contains; a cost dated in the future has not been spent, so there is nothing
+ * to subtract. Both directions are wrong and both are asserted here, because
+ * the claim "this changed nothing" is only worth as much as a test that would
+ * fail if it had:
+ *
+ *   - subtracting it would understate the everyday rate for a payment that has
+ *     not happened, which overstates safe-to-spend on every day of the horizon;
+ *   - counting it as attributed would inflate `coverage`, the one figure a
+ *     household uses to judge how much of the projection to believe.
+ */
+describe("loadCashFlow — a recorded cost does not touch the everyday rate (P18-30)", () => {
+  it("leaves the daily rate and coverage byte-identical", async () => {
+    const accountId = await seedAccount("Checking", "checking", "50000.00");
+    await seedSpend(accountId, HISTORY_DAYS, "40.00");
+    // A confirmed bill as well, so `coverage` is a real fraction rather than
+    // `null` and the assertion below has something to be wrong about.
+    const obligationId = await seedObligation(accountId);
+    await materializeOccurrences(
+      {
+        id: obligationId,
+        cadence: "monthly",
+        anchorDate: "2026-01-01",
+        startDate: "2026-01-01",
+        endDate: null,
+        expectedAmount: "600.00",
+        active: true,
+      },
+      "2026-08-01",
+    );
+    const before = await loadCashFlow({ today: TODAY, now: NOW });
+
+    // Dated INSIDE the residual window as well as the horizon, which is the
+    // only arrangement that could tempt an implementation into subtracting it.
+    await seedPlannedExpense({ dueDate: "2026-04-20" });
+    const after = await loadCashFlow({ today: TODAY, now: NOW });
+
+    expect(after.projection.coverage).toBe(before.projection.coverage);
+    expect(dailyRateOn(after.projection.points[0] ?? { events: [] })).toBe(
+      dailyRateOn(before.projection.points[0] ?? { events: [] }),
+    );
+    // And the audit trail's stated rate with it, since that is the figure a
+    // household actually reads.
+    const rateInput = (snapshot: typeof before) =>
+      snapshot.projection.inputsUsed.find((input) => input.label === "Everyday spending, per day");
+    expect(rateInput(after)?.value).toBe(rateInput(before)?.value);
+  });
+
+  it("never lets a recorded cost reach an alert, which is content-free by contract", async () => {
+    // The projection now carries household free text (`planned_expenses.label`)
+    // into the module the daily job reads for alerts. ADR-015 says an alert is
+    // content-free, and the job hand-picks four fields rather than passing the
+    // points — so this cannot leak. That is worth an assertion precisely
+    // because it is structural: the next field someone adds is where it breaks.
+    const accountId = await seedAccount("Checking", "checking", "1000.00");
+    await seedSpend(accountId, HISTORY_DAYS, "40.00");
+    await seedPlannedExpense({ label: "Fertility treatment", dueDate: "2026-05-15" });
+
+    const snapshot = await loadCashFlow({ today: TODAY, now: NOW });
+    const detected = cashFlowAlerts({
+      shortfall: {
+        status: snapshot.projection.status,
+        safeToSpend: snapshot.projection.safeToSpend,
+        lowWaterMark: snapshot.projection.lowWaterMark,
+        horizonDays: snapshot.projection.horizonDays,
+        coverage: snapshot.projection.coverage,
+        close: snapshot.shortfallClose,
+      },
+      missed: [],
+      amountChanges: [],
+    });
+
+    // The shortfall is real — otherwise this test proves nothing.
+    expect(detected.map((alert) => alert.type)).toContain("projected_shortfall");
+    expect(JSON.stringify(detected)).not.toContain("Fertility");
   });
 });

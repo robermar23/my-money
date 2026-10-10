@@ -2,15 +2,18 @@ import { db } from "@/db/client.ts";
 import type { IncomeCadence } from "@/db/schema/income-sources.ts";
 import {
   accounts,
+  categories,
   holdingLots,
   holdings,
   incomeContributions,
   incomeSources,
   retirementContributions,
+  transactions,
 } from "@/db/schema/index.ts";
 import type { EmployeeContributionBasis, EmployerMatchBasis } from "@/db/schema/index.ts";
-import { asc, between, count, desc, eq, max, sum } from "drizzle-orm";
+import { and, asc, between, count, desc, eq, gt, gte, lte, max, sum } from "drizzle-orm";
 import type { SavingsRateContribution, SavingsRateSource } from "./savings-rate.ts";
+import type { IncomeDeposit } from "./take-home-suggestion.ts";
 
 /**
  * Read models for the income-management surface (P14-14).
@@ -30,6 +33,8 @@ export interface IncomeSourceRow {
   readonly name: string;
   readonly cadence: IncomeCadence;
   readonly grossPerPeriod: string;
+  /** User-stated take-home per period (ADR-049), or null when unstated. */
+  readonly netPerPeriod: string | null;
   readonly currency: string;
   readonly anchorDate: string;
   readonly startDate: string;
@@ -193,6 +198,7 @@ export async function loadIncomeSettings(): Promise<IncomeSettings> {
       name: source.name,
       cadence: source.cadence as IncomeCadence,
       grossPerPeriod: source.grossPerPeriod,
+      netPerPeriod: source.netPerPeriod,
       currency: source.currency,
       anchorDate: source.anchorDate,
       startDate: source.startDate,
@@ -207,6 +213,39 @@ export async function loadIncomeSettings(): Promise<IncomeSettings> {
       hasPlaidLots: plaidHoldings.has(holding.id),
     })),
   };
+}
+
+/**
+ * Positive deposits in `kind='income'` categories over an inclusive window —
+ * the raw material for the take-home suggestion (ADR-049 §2).
+ *
+ * Same boundary as `observedNetIncome`: transfers are a separate category kind,
+ * so card payments and internal moves never look like a paycheck.
+ *
+ * @param window - Inclusive `{from, to}` ISO dates.
+ * @returns Deposits, oldest first.
+ */
+export async function listIncomeDeposits(window: {
+  readonly from: string;
+  readonly to: string;
+}): Promise<IncomeDeposit[]> {
+  return db
+    .select({
+      postedAt: transactions.postedAt,
+      amount: transactions.amount,
+      name: transactions.name,
+    })
+    .from(transactions)
+    .innerJoin(categories, eq(transactions.categoryId, categories.id))
+    .where(
+      and(
+        eq(categories.kind, "income"),
+        gt(transactions.amount, "0"),
+        gte(transactions.postedAt, window.from),
+        lte(transactions.postedAt, window.to),
+      ),
+    )
+    .orderBy(asc(transactions.postedAt));
 }
 
 // ── Batch 5 surfacing reads ──────────────────────────────────────────────────

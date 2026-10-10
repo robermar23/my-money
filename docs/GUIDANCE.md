@@ -330,6 +330,10 @@ starts *"projected"*.
   page's `InputUsed` audit-trail convention, and deliberately does **not** apply
   `excluded_from_baseline` — a reimbursement is not plannable income, but it is real
   money that really moved net worth
+- [SINKING.md](SINKING.md) — the `sinking_fund` card in full: what your known irregular
+  costs require you to be holding, measured against the reserve **above** the
+  emergency-fund target this page sizes. The page and the card cannot disagree, and a
+  test proves it rather than a convention asking for it
 - [INCOME.md](INCOME.md) — the income model this reads, and the one true savings rate
 - [DASHBOARD.md](DASHBOARD.md) — the loader/card contract the advice card follows
 - [ALERTS.md](ALERTS.md) — the alert pipeline and the content-free email

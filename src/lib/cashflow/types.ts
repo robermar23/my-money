@@ -107,13 +107,59 @@ export interface DiscretionaryEvent extends CashFlowEventBase {
 }
 
 /**
+ * A dated one-off cost the household recorded itself (P18-28, ADR-045 §1).
+ *
+ * The fourth event kind, and the only one that is neither recurring nor a rate.
+ * A new roof is not an obligation — it has no cadence, and ADR-043 §6
+ * deliberately built no matcher for it — so nothing in Phase 16 could have put
+ * it on the calendar. Without this member a $4,000 cost dated inside the
+ * sixty-day horizon is **invisible to the low-water mark**, and safe-to-spend
+ * overstates by the whole amount: the optimistic direction, which ADR-038 §3
+ * names as the dangerous one.
+ *
+ * `direction` is narrowed to `outflow` rather than carried. A planned expense
+ * is a cost by definition — the table has no sign column and the entry form
+ * asks "what this will cost" — so a receipt cannot be recorded as one, and the
+ * literal type is what stops a future caller inventing an inflow with no
+ * column behind it.
+ */
+export interface PlannedExpenseEvent extends CashFlowEventBase {
+  readonly kind: "planned_expense";
+  readonly direction: "outflow";
+  readonly plannedExpenseId: string;
+}
+
+/**
  * Anything that moves the projected balance on a given day.
  *
- * A genuine discriminated union on `kind`: the three members carry different
- * provenance (`incomeSourceId`, `obligationId`, nothing at all) and narrow to
- * different shapes, so `switch (event.kind)` is exhaustively checkable.
+ * A genuine discriminated union on `kind`: the four members carry different
+ * provenance (`incomeSourceId`, `obligationId`, `plannedExpenseId`, nothing at
+ * all) and narrow to different shapes, so `switch (event.kind)` is exhaustively
+ * checkable. Adding `planned_expense` in P18-28 changed a SHIPPED union on
+ * purpose — `tsc` was allowed to enumerate every site that narrows on `kind`,
+ * which is a complete list in a way a grep for `"discretionary"` is not.
  */
-export type CashFlowEvent = IncomeEvent | ObligationEvent | DiscretionaryEvent;
+export type CashFlowEvent =
+  | IncomeEvent
+  | ObligationEvent
+  | DiscretionaryEvent
+  | PlannedExpenseEvent;
+
+/**
+ * Every event a CALLER may hand the walk: the union minus the one the walk
+ * emits itself.
+ *
+ * Stated as an `Exclude` rather than as a hand-listed union because the rule it
+ * encodes is exactly one thing — **the residual belongs to
+ * {@link import("./project.ts").projectDailyBalance} and to nobody else**
+ * (ADR-038 §2; a caller that could pass a discretionary event could
+ * double-count everyday spend through a different door). Hand-listing the
+ * members would have made a fifth event kind default to *excluded*, which is
+ * the silent direction: a new kind would compile, never reach the walk, and
+ * quietly go missing from the projection. This way it defaults to admitted, and
+ * only the residual is named.
+ */
+export type DatedCashFlowEvent = Exclude<CashFlowEvent, DiscretionaryEvent>;
 
 /** One day of the walk. `closing` is the next day's `opening`, by construction. */
 export interface DailyProjectionPoint {

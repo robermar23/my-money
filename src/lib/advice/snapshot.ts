@@ -19,6 +19,8 @@ import type { EmployeeContributionBasis, EmployerMatchBasis } from "@/db/schema/
 import { type MonthlyTotals, spendByMonth } from "@/lib/analytics/spending.ts";
 import { Money } from "@/lib/money/money.ts";
 import { monthsBetween } from "@/lib/schedule/occurrences.ts";
+import { loadKnownFutureCosts } from "@/lib/sinking/queries.ts";
+import type { KnownFutureCost } from "@/lib/sinking/types.ts";
 import { and, asc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
 import { type CashAccountInput, type CashTiers, classifyCashTiers } from "./cash-tiers.ts";
 import {
@@ -224,6 +226,24 @@ export interface AdviceInput {
    */
   readonly monthlySpend: readonly MonthlyTotals[];
   readonly holdings: AdviceHoldingsTotals;
+  /**
+   * Dated costs the household already knows about, over the next
+   * `SINKING_HORIZON_MONTHS` (Phase 18, P18-18, ADR-045 §7).
+   *
+   * **Assembled here precisely so the `sinking_fund` rule stays I/O-free**
+   * (ADR-032 §1). The alternative — a rule that reads `planned_expenses`
+   * itself — is the one thing this design forbids, and it would cost the rule
+   * its whole test surface: every case in
+   * [sinking-fund.test.ts](./rules/sinking-fund.test.ts) runs with no database
+   * because the costs arrive on this field.
+   *
+   * Already filtered and ordered by the pure `buildCostStream`
+   * ([sinking/costs.ts](../sinking/costs.ts)), so nothing downstream re-decides
+   * which costs are in the horizon. Empty on a fresh install, which ADR-046 §5
+   * makes a **degradation** rather than a pass — see
+   * [sinking/status.ts](../sinking/status.ts).
+   */
+  readonly knownFutureCosts: readonly KnownFutureCost[];
 }
 
 /** First day of the month `monthsBack` whole months before `today`. */
@@ -270,6 +290,7 @@ export async function loadFinancialSnapshot(
     ruleRows,
     ytdRows,
     earliest,
+    knownFutureCosts,
   ] = await Promise.all([
     db
       .select({
@@ -362,6 +383,10 @@ export async function loadFinancialSnapshot(
         accounts.taxTreatment,
       ),
     db.select({ earliest: sql<string | null>`min(${transactions.postedAt})` }).from(transactions),
+    // Phase 18. In pass 1 because it depends on nothing else here — the cost
+    // stream is read straight off `planned_expenses` and the occurrence
+    // calendar, neither of which waits on balances or the essential baseline.
+    loadKnownFutureCosts(today),
   ]);
 
   // ── Pass 2: balances, then the debt/cash/baseline chain ──────────────────
@@ -480,6 +505,7 @@ export async function loadFinancialSnapshot(
     })),
     monthlySpend,
     holdings: holdingsTotals(accountRows, balanceByAccount),
+    knownFutureCosts,
   };
 }
 

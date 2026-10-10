@@ -56,6 +56,10 @@ export interface SourceView {
   readonly cadence: string;
   readonly grossPerPeriod: string;
   readonly grossDisplay: string;
+  /** Stated take-home per period (ADR-049), raw for the form; `""` when unstated. */
+  readonly netPerPeriod: string;
+  /** Formatted take-home, or `null` when unstated. */
+  readonly netDisplay: string | null;
   readonly currency: string;
   readonly anchorDate: string;
   readonly startDate: string;

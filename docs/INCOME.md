@@ -15,9 +15,11 @@ Locked by **ADR-030** (the data model) and **ADR-031** (materialization) in
 
 > **Scope (binding — CLAUDE.md §Domain Scope).** This models income **only as far
 > as it defines a retirement contribution and a savings rate.** It is **not
-> payroll and not budgeting-income**: no net pay, no withholding, no FICA, no
-> deduction stack, no paycheck stub. We store *gross per period* and nothing
-> about taxes. `pretax` is a **label**; it drives no tax math. Contributions
+> payroll and not budgeting-income**: no withholding, no FICA, no deduction
+> stack, no paycheck stub. We store *gross per period* and nothing about taxes —
+> plus, since ADR-049, an optional **take-home per period** the user states
+> (usually by accepting a figure read from deposits that already landed). It is
+> never derived from gross. `pretax` is a **label**; it drives no tax math. Contributions
 > create *acquisition* lots — there is still no tax-lot selection, no wash-sale
 > handling, no realized-gain or 1099 reporting.
 >
@@ -296,10 +298,19 @@ The ledger is read-only everywhere. The job is the sole writer of contributions 
 edit the rule, not the rows.
 
 > **A source's cadence and anchor drive the cash-flow calendar; its
-> `gross_per_period` does not.** The projection's inflows are **observed
-> take-home** — the deposits that actually landed — because gross pay is not
+> `gross_per_period` does not.** The projection's inflows are **take-home** —
+> the figure you state on the source (ADR-049), or, for sources without one,
+> an even share of what remains of observed deposits — because gross pay is not
 > what reaches your checking account, and a projection built from it would
-> overstate every payday by the size of your withholding (ADR-038 §3). The
+> overstate every payday by the size of your withholding (ADR-038 §3).
+>
+> **Take-home suggestions.** While you edit a source, the form reads the last
+> 180 days of deposits in income categories, groups them by payee and amount,
+> and offers every stream whose deposits land within three days of this
+> source's paydays — named, with how many paydays it matched. Two payments from
+> one payer on one day (two SSA benefits) appear as two rows. Nothing is applied
+> until you click **Use**; when streams tie, the one closest to the source's
+> gross is listed first, which orders the choice and never sets the amount. The
 > declared figure still drives the savings rate and the contribution rules
 > above; the two numbers answer different questions and are deliberately not
 > interchangeable.
