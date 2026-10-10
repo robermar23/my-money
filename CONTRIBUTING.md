@@ -1,0 +1,125 @@
+# Contributing to my-money
+
+my-money is a **single-user, self-hosted** personal finance tracker that one
+person built for one household. Contributions are welcome when they keep it that
+way. Read this whole page before opening a pull request; the guardrails at the
+end are not negotiable.
+
+> **Security problems do not go here.** Report them privately as described in
+> [SECURITY.md](SECURITY.md), and never paste a `.env`, a dump, a token or a
+> transaction row into an issue or a pull request.
+
+## Prerequisites
+
+- **Node.js 22 or later** (the scripts rely on `--env-file`, `process.loadEnvFile`
+  and `--import tsx`).
+- **pnpm 11** (`corepack enable` picks up the version pinned in `package.json`).
+- **Docker** with the `compose` plugin, for Postgres and Redis.
+- **Git.**
+
+## The test suite needs its own database (read this first)
+
+The Vitest suite **truncates shared tables**. To make sure it can never wipe
+real data, it runs only against a dedicated test Postgres, and
+[vitest.setup.ts](vitest.setup.ts) **refuses to start** otherwise:
+
+```ts
+if (!dbName.includes("test")) {
+  throw new Error(
+    `TEST_DATABASE_URL points at database "${dbName}", which does not look like a test database. The name must contain "test" (e.g. money_test) so destructive TRUNCATEs cannot hit dev data by mistake.`,
+  );
+}
+```
+
+It throws a similar error if `TEST_DATABASE_URL` is not set at all.
+**This refusal is deliberate.** If you see it, the suite is not broken; it is
+protecting a database it was not pointed at. To satisfy it:
+
+```sh
+cp .env.example .env.local     # TEST_DATABASE_URL is already filled in
+make up                        # dev Postgres :5433, test Postgres :5434, Redis :6380
+```
+
+`make up` starts a **second** Postgres on `127.0.0.1:5434` with a database named
+`money_test`. The suite applies every migration to it before any test runs, so
+you never migrate it by hand.
+
+## Getting set up
+
+```sh
+pnpm install
+cp .env.example .env.local     # then generate SESSION_SECRET and MONEY_ENCRYPTION_KEY
+make up
+pnpm db:migrate                # the dev database, not the test one
+pnpm dev                       # http://127.0.0.1:4000
+pnpm worker                    # in a second terminal
+```
+
+The README's *First-time setup* section shows how to generate the two secrets.
+
+## The gate: `pnpm check` and `pnpm test`
+
+A pull request must pass both:
+
+```sh
+pnpm check   # Biome lint + format check, then tsc --noEmit (strict)
+pnpm test    # Vitest, against the test database above
+```
+
+- **Biome is the only linter and formatter.** There is no ESLint and no
+  Prettier, and a pull request should not add either. `pnpm format` applies
+  Biome's fixes.
+- **Line endings are LF** everywhere ([.gitattributes](.gitattributes)).
+- Write tests where they earn their keep: money helpers, importers and their
+  deduplication, Plaid webhook verification, snapshot computation, and the pure
+  rules engines. Do not add a test just to have one, and do not test the
+  framework or Drizzle itself.
+- Playwright (`pnpm test:e2e`) covers a handful of critical flows. Run it when
+  you touch one of them.
+
+## Where design decisions live
+
+Every non-trivial decision is written down before it is built:
+
+- [plans/features/FEATURE.md](plans/features/FEATURE.md): what is in scope,
+  and what is deliberately out.
+- [plans/features/IDEAS.md](plans/features/IDEAS.md) §11, the **Decision Log**:
+  numbered ADRs. Accepted ADRs are never edited; a new decision gets a new row.
+- `plans/features/PLAN*.md`: the per-phase task breakdowns that implement them.
+
+**A non-trivial change comes with an ADR.** That means a new table, a new outbound
+request, a new dependency, a new job or a change to how a figure is computed.
+Open an issue first, and propose the ADR there or in the pull request. If the
+change is not in scope according to FEATURE.md, expect the answer to be "no",
+and expect it to cite the line that says so.
+
+## Guardrails (non-negotiable)
+
+These come from [CLAUDE.md](CLAUDE.md), which is the full list and governs every
+change. A pull request that breaks one of them will not be merged, however good
+it is otherwise.
+
+- **Money is a string, end to end.** Money columns are `NUMERIC`, Drizzle
+  returns them as strings, and all arithmetic goes through the `Money` helper in
+  [src/lib/money/](src/lib/money/). Never use native `+ - * /` on money, and never
+  round-trip through `Number` except to format for display.
+- **Zero third-party egress.** No analytics, no telemetry, no crash reporting,
+  no update-check ping, no SaaS observability, no marketing pixels. The only
+  outbound calls are Plaid, public market-data endpoints, and the operator's own
+  SMTP server. A new outbound request needs an ADR and a privacy-egress test.
+- **No LLM over financial data.** Financial data is never sent to a hosted AI
+  API. Anything model-shaped must run locally, and it needs an ADR first.
+- **Single user.** There is one password and one `users` row. No accounts,
+  signup, roles, invitations, sharing or external identity providers. A second
+  household runs its own instance.
+- **Read-only.** No bill pay, money movement or ACH. No double-entry ledger,
+  no tax forms. This is not Quicken.
+- **Plaid tokens are encrypted at rest**, Plaid secrets never reach the browser,
+  and webhooks are signature-verified and idempotent.
+- **Never drop a column without a backup step.** Historical financial data is
+  the whole product.
+
+## License
+
+my-money is licensed **AGPL-3.0-or-later** ([LICENSE](LICENSE)). By submitting
+a contribution you agree that it is licensed under the same terms.
