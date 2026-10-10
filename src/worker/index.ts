@@ -20,6 +20,7 @@ import {
   syncInvestmentsItemQueue,
   syncPlaidItemQueue,
 } from "@/lib/queue/queues.ts";
+import { effectiveZone, resolveScheduleZone } from "@/lib/schedule/zone.ts";
 import { Worker } from "bullmq";
 import { backfillWatchlistSymbolProcessor } from "./jobs/backfill-watchlist-symbol.ts";
 import { backupDatabaseDailyProcessor } from "./jobs/backup-database-daily.ts";
@@ -39,6 +40,7 @@ import { recategorizeAllProcessor } from "./jobs/recategorize-all.ts";
 import { refreshFundamentalsWeeklyProcessor } from "./jobs/refresh-fundamentals-weekly.ts";
 import { syncInvestmentsItemProcessor } from "./jobs/sync-investments-item.ts";
 import { syncPlaidItemProcessor } from "./jobs/sync-plaid-item.ts";
+import { repeatFor } from "./schedule.ts";
 
 /**
  * BullMQ worker entrypoint.
@@ -286,6 +288,18 @@ materializeContributionsWorker.on("failed", (job, err) => {
   console.error(`[worker] materialize-contributions job ${job?.id} failed:`, err);
 });
 
+// P19-24 — Each cron job below names its clock in `./schedule.ts`: the data
+// chain on UTC, the backup and Beancount export on the operator's `TZ`. An
+// invalid `TZ` falls back to UTC with this warning instead of reaching the cron
+// library, whose error for it would stop the worker at boot, backups included.
+const scheduleZone = resolveScheduleZone(process.env.TZ);
+const operatorZone = effectiveZone(scheduleZone);
+if (scheduleZone.kind === "invalid") {
+  console.error(
+    `[worker] TZ=${JSON.stringify(scheduleZone.raw)} is not a time zone this runtime knows; the backup and Beancount export run on UTC.`,
+  );
+}
+
 // Ensure a single heartbeat repeatable job exists. Removing first guards against
 // pattern duplication across restarts.
 await heartbeatQueue.removeJobScheduler("heartbeat-tick").catch(() => {
@@ -297,18 +311,18 @@ await heartbeatQueue.upsertJobScheduler(
   { name: "heartbeat-tick", data: {} },
 );
 
-// Nightly price-fetch job: every day at 01:30 local. Runs BEFORE the snapshot
+// Nightly price-fetch job: every day at 01:30 UTC. Runs BEFORE the snapshot
 // job at 02:00 so today's prices are in the table before holdings get valued.
 await fetchPricesDailyQueue.removeJobScheduler("fetch-prices-daily-cron").catch(() => {
   /* first run */
 });
 await fetchPricesDailyQueue.upsertJobScheduler(
   "fetch-prices-daily-cron",
-  { pattern: "30 1 * * *" },
+  repeatFor("fetch-prices-daily-cron", operatorZone),
   { name: "fetch-prices-daily", data: {} },
 );
 
-// P14-10 — Nightly contribution materialization at 01:45 local, wedged into the
+// P14-10 — Nightly contribution materialization at 01:45 UTC, wedged into the
 // existing chain: AFTER the 01:30 price fetch so a same-day pay date prices off
 // a same-day close, and BEFORE the 02:00 snapshot so the lots and quantities it
 // writes are valued that same night. The price ordering is an optimization, not
@@ -321,21 +335,21 @@ await materializeContributionsQueue
   });
 await materializeContributionsQueue.upsertJobScheduler(
   "materialize-contributions-cron",
-  { pattern: "45 1 * * *" },
+  repeatFor("materialize-contributions-cron", operatorZone),
   { name: "materialize-contributions", data: {} },
 );
 
-// Nightly snapshot job: every day at 02:00 local. Cron pattern "0 2 * * *".
+// Nightly snapshot job: every day at 02:00 UTC. Cron pattern "0 2 * * *".
 await computeSnapshotsDailyQueue.removeJobScheduler("compute-snapshots-daily-cron").catch(() => {
   /* first run */
 });
 await computeSnapshotsDailyQueue.upsertJobScheduler(
   "compute-snapshots-daily-cron",
-  { pattern: "0 2 * * *" },
+  repeatFor("compute-snapshots-daily-cron", operatorZone),
   { name: "compute-snapshots-daily", data: {} },
 );
 
-// P4-27 — Daily Plaid safety-net fan-out at 03:00 local. Runs AFTER the snapshot
+// P4-27 — Daily Plaid safety-net fan-out at 03:00 UTC. Runs AFTER the snapshot
 // job so any cron-triggered sync that produces snapshot drift is captured by
 // the next day's snapshot run.
 await enqueuePlaidSyncsDailyQueue.removeJobScheduler("enqueue-plaid-syncs-daily-cron").catch(() => {
@@ -343,44 +357,47 @@ await enqueuePlaidSyncsDailyQueue.removeJobScheduler("enqueue-plaid-syncs-daily-
 });
 await enqueuePlaidSyncsDailyQueue.upsertJobScheduler(
   "enqueue-plaid-syncs-daily-cron",
-  { pattern: "0 3 * * *" },
+  repeatFor("enqueue-plaid-syncs-daily-cron", operatorZone),
   { name: "enqueue-plaid-syncs-daily", data: {} },
 );
 
-// P6-05 — Nightly encrypted backup at 04:00 local, AFTER the 03:00 Plaid
-// safety-net so the dump captures that day's synced transactions.
+// P6-05 — Nightly encrypted backup at 04:00 in the operator's zone (`TZ`,
+// P19-24; UTC when unset). Whatever the zone, the most recent 03:00 UTC Plaid
+// safety-net has already run, so the dump captures that day's synced data.
 await backupDatabaseDailyQueue.removeJobScheduler("backup-database-daily-cron").catch(() => {
   /* first run */
 });
 await backupDatabaseDailyQueue.upsertJobScheduler(
   "backup-database-daily-cron",
-  { pattern: "0 4 * * *" },
+  repeatFor("backup-database-daily-cron", operatorZone),
   { name: "backup-database-daily", data: {} },
 );
 
-// P6-10 — Nightly beancount export at 04:30 local, AFTER the 04:00 backup so the
-// encrypted dump and the plain-text mirror reflect the same day's data.
+// P6-10 — Nightly beancount export at 04:30 in the operator's zone, AFTER the
+// 04:00 backup so the encrypted dump and the plain-text mirror reflect the same
+// day's data. Both follow `TZ`, so that ordering holds in every zone.
 await exportBeancountDailyQueue.removeJobScheduler("export-beancount-daily-cron").catch(() => {
   /* first run */
 });
 await exportBeancountDailyQueue.upsertJobScheduler(
   "export-beancount-daily-cron",
-  { pattern: "30 4 * * *" },
+  repeatFor("export-beancount-daily-cron", operatorZone),
   { name: "export-beancount-daily", data: {} },
 );
 
-// P6-16 — Nightly anomaly detection at 05:00 local, AFTER the 04:00 backup so a
-// failed backup (which writes a backup_failure alert) is detectable + notified.
+// P6-16 — Nightly anomaly detection at 05:00 UTC. With `TZ` unset that is AFTER
+// the 04:00 backup, so a failed backup (which writes a backup_failure alert) is
+// detectable + notified; `./schedule.ts` says what setting `TZ` does to that.
 await detectAnomaliesDailyQueue.removeJobScheduler("detect-anomalies-daily-cron").catch(() => {
   /* first run */
 });
 await detectAnomaliesDailyQueue.upsertJobScheduler(
   "detect-anomalies-daily-cron",
-  { pattern: "0 5 * * *" },
+  repeatFor("detect-anomalies-daily-cron", operatorZone),
   { name: "detect-anomalies-daily", data: {} },
 );
 
-// P9-07 — Weekly security enrichment refresh, Sundays at 06:00 local. Cadence is
+// P9-07 — Weekly security enrichment refresh, Sundays at 06:00 UTC. Cadence is
 // weekly because sector/industry/forward-dividend change slowly; running after
 // the nightly jobs keeps it off the busy overnight window.
 await refreshFundamentalsWeeklyQueue
@@ -390,11 +407,11 @@ await refreshFundamentalsWeeklyQueue
   });
 await refreshFundamentalsWeeklyQueue.upsertJobScheduler(
   "refresh-fundamentals-weekly-cron",
-  { pattern: "0 6 * * 0" },
+  repeatFor("refresh-fundamentals-weekly-cron", operatorZone),
   { name: "refresh-fundamentals-weekly", data: {} },
 );
 
-// P16-26 — Weekly recurring-obligation detection, Sundays at 06:30 local.
+// P16-26 — Weekly recurring-obligation detection, Sundays at 06:30 UTC.
 //
 // `cron-doctor` on the expression, because a new schedule IS its trigger
 // condition: `"30 6 * * 0"` is minute 30, hour 6, EVERY day-of-month, EVERY
@@ -412,7 +429,7 @@ await detectObligationsWeeklyQueue
   });
 await detectObligationsWeeklyQueue.upsertJobScheduler(
   "detect-obligations-weekly-cron",
-  { pattern: "30 6 * * 0" },
+  repeatFor("detect-obligations-weekly-cron", operatorZone),
   { name: "detect-obligations-weekly", data: {} },
 );
 

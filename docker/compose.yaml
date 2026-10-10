@@ -118,6 +118,9 @@ services:
       # Opt-in, default off: migrate the database on every app start, unattended
       # and with no backup step. Settings → Instance warns while it is on.
       MONEY_AUTO_MIGRATE: ${MONEY_AUTO_MIGRATE:-false}
+      # The operator's time zone (PLAN19 P19-24), same value as the worker's.
+      # Here it only changes how /settings/instance describes the schedule.
+      TZ: ${MONEY_TZ:-}
       # Plaid (Phase 4+). Empty defaults so a manual-only deploy starts fine; the
       # Plaid client validates lazily and only errors when a Plaid feature is
       # actually used (Link, webhook processing, sync jobs). PLAID_WEBHOOK_URL is
@@ -198,6 +201,13 @@ services:
       # the dir enables the export; it's a one-way readable copy of data already
       # in Postgres (not a secret). Replicate alongside the backups off-host.
       BEANCOUNT_DIR: /exports
+      # The operator's time zone (PLAN19 P19-24), an IANA name such as
+      # America/New_York; empty means UTC. Only the backup and the Beancount
+      # export follow it. Prices, snapshots, the Plaid sync and alerts stay on
+      # UTC, and every date the app stores stays a UTC date (src/worker/schedule.ts,
+      # docs/DEPLOY.md §Time zone). Read from MONEY_TZ, not TZ, so a TZ exported
+      # in the host's shell cannot leak in through compose interpolation.
+      TZ: ${MONEY_TZ:-}
     depends_on:
       postgres:
         condition: service_healthy
