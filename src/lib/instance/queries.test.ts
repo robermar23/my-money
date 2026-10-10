@@ -43,6 +43,7 @@ const workerConfig = {
   plaid: { env: "sandbox", clientIdSet: false, secretSet: false, webhookUrlSet: false },
   sessionCookieSecure: false,
   autoMigrate: false,
+  timeZone: { kind: "zone", zone: "America/New_York" },
 };
 
 async function reset(): Promise<void> {

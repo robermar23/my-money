@@ -2,6 +2,12 @@ import { requireUser } from "@/lib/auth/require-user.ts";
 import type { InstanceConfigState } from "@/lib/instance/config-state.ts";
 import { type InstanceState, type Loaded, loadInstanceState } from "@/lib/instance/queries.ts";
 import type { DrillStatus, MigrationStatus, WorkerLiveness } from "@/lib/instance/status.ts";
+import {
+  type ScheduleZone,
+  effectiveZone,
+  localTimeOfDay,
+  utcOffsetLabel,
+} from "@/lib/schedule/zone.ts";
 import Link from "next/link";
 import { recordRestoreDrillAction } from "./actions.ts";
 
@@ -63,6 +69,7 @@ export default async function InstanceSettingsPage(): Promise<React.JSX.Element>
 
       <ReleaseSection state={state} />
       <WorkerSection worker={state.worker} />
+      <TimeSection zone={workerConfig?.timeZone ?? state.app.timeZone} now={state.now} />
       <BackupSection state={state} workerConfig={workerConfig} />
       <SubsystemSection app={state.app} worker={workerConfig} />
       <LimitsSection limits={state.limits} />
@@ -247,6 +254,80 @@ function LivenessRow({ liveness }: { readonly liveness: WorkerLiveness }): React
       );
     case "never":
       return <Row label="Status" tone="warn" value="Has not reported yet" note={note} />;
+  }
+}
+
+/**
+ * P19-24/P19-25: when the nightly jobs run, and what a "day" is. The worker's
+ * own `TZ` is shown when it has reported, because it is the worker that
+ * schedules; the app's is the fallback (compose gives both the same value).
+ */
+function TimeSection({
+  zone,
+  now,
+}: {
+  readonly zone: ScheduleZone;
+  readonly now: Date;
+}): React.JSX.Element {
+  const effective = effectiveZone(zone);
+  // Today's UTC instants, so the local times shown carry today's daylight offset.
+  const day = now.toISOString().slice(0, 10);
+  const at = (hhmm: string): string => localTimeOfDay(effective, new Date(`${day}T${hhmm}:00Z`));
+  const [dataFrom, dataTo, dayStarts] = [at("01:30"), at("05:00"), at("00:00")];
+  return (
+    <Section title="Time">
+      <ZoneRow zone={zone} now={now} />
+      <Row
+        label="Nightly schedule"
+        value={`Backup 04:00, Beancount export 04:30 (${effective})`}
+        note={
+          effective === "UTC"
+            ? "Prices, snapshots, the Plaid sync and alerts run between 01:30 and 05:00 UTC, after the US market close."
+            : `Prices, snapshots, the Plaid sync and alerts stay on UTC, 01:30 to 05:00, which is ${dataFrom} to ${dataTo} here. They are timed after the US market close, and moving them would change the prices they record.`
+        }
+      />
+      <Row
+        label="Day boundary"
+        value={
+          effective === "UTC"
+            ? "Days are UTC dates"
+            : `Days are UTC dates; a new day starts at ${dayStarts} here`
+        }
+        note="Nightly snapshots, the date a price is stored under, and the date forms fill in as today all follow UTC. Dates you type and dates your bank supplies are stored as given. Setting TZ does not change this (docs/DEPLOY.md §Time zone)."
+      />
+    </Section>
+  );
+}
+
+function ZoneRow({
+  zone,
+  now,
+}: {
+  readonly zone: ScheduleZone;
+  readonly now: Date;
+}): React.JSX.Element {
+  switch (zone.kind) {
+    case "unset":
+      return (
+        <Row
+          label="Time zone"
+          value="UTC (TZ is not set)"
+          note="Set MONEY_TZ in .env, for example America/New_York, to run the backup in your own night."
+        />
+      );
+    case "zone":
+      return (
+        <Row label="Time zone" value={`${zone.zone} (${utcOffsetLabel(zone.zone, now)} now)`} />
+      );
+    case "invalid":
+      return (
+        <Row
+          label="Time zone"
+          tone="warn"
+          value={`TZ=${zone.raw} is not a time zone; running on UTC`}
+          note="Use a name from the IANA time zone database, such as Europe/Berlin or Australia/Sydney."
+        />
+      );
   }
 }
 

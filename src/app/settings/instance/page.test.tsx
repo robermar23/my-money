@@ -25,6 +25,7 @@ const config = {
   plaid: { env: "unset", clientIdSet: false, secretSet: false, webhookUrlSet: false },
   sessionCookieSecure: false,
   autoMigrate: false,
+  timeZone: { kind: "unset" },
 } as const;
 
 const base: InstanceState = {
@@ -36,6 +37,7 @@ const base: InstanceState = {
   limits: { years: [2024, 2025, 2026], currentYearConfigured: true, firstMissingYear: 2027 },
   version: "0.0.0",
   image: "robermar2/my-money:latest",
+  now: new Date("2026-10-10T12:00:00Z"),
 };
 
 async function render(state: InstanceState): Promise<string> {
@@ -74,6 +76,30 @@ describe("/settings/instance", () => {
     const html = await render({ ...base, app: { ...config, autoMigrate: true } });
     expect(html).toContain("On (MONEY_AUTO_MIGRATE)");
     expect(html).toContain("without taking a backup first");
+  });
+
+  it("says days are UTC, and that TZ is unset, by default (P19-24/25)", async () => {
+    const html = await render(base);
+    expect(html).toContain("UTC (TZ is not set)");
+    expect(html).toContain("Backup 04:00, Beancount export 04:30 (UTC)");
+    expect(html).toContain("Days are UTC dates<");
+  });
+
+  it("gives the worker's zone, its offset, and where the UTC day starts in it", async () => {
+    const sydney = { ...config, timeZone: { kind: "zone", zone: "Australia/Sydney" } } as const;
+    const html = await render({ ...base, worker: { ...base.worker, config: sydney } });
+    // 2026-10-10 is daylight time in Sydney (AEDT, UTC+11).
+    expect(html).toContain("Australia/Sydney (UTC+11:00 now)");
+    expect(html).toContain("Backup 04:00, Beancount export 04:30 (Australia/Sydney)");
+    expect(html).toContain("which is 12:30 to 16:00 here");
+    expect(html).toContain("a new day starts at 11:00 here");
+  });
+
+  it("warns about an invalid TZ and says the jobs run on UTC", async () => {
+    const bad = { ...config, timeZone: { kind: "invalid", raw: "Mars/Olympus" } } as const;
+    const html = await render({ ...base, worker: { ...base.worker, config: bad } });
+    expect(html).toContain("TZ=Mars/Olympus is not a time zone; running on UTC");
+    expect(html).toContain("Backup 04:00, Beancount export 04:30 (UTC)");
   });
 
   it("still renders when Redis and the database are unavailable", async () => {

@@ -30,6 +30,7 @@ const FULL = {
   PLAID_ENV: "production",
   SESSION_COOKIE_SECURE: "true",
   MONEY_AUTO_MIGRATE: "true",
+  TZ: "Australia/Sydney",
 };
 
 /** Every string leaf in `value`, depth-first. */
@@ -48,6 +49,7 @@ describe("instanceConfigState", () => {
       plaid: { env: "unset", clientIdSet: false, secretSet: false, webhookUrlSet: false },
       sessionCookieSecure: false,
       autoMigrate: false,
+      timeZone: { kind: "unset" },
     });
   });
 
@@ -59,6 +61,7 @@ describe("instanceConfigState", () => {
       plaid: { env: "production", clientIdSet: true, secretSet: true, webhookUrlSet: true },
       sessionCookieSecure: true,
       autoMigrate: true,
+      timeZone: { kind: "zone", zone: "Australia/Sydney" },
     });
   });
 
@@ -88,6 +91,13 @@ describe("instanceConfigState", () => {
     expect(instanceConfigState({ MONEY_AUTO_MIGRATE: "true" }).autoMigrate).toBe(true);
     expect(instanceConfigState({ MONEY_AUTO_MIGRATE: "TRUE" }).autoMigrate).toBe(false);
     expect(instanceConfigState({ MONEY_AUTO_MIGRATE: "1" }).autoMigrate).toBe(false);
+  });
+
+  it("reports an unknown TZ instead of throwing, so the page can name it (P19-24)", () => {
+    expect(instanceConfigState({ TZ: "Mars/Olympus" }).timeZone).toEqual({
+      kind: "invalid",
+      raw: "Mars/Olympus",
+    });
   });
 
   it("falls back to the job's retention default instead of throwing", () => {

@@ -1,4 +1,5 @@
 import "server-only";
+import { type ScheduleZone, resolveScheduleZone } from "@/lib/schedule/zone.ts";
 
 /**
  * Which optional subsystems this process is configured for (PLAN19 P19-09,
@@ -76,6 +77,12 @@ export interface InstanceConfigState {
    * the `app` container only, so the worker's own report always says `false`.
    */
   readonly autoMigrate: boolean;
+  /**
+   * `TZ`, resolved (P19-24): the zone the backup and Beancount export run in,
+   * and the zone the page describes the UTC day in. Not a secret, so an
+   * invalid value is echoed back for the operator to correct.
+   */
+  readonly timeZone: ScheduleZone;
 }
 
 const DEFAULT_BACKUP_DIR = "/backups";
@@ -123,5 +130,6 @@ export function instanceConfigState(
     },
     sessionCookieSecure: env.SESSION_COOKIE_SECURE === "true",
     autoMigrate: env.MONEY_AUTO_MIGRATE === "true",
+    timeZone: resolveScheduleZone(env.TZ),
   };
 }

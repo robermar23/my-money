@@ -91,6 +91,11 @@ const workerConfigSchema = z.object({
   }),
   sessionCookieSecure: z.boolean(),
   autoMigrate: z.boolean(),
+  timeZone: z.discriminatedUnion("kind", [
+    z.object({ kind: z.literal("unset") }),
+    z.object({ kind: z.literal("zone"), zone: z.string() }),
+    z.object({ kind: z.literal("invalid"), raw: z.string() }),
+  ]),
 });
 
 const heartbeatReportSchema = z.object({ config: workerConfigSchema });
@@ -153,6 +158,8 @@ export interface InstanceState {
   readonly version: string;
   /** `repo:tag` as configured, or null when the app runs outside compose. */
   readonly image: string | null;
+  /** The instant the state was read at; the page's UTC offsets are evaluated at it. */
+  readonly now: Date;
 }
 
 /**
@@ -178,6 +185,7 @@ export async function loadInstanceState(now: Date = new Date()): Promise<Instanc
     drill,
     limits: limitCoverage(configuredLimitYears(), now.getUTCFullYear()),
     version: pkg.version,
+    now,
     image: repo && tag ? `${repo}:${tag}` : null,
   };
 }
