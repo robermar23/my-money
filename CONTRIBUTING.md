@@ -77,6 +77,14 @@ pnpm test    # Vitest, against the test database above
 - Playwright (`pnpm test:e2e`) covers a handful of critical flows. Run it when
   you touch one of them.
 
+CI runs the same gate on every push and pull request
+([.github/workflows/ci.yml](.github/workflows/ci.yml)): `pnpm check`, then
+`pnpm test` against a throwaway Postgres 16 named `money_test`, then
+`pnpm build`. It uses no `.env.local` and no stored secret (the encryption key
+the Plaid tests need is generated for each run), so a green run on your fork
+means the same thing it means here. Playwright runs separately, by hand,
+from [.github/workflows/e2e.yml](.github/workflows/e2e.yml).
+
 ## Where design decisions live
 
 Every non-trivial decision is written down before it is built:
@@ -118,6 +126,23 @@ it is otherwise.
   and webhooks are signature-verified and idempotent.
 - **Never drop a column without a backup step.** Historical financial data is
   the whole product.
+
+## Cutting a release
+
+A release is a version, a tag that matches it, and a CHANGELOG entry that says
+which migration it needs (ADR-054). In order:
+
+1. In [CHANGELOG.md](CHANGELOG.md), replace `Unreleased` on the top entry with
+   the date. Its `Migrations:` line must name the newest file in `drizzle/`;
+   a test fails the build if it does not, and if the top entry's version and
+   `package.json`'s disagree.
+2. Merge to `master`, then tag the merge commit and push the tag:
+   `git tag -a v0.19.0 -m "my-money 0.19.0"`.
+3. From that commit, `make image-release`. It refuses to run anywhere except
+   on the commit tagged `v<package.json version>`, and pushes the image as
+   `:<version>`, `:<git sha>` and `:latest`.
+4. Start the next one: bump `version` in `package.json` and open a new
+   `## [x.y.z] - Unreleased` entry at the top of the changelog.
 
 ## License
 
