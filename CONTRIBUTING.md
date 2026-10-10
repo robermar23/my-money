@@ -57,7 +57,23 @@ pnpm dev                       # http://127.0.0.1:4000
 pnpm worker                    # in a second terminal
 ```
 
-The README's *First-time setup* section shows how to generate the two secrets.
+Generate each secret with `openssl rand -base64 32`. The first visit to
+`/login` sets the password. Forgotten it? `make db-reset-password` deletes only
+the `users` row; your data stays.
+
+The dev stack uses **port 4000** for the app, **5433** for Postgres, **5434**
+for the test Postgres and **6380** for Redis, to stay clear of anything already
+on the host.
+
+`make seed-demo` fills an empty dev database with a fictional household.
+`make db-reset` empties it again; to start completely fresh, drop the volumes:
+
+```sh
+docker compose -f docker/compose.yaml --profile dev down -v
+make up && pnpm db:migrate
+```
+
+`make help` lists every other target.
 
 ## The gate: `pnpm check` and `pnpm test`
 
@@ -79,9 +95,15 @@ pnpm test    # Vitest, against the test database above
 - Playwright (`pnpm test:e2e`) covers a handful of critical flows. Run it when
   you touch one of them, and **not against a database you want to keep**: it
   empties the users, accounts and transactions of whatever `DATABASE_URL`
-  names, which by default is your dev database. The
-  [README](README.md#resetting-the-dev-database) shows how to point it at a
-  scratch one.
+  names, which by default is your dev database. Point it at a scratch one (a
+  variable already set wins over `.env.local`):
+
+  ```sh
+  docker compose -f docker/compose.yaml exec -T postgres psql -U money -d money -c "CREATE DATABASE money_e2e;"
+  export DATABASE_URL=postgres://money:<password>@127.0.0.1:5433/money_e2e
+  export REDIS_URL=redis://127.0.0.1:6380/7
+  pnpm db:migrate && pnpm test:e2e
+  ```
 
 CI runs the same gate on every push and pull request
 ([.github/workflows/ci.yml](.github/workflows/ci.yml)): `pnpm check`, then
@@ -90,6 +112,23 @@ CI runs the same gate on every push and pull request
 the Plaid tests need is generated for each run), so a green run on your fork
 means the same thing it means here. Playwright runs separately, by hand,
 from [.github/workflows/e2e.yml](.github/workflows/e2e.yml).
+
+## Project layout
+
+```text
+src/app/          Next.js App Router: pages, route handlers, server actions
+src/components/   Shared React components
+src/db/schema/    Drizzle tables, one file per domain concept
+src/lib/          Domain logic, one directory per concept (money/ is the
+                  decimal wrapper all arithmetic goes through)
+src/worker/       BullMQ worker: a separate process, same codebase
+drizzle/          Generated migrations
+e2e/              Playwright specs
+docker/           compose.yaml, and the optional Unraid override
+scripts/          prod.sh (operator commands), app-start.sh, maintenance
+docs/             Operator and feature documentation
+plans/features/   Design records: FEATURE.md, IDEAS.md (ADRs), PLAN*.md
+```
 
 ## Where design decisions live
 
