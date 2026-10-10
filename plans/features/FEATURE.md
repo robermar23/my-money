@@ -704,7 +704,7 @@ The audit's verdict sets the scope. **The expensive-to-retrofit things are alrea
 precision end to end, egress discipline enforced by seven `privacy-egress.test.ts` suites,
 idempotent imports and syncs, and reconciliation that reports `unexplained` honestly. **What is
 missing is the packaging layer**: no license, no CI, no version, no changelog, a backup system
-that is off by default and says so to nobody, a currency column that invites a crash, and a README
+that is off by default and says so to nobody, and a README
 that routes everyone to the author's registry account and the author's Unraid paths.
 
 Phase 19 is lifted into scope on the same grounds as ADR-018, ADR-030, ADR-032, ADR-036, ADR-039
@@ -719,8 +719,8 @@ first phase that adds **no capability**. Its subject is the project, not the hou
   - **Instance self-disclosure** (ADR-052): a `backup_not_configured` alert, and a read-only
     `/settings/instance` page reporting configuration state, migrations, version, worker liveness,
     the last backup and a **self-reported** restore drill.
-  - **The single-currency invariant enforced at the write boundary** (ADR-051), with
-    `fx_rates` labeled reserved and `docs/CURRENCY.md`.
+  - **One sentence: my-money supports US dollars only** (ADR-051). The owner scrapped all
+    currency work at the gate; nothing in the money path changes.
   - **Release discipline** (ADR-054): GitHub Actions CI, a real version and tags, `CHANGELOG.md`
     with a `Migrations:` line per release, a written migration policy, and portable operator
     commands in place of hardcoded paths.
@@ -738,15 +738,14 @@ first phase that adds **no capability**. Its subject is the project, not the hou
   `users` row, no `user_id` foreign key, no roles, invitations, signup path, admin surface, or
   external identity provider.
 - **The invariant that defines this phase: no figure moves.** Every money figure, chart series,
-  rung, recommendation and projection is byte-identical before and after, with exactly two
-  disclosed exceptions, both replacing a *failure* rather than a number: ADR-051's refusal where a
-  throw used to be, and ADR-052's new alert rows where silence used to be. P19-31 proves it with a
+  rung, recommendation and projection is byte-identical before and after, with exactly one
+  disclosed exception, which replaces silence rather than a number: ADR-052's new alert rows. P19-31 proves it with a
   parity run.
 - **Reaffirmed OUT of scope, recorded as decisions rather than oversights:** **any telemetry**
   (no analytics, crash reporting, update-check ping or "help us improve" dialog; this is the phase
   where one would arrive with a reasonable argument, and the project exists because the
-  alternatives sell data); **multi-user anything** (ADR-004); **an FX implementation** (ADR-051 §7:
-  a new outbound integration and a phase of its own); **enum widening** (ADR-053 §3: one
+  alternatives sell data); **multi-user anything** (ADR-004); **any currency work at all** (ADR-051: USD only,
+  by the owner's decision); **enum widening** (ADR-053 §3: one
   migration whenever a real household asks); **auto-migrate by default** (ADR-054 §4);
   **a second aggregator**; **a configurable benchmark**; **a statutory-limits settings UI**;
   **an in-app tour or onboarding wizard**; **i18n**; and **a plugin system**.
@@ -755,8 +754,8 @@ first phase that adds **no capability**. Its subject is the project, not the hou
   `/alerts`-only is ADR-015's documented default, and alerting about a missing alert transport
   through that transport is a loop.
 - **Rescoped at the gate.** The audit's "European CSV presets as data" turned out to be
-  impossible: the importer strips every comma, so `12,50` imports as `1250`. What ships is a
-  **label and a refusal**, not a dialect. The three unverified US bank presets were deferred by the
+  impossible: the importer strips every comma, so `12,50` imports as `1250`. With non-US formats
+  out of scope (ADR-051), what ships is a **label** of the importer's US conventions. The three unverified US bank presets were deferred by the
   `personal-tool-builder` counterweight, since the author can verify none of them.
 - **Privacy stance:** net egress change **zero**, asserted tree-wide rather than per directory.
   `/settings/instance` is the first surface built to be **screenshotted into a public issue**, so
