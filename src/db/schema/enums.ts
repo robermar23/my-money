@@ -12,6 +12,12 @@ import { pgEnum } from "drizzle-orm/pg-core";
  *   - personal_asset: user-valued high-value item (vehicle/boat/jewelry/etc.) —
  *     same most-recent valuation-snapshot model as property, plus asset metadata
  *     columns + proof documents (Phase 10, ADR-023). Counts toward net worth.
+ *
+ * Author-shaped, on purpose (ADR-053 §3): `crypto_ira` exists because the
+ * author holds metals and crypto in an iTrust IRA. There is no `hsa`, `529` or
+ * `cash` member: `investment` already models an HSA or 529 brokerage account,
+ * and a member nobody holds is speculative schema. Adding one is one migration;
+ * the trigger is a real household with that account, not generality.
  */
 export const accountTypeEnum = pgEnum("account_type", [
   "depository", // checking, savings
@@ -44,5 +50,10 @@ export const assetClassEnum = pgEnum("asset_class", [
  *   - coin → crypto
  *   - troy_oz → physical_metal (gold/silver bullion in oz)
  *   - usd → cash, property
+ *
+ * These are the units the author owns (ADR-053 §3). No grams, no kilos, no bond
+ * par value: a metal bought by the gram is entered in troy ounces. Adding a
+ * unit is one migration plus its valuation path, whenever a real holding needs
+ * it.
  */
 export const quantityUnitEnum = pgEnum("quantity_unit", ["shares", "coin", "troy_oz", "usd"]);
