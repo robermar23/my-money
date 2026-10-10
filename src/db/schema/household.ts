@@ -115,6 +115,18 @@ export const householdProfile = pgTable(
     projectionHorizonDays: integer("projection_horizon_days"),
     /** Household base currency. Defaults to USD like every other money column. */
     currency: text("currency").notNull().default("USD"),
+    /**
+     * When the operator last SAID they completed a restore drill from
+     * docs/RESTORE.md (Phase 19, P19-12, ADR-052 §8). NULL = never recorded.
+     *
+     * Self-reported and verifying nothing: the app cannot know whether a restore
+     * worked, and must not imply it does. It lives here rather than in a new
+     * table because a one-row table for one timestamp is schema for its own sake,
+     * and this is already the instance's singleton settings row. Not a money
+     * setting and not an override of a default, so — unlike every column above —
+     * NULL means "never", not "use the default".
+     */
+    restoreDrillAt: timestamp("restore_drill_at", { withTimezone: true, mode: "date" }),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
   },

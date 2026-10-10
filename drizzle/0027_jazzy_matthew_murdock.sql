@@ -1,0 +1,1 @@
+ALTER TABLE "household_profile" ADD COLUMN "restore_drill_at" timestamp with time zone;
