@@ -27,6 +27,7 @@
     "perf:dashboard": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/dashboard-perf.ts",
     "seed:demo": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/seed-demo.ts",
     "parity:networth": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/networth-parity.ts",
+    "parity:figures": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/figures-parity.ts",
     "plaid:ping": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/plaid-ping.ts",
     "plaid:set-webhook-url": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/plaid-set-webhook-url.ts",
     "plaid:rotate-key": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/rotate-encryption.ts"
