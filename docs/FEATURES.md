@@ -25,12 +25,12 @@ every page below has something to show.
 
 | Question | Where | More |
 |---|---|---|
-| What accounts do I have, and is each one up to date? | `/accounts` | [README](../README.md#usage--plaid-auto-sync-phase-4-default) |
+| What accounts do I have, and is each one up to date? | `/accounts` | [PLAID.md](PLAID.md), [IMPORT.md](IMPORT.md) |
 | How do I add an account by hand, including a house, car, or collectible? | `/accounts/new` | [ASSETS.md](ASSETS.md) |
 | What is in one account: balance history, transactions, holdings, loan or card terms? | `/accounts/<id>` | [INVESTMENTS.md](INVESTMENTS.md), [ASSETS.md](ASSETS.md) |
 | How do I load a bank's QFX or CSV export, and did it reconcile? | `/accounts/<id>/import` | [IMPORT.md](IMPORT.md) |
 | Which transactions match a payee, amount, date or category, across every account? | `/transactions` | [SEARCH.md](SEARCH.md) |
-| Which transactions still need a category? | `/analysis/review` | [README](../README.md#spending-analysis--budgets-phase-8) |
+| Which transactions still need a category? | `/analysis/review` | [SPENDING.md](SPENDING.md) |
 
 ## Investing
 
@@ -46,9 +46,9 @@ every page below has something to show.
 
 | Question | Where | More |
 |---|---|---|
-| Where does the money go, by category and by month? | `/analysis` | [README](../README.md#spending-analysis--budgets-phase-8) |
-| What has one category cost me over time? | `/analysis/category/<id>` | [README](../README.md#spending-analysis--budgets-phase-8) |
-| Am I on budget this month? | `/analysis/budgets` | [README](../README.md#spending-analysis--budgets-phase-8) |
+| Where does the money go, by category and by month? | `/analysis` | [SPENDING.md](SPENDING.md) |
+| What has one category cost me over time? | `/analysis/category/<id>` | [SPENDING.md](SPENDING.md) |
+| Am I on budget this month? | `/analysis/budgets` | [SPENDING.md](SPENDING.md) |
 | Why did my net worth change: saving, markets, debt paydown, or something unexplained? | `/analysis/networth` | [ATTRIBUTION.md](ATTRIBUTION.md) |
 
 ## Planning
@@ -64,7 +64,7 @@ every page below has something to show.
 
 | Question | Where | More |
 |---|---|---|
-| How are transactions categorized, and how do I change the rules? | `/settings/categories` | [README](../README.md#spending-analysis--budgets-phase-8) |
+| How are transactions categorized, and how do I change the rules? | `/settings/categories` | [SPENDING.md](SPENDING.md) |
 | What do I earn, and what goes into my 401(k) from each paycheck? | `/settings/income` | [INCOME.md](INCOME.md) |
 | Who is in the household, and what does the guidance assume about us? | `/settings/household` | [GUIDANCE.md](GUIDANCE.md) |
 | Are my bank connections working, and which need signing in again? | `/settings/connections` | [PLAID.md](PLAID.md) |
