@@ -1,5 +1,15 @@
 import type { NextConfig } from "next";
 
+/*
+ * Next.js reports anonymous CLI usage (`next build`, `next dev`) to Vercel
+ * unless this is set, and it reads the variable only after loading this file.
+ * The Dockerfile already sets it for the image; setting it here covers every
+ * other machine that builds or develops — a contributor's laptop, a CI runner,
+ * an operator building without the Dockerfile. Hard boundary #2 (PLAN19): the
+ * app does not phone home, and neither does its toolchain. P19-36 asserts it.
+ */
+process.env.NEXT_TELEMETRY_DISABLED ??= "1";
+
 /**
  * Security response headers (P6-01/02 pre-deploy hardening).
  *
