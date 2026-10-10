@@ -28,6 +28,10 @@ import {
  * `obligation_missed` and `obligation_amount_changed`, which are facts about a
  * single occurrence and behave like `price_target`.
  *
+ * Phase 19 (P19-06, ADR-052) adds `backup_not_configured`, written by the backup
+ * job when `BACKUP_AGE_RECIPIENT` is unset and cleared by its first successful
+ * run — `backup_failure`'s twin, and likewise never resolve-swept.
+ *
  * `advice` rows carry the guidance figures in `detail` and a deliberately
  * figure-free `title`: a recommendation's own title routinely contains a dollar
  * amount ("Build your emergency fund to $18,000.00"), and ADR-015 keeps amounts
@@ -80,7 +84,7 @@ export const alerts = pgTable(
       .where(sql`${table.resolvedAt} IS NULL`),
     typeCheck: check(
       "alerts_type_check",
-      sql`${table.type} IN ('large_transaction', 'balance_drop', 'item_login_required', 'stale_snapshot', 'stale_price', 'sync_failure', 'backup_failure', 'price_target', 'advice', 'projected_shortfall', 'obligation_missed', 'obligation_amount_changed')`,
+      sql`${table.type} IN ('large_transaction', 'balance_drop', 'item_login_required', 'stale_snapshot', 'stale_price', 'sync_failure', 'backup_failure', 'price_target', 'advice', 'projected_shortfall', 'obligation_missed', 'obligation_amount_changed', 'backup_not_configured')`,
     ),
     severityCheck: check(
       "alerts_severity_check",

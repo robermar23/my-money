@@ -30,7 +30,13 @@ export type AlertType =
   /** Phase 16 (P16-28): a confirmed obligation's window closed with no match. */
   | "obligation_missed"
   /** Phase 16 (P16-28): a matched bill posted for materially more or less. */
-  | "obligation_amount_changed";
+  | "obligation_amount_changed"
+  /**
+   * Phase 19 (P19-06, ADR-052): nightly backups are disabled because
+   * `BACKUP_AGE_RECIPIENT` is unset. Written and cleared by the backup job,
+   * like `backup_failure`, so it is NOT in {@link RULE_ALERT_TYPES}.
+   */
+  | "backup_not_configured";
 
 export type AlertSeverity = "info" | "warning" | "critical";
 
@@ -51,8 +57,9 @@ export interface AlertThresholds {
 
 /**
  * The rule-managed types swept by the anomaly resolve-loop. Excludes the
- * externally/one-shot-written types: `backup_failure` (written by the backup job,
- * cleared only on a successful backup), `price_target` (one-shot, written by the
+ * externally/one-shot-written types: `backup_failure` and `backup_not_configured`
+ * (both written by the backup job, cleared only on a successful backup — P19-06),
+ * `price_target` (one-shot, written by the
  * price-target evaluator and never re-armed automatically — ADR-026), `advice`
  * (P15-36 — see `src/lib/advice/alerts.ts` on why a guidance alert must not
  * auto-resolve merely because the rule stopped speaking), and every Phase-16
