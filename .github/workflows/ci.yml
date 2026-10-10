@@ -1,0 +1,92 @@
+# The fast gate (PLAN19 P19-18, ADR-054 §1): what `pnpm check` and `pnpm test`
+# already prove locally, run on every push and pull request, plus a production
+# build. Playwright is NOT here — it needs browsers and a running stack, and a
+# slow gate gets skipped; it lives in e2e.yml, triggered by hand.
+#
+# The test job mirrors vitest.setup.ts exactly, or the suite refuses for a
+# reason that looks like a CI bug and is not:
+#   - TEST_DATABASE_URL must be set, and its database name must contain "test"
+#     (the guard that stops a TRUNCATE ever reaching real data).
+#   - the setup file applies every migration itself, from 0000, against the
+#     empty service database — so CI also proves a fresh install migrates.
+#   - there is no .env.local here; the setup file tolerates that by design.
+#   - the Plaid-sync and token suites encrypt with MONEY_ENCRYPTION_KEY, which
+#     a developer's .env.local supplies. Here it is a random key generated for
+#     the run and thrown away with it; without it 52 tests fail. (Found by
+#     running this job in a clean container before it ever ran on GitHub.)
+#
+# Nothing in this workflow reaches anything but GitHub, the npm registry and
+# Docker Hub (for the Postgres image). No stored secret is used or needed.
+#
+# Third-party actions are pinned to full commit SHAs (the tag is in the
+# trailing comment) so a moved tag cannot change what runs.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: check, test, build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: money
+          # A throwaway password for a database that lives as long as this job.
+          POSTGRES_PASSWORD: ci_only_not_a_secret
+          POSTGRES_DB: money_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U money -d money_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      TEST_DATABASE_URL: postgres://money:ci_only_not_a_secret@127.0.0.1:5432/money_test
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Reads the pnpm version from package.json's `packageManager` field.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate a throwaway encryption key for this run
+        run: echo "MONEY_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+
+      - name: Check (Biome + tsc --noEmit)
+        run: pnpm check
+
+      - name: Test (Vitest against the Postgres service)
+        run: pnpm test
+
+      # `next build` imports every route module while collecting page data. It
+      # must succeed with no runtime env at all, exactly as it does inside the
+      # Dockerfile's build stage.
+      - name: Build
+        run: pnpm build
