@@ -62,8 +62,9 @@ your LAN. The **Cloudflare Tunnel (§3) is unchanged and ideal here**: it dials
 *outbound* to Cloudflare, so you never port-forward on your router or expose
 Unraid to the internet.
 
-> Do U.1–U.4 first, then follow **§1–§8** as written — passing the extra override
-> file from U.3 on every `docker compose` command.
+> Do U.1–U.4 first, then follow **§1–§8** as written — using the `dc` command from
+> U.3 (the override file plus `--project-directory`) in place of every
+> `docker compose -f docker/compose.yaml …`.
 
 ### U.1 — Install the Docker Compose Manager plugin
 
@@ -97,8 +98,11 @@ curl -fsSL <raw-url>/docker/unraid.override.yaml  -o docker/unraid.override.yaml
 curl -fsSL <raw-url>/.env.example                 -o .env.example
 ```
 
-Create the env file. Compose auto-loads a file named **`.env`** (not `.env.local`)
-from the project directory — or set it in the Compose Manager stack's env field:
+Create the env file in `repo/` (next to `docker/`, not inside it). Compose
+auto-loads a file named **`.env`** (not `.env.local`) from the **project
+directory** — which is why every command in U.3 passes `--project-directory`.
+Without it, Compose may look in `repo/docker/` instead and fail with
+`required variable MONEY_ENCRYPTION_KEY is missing a value`:
 
 ```sh
 cp .env.example .env
@@ -112,55 +116,164 @@ nano .env   # also set POSTGRES_PASSWORD, and CLOUDFLARED_TOKEN once you have it
 > compose pull` fetches the prebuilt image (a few hundred MB). Pin a specific
 > build with `MONEY_IMAGE_TAG=<git-sha>` in `.env`; it defaults to `latest`.
 
-### U.3 — Put the data on a cache pool, not the array
+### U.3 — Put the data on the cache pool, not the array
 
-Postgres and Redis must **not** live on spinning array disks — it's slow and
-keeps the disks spinning 24/7. Point their volumes (and the backup/export dirs)
-at an **SSD cache pool**. Save this as `docker/unraid.override.yaml`:
+Postgres must **not** live on spinning array disks (slow, and it keeps the disks
+spinning 24/7), and it should not live only inside `docker.img` either: a common
+Unraid fix for a broken `docker.img` is to delete and recreate it, which takes
+every named volume — your database — with it. The repo ships
+[docker/unraid.override.yaml](../docker/unraid.override.yaml):
 
 ```yaml
-# docker/unraid.override.yaml — homelab data placement + local timezone.
-# Adjust the device paths to your cache-pool appdata share, and TZ to yours.
-volumes:
-  postgres_data:
-    driver: local
-    driver_opts: { type: none, o: bind, device: /mnt/user/appdata/my-money/postgres }
-  redis_data:
-    driver: local
-    driver_opts: { type: none, o: bind, device: /mnt/user/appdata/my-money/redis }
-  backups:
-    driver: local
-    driver_opts: { type: none, o: bind, device: /mnt/user/appdata/my-money/backups }
-  exports:
-    driver: local
-    driver_opts: { type: none, o: bind, device: /mnt/user/appdata/my-money/exports }
-
 services:
-  app:
-    environment:
-      TZ: America/New_York     # so display timestamps use your local time
+  postgres:
+    volumes:
+      - /mnt/cache/appdata/my-money/pgdata:/var/lib/postgresql/data
   worker:
-    environment:
-      TZ: America/New_York     # so the nightly jobs (§8) fire at your local time
+    volumes:
+      - /mnt/user/appdata/my-money/backups:/backups
+      - /mnt/user/appdata/my-money/exports:/exports
 ```
 
-Create the bind directories first — Postgres only initializes into an **empty**
-data dir:
+Three things about it are deliberate:
+
+- **It overrides mounts per service, never the top-level `volumes:`.** Compose
+  merges a service's mounts by their path *inside* the container, so these
+  replace the base file's named-volume mounts and leave the named volumes
+  themselves untouched. An override that **redefines** a named volume (e.g.
+  `postgres_data: { driver_opts: { type: none, o: bind, … } }`, which an earlier
+  version of this doc showed) makes Compose ask
+  *"Volume my-money_postgres_data exists but doesn't match configuration…
+  Recreate (data will be lost)?"* on any install that already has data.
+  **If you ever see that prompt, answer N and stop.**
+- **Postgres uses `/mnt/cache/...` directly**, not `/mnt/user/...`. Postgres over
+  Unraid's FUSE user-share layer is unreliable. If your pool is not called
+  `cache`, run `ls /mnt` and change the path.
+- **Redis stays in its named volume.** It holds the job queue only — no financial
+  data — and the worker re-registers its schedules when it starts.
+
+Set the `appdata` share's **Primary storage** to the cache pool with **Secondary
+storage: None** (Shares → appdata). With an array as secondary storage, the
+mover could try to move the live database onto the array.
+
+**Every compose command** then uses the override and `--project-directory`.
+Define this once per terminal session (or put it in a script):
 
 ```sh
-mkdir -p /mnt/user/appdata/my-money/{postgres,redis,backups,exports}
+D=/mnt/user/appdata/my-money/repo
+dc() { docker compose --project-directory "$D" -f "$D/docker/compose.yaml" -f "$D/docker/unraid.override.yaml" --profile prod "$@"; }
 ```
 
-> Set the share holding `my-money` to **Cache: Only** (or a dedicated SSD pool)
-> in Unraid so the DB never spills onto the array. If you already ran an `up`
-> once with the default named volumes, remove them
-> (`docker compose … down -v`) before applying this override so the bind
-> definitions take effect.
-
-Then pass the override on **every** compose command (§1, §2, §3, updates):
+**New install** — create the directories, then follow §1 with `dc`:
 
 ```sh
-docker compose -f docker/compose.yaml -f docker/unraid.override.yaml --profile prod up -d
+mkdir -p /mnt/cache/appdata/my-money/pgdata /mnt/user/appdata/my-money/{backups,exports}
+```
+
+Postgres initializes into the empty `pgdata` directory on first start.
+
+**Existing install running on named volumes** — do **not** start it with this
+override yet: Postgres would find an empty `pgdata` and initialize a brand-new,
+empty database. Move the data first with U.3a.
+
+### U.3a — Moving an existing database onto the cache pool
+
+For an install that has been running with Postgres in the `my-money_postgres_data`
+named volume. The data is **copied**, never moved, so the old volume stays
+intact as the rollback until you delete it.
+
+Check first that this is your situation. Expect a path under
+`/var/lib/docker/volumes/` and `map[]` (a plain named volume):
+
+```sh
+docker volume inspect my-money_postgres_data --format '{{.Mountpoint}} {{.Options}}'
+```
+
+1. **Take a dump and record row counts**, while the stack still runs on the old
+   setup (no override, so `old` here):
+
+   ```sh
+   D=/mnt/user/appdata/my-money/repo
+   old() { docker compose --project-directory "$D" -f "$D/docker/compose.yaml" --profile prod "$@"; }
+
+   F=/mnt/user/appdata/my-money/pre-move-$(date +%F).sql
+   old exec -T postgres sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > "$F"
+   grep -c 'dump complete' "$F"    # must print 1
+   ls -lh "$F"                     # must be well above zero bytes
+
+   COUNTS='select (select count(*) from accounts), (select count(*) from transactions), (select count(*) from account_snapshots)'
+   old exec -T postgres sh -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -Atc '$COUNTS'" | tee /mnt/user/appdata/my-money/pre-move-counts.txt
+   ```
+
+2. **Stop the stack** (`stop`, not `down` — and never `down -v`, which deletes
+   the volumes):
+
+   ```sh
+   old stop
+   docker ps --filter name=my-money    # must list nothing
+   ```
+
+3. **Copy the data directory**, preserving ownership and permissions:
+
+   ```sh
+   mkdir -p /mnt/cache/appdata/my-money/pgdata
+   cp -a /var/lib/docker/volumes/my-money_postgres_data/_data/. /mnt/cache/appdata/my-money/pgdata/
+   ```
+
+   Then compare the two. Owner and mode must match, and the mode must be `700`
+   (or `750`) or Postgres refuses to start. Sizes should be about the same:
+
+   ```sh
+   stat -c '%u:%g %a %n' /var/lib/docker/volumes/my-money_postgres_data/_data /mnt/cache/appdata/my-money/pgdata
+   du -sh /var/lib/docker/volumes/my-money_postgres_data/_data /mnt/cache/appdata/my-money/pgdata
+   ```
+
+   If the mode differs: `chmod 700 /mnt/cache/appdata/my-money/pgdata`. If the
+   owner differs: `chown -R <uid>:<gid> /mnt/cache/appdata/my-money/pgdata` using
+   the old volume's values.
+
+4. **Copy any existing backups and exports** onto the share, then make sure the
+   override file on the server is the current one from the repo:
+
+   ```sh
+   mkdir -p /mnt/user/appdata/my-money/{backups,exports}
+   cp -a /var/lib/docker/volumes/my-money_backups/_data/. /mnt/user/appdata/my-money/backups/ 2>/dev/null
+   cp -a /var/lib/docker/volumes/my-money_exports/_data/. /mnt/user/appdata/my-money/exports/ 2>/dev/null
+   cat "$D/docker/unraid.override.yaml"   # must contain "services:" and NO top-level "volumes:"
+   ```
+
+5. **Start on the new location** with the `dc` command from U.3:
+
+   ```sh
+   dc() { docker compose --project-directory "$D" -f "$D/docker/compose.yaml" -f "$D/docker/unraid.override.yaml" --profile prod "$@"; }
+   dc up -d
+   ```
+
+   It should start without asking anything. A "Recreate (data will be lost)?"
+   prompt means the override file is the old kind: answer **N** and fix step 4.
+
+6. **Verify.** The mount must show the cache path, the logs must show a normal
+   startup (not "initializing database"), and the counts must match step 1:
+
+   ```sh
+   docker inspect my-money-postgres-1 --format '{{range .Mounts}}{{.Source}} -> {{.Destination}}{{"\n"}}{{end}}'
+   dc logs postgres | tail -20
+   dc exec -T postgres sh -c "psql -U \"\$POSTGRES_USER\" -d \"\$POSTGRES_DB\" -Atc '$COUNTS'"
+   cat /mnt/user/appdata/my-money/pre-move-counts.txt
+   ```
+
+   Then log in and check the dashboard and an account or two.
+
+**Rollback** (before you delete anything): `dc stop`, then `old up -d`. That puts
+you back on the untouched named volume. Anything written after the switch exists
+only in the new copy.
+
+**Clean up after a week** of normal running — and after a nightly backup has
+landed in `/mnt/user/appdata/my-money/backups`:
+
+```sh
+docker volume rm my-money_postgres_data my-money_backups my-money_exports
+rmdir /mnt/user/appdata/my-money/postgres /mnt/user/appdata/my-money/redis 2>/dev/null  # empty leftovers from the old override
 ```
 
 ### U.4 — Reach the web UI from your LAN
@@ -205,17 +318,22 @@ you also want the **UI** reachable from outside the LAN:
 ### U.7 — Backups, the Unraid way
 
 With U.3 applied, the nightly `age`-encrypted dumps (§6) land in
-`/mnt/user/appdata/my-money/backups`. Two Unraid-specific notes:
+`/mnt/user/appdata/my-money/backups` and the beancount mirror in `.../exports`.
 
+- **Backups are off until you turn them on.** The job skips itself unless
+  `BACKUP_AGE_RECIPIENT` is set in `.env` (§6.1). Check:
+  `grep BACKUP_AGE_RECIPIENT "$D/.env"` — an empty value means no backups exist.
+  After setting it, force one run (§6.1 step 4, using `dc`) and confirm a
+  `money-*.dump.age` file appears in the share.
 - **Off-host replication (§6.3) still applies** — a cache pool is still one
-  machine. Use the **Appdata Backup** plugin (CA) to sweep
-  `/mnt/user/appdata/my-money` onto the array, *and* push the `backups` dir
-  off-site (rclone/B2). The dumps are already encrypted, so any destination is
-  safe.
-- **Don't rely on an Appdata-Backup copy of the live `postgres/` dir for DB
-  recovery** — copying a running Postgres data directory isn't crash-consistent.
-  The `age`-encrypted `pg_dump` ([RESTORE.md](RESTORE.md)) is the real backup; the
-  appdata copy is just bytes.
+  machine. Add `/mnt/user/appdata/my-money/backups` (and `exports`, which is
+  plaintext) to your off-host backup tool — Duplicacy, rclone to B2, etc. The
+  dumps are already encrypted, so any destination is safe for them.
+- **Don't rely on a file copy of the live `pgdata/` dir for recovery** (Appdata
+  Backup, Duplicacy, …) — copying a running Postgres data directory isn't
+  crash-consistent. The `age`-encrypted `pg_dump` ([RESTORE.md](RESTORE.md)) is
+  the real backup; exclude `pgdata/` from file-level tools or treat that copy as
+  bytes only.
 
 ---
 
@@ -649,16 +767,31 @@ safe; BullMQ retries failures with exponential backoff.
 
 ## Updates
 
-```sh
-# Pull new images, recreate.
-docker compose -f docker/compose.yaml --profile prod pull
-docker compose -f docker/compose.yaml --profile prod up -d
+Pull first, **migrate before restarting**, then recreate. Migrations are
+additive, so the old app keeps working against the migrated schema for the few
+seconds in between — the reverse order would start new code against a schema it
+expects but does not have yet.
 
-# If the release includes schema changes, apply migrations (idempotent — a no-op
-# when already current):
+```sh
+docker compose -f docker/compose.yaml --profile prod pull
 docker compose -f docker/compose.yaml --profile prod run --rm app \
-  node_modules/.bin/drizzle-kit migrate
+  node_modules/.bin/drizzle-kit migrate      # a no-op when already current
+docker compose -f docker/compose.yaml --profile prod up -d
 ```
+
+On **Unraid** (U.3), the same three steps with the `dc` command:
+
+```sh
+D=/mnt/user/appdata/my-money/repo
+dc() { docker compose --project-directory "$D" -f "$D/docker/compose.yaml" -f "$D/docker/unraid.override.yaml" --profile prod "$@"; }
+dc pull && dc run --rm app node_modules/.bin/drizzle-kit migrate && dc up -d
+```
+
+`&&` stops at the first failure, so a failed migration never restarts the app
+on the new image. If any step asks to recreate a volume, answer **N** and stop.
+
+For a release with schema changes, take a dump first (U.3a step 1 shows how);
+the nightly backup may be up to a day old.
 
 By default `pull` tracks `latest`. To deploy a **specific** build, set
 `MONEY_IMAGE_TAG=<git-sha>` in `.env` (the SHA `make image-push` stamped on the

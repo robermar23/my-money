@@ -1,0 +1,37 @@
+# docker/unraid.override.yaml — Unraid data placement (see docs/DEPLOY.md §U.3).
+#
+# Every mount here is overridden at the SERVICE level, by its path inside the
+# container. Compose merges service volumes by that path, so these replace the
+# base file's named-volume mounts without redefining the named volumes
+# themselves. That is deliberate: redefining a top-level volume (driver_opts:
+# bind) makes compose offer "Recreate (data will be lost)?" on an existing
+# install. This file never triggers that prompt.
+#
+# Paths:
+#   - Postgres goes on the cache pool DIRECTLY (/mnt/cache/...), not through
+#     /mnt/user: Postgres over Unraid's FUSE user-share layer is unreliable.
+#     Change `cache` if your pool has another name (`ls /mnt`).
+#   - Backups and exports are ordinary files; /mnt/user is fine for them, and is
+#     where off-host tools (Duplicacy, Appdata Backup, rclone) look.
+#   - Redis stays in its named volume: it holds the job queue only, no financial
+#     data, and the worker re-registers its schedules on start.
+#
+# Use it on every compose command, with --project-directory pointing at the
+# folder that holds .env:
+#   D=/mnt/user/appdata/my-money/repo
+#   docker compose --project-directory $D -f $D/docker/compose.yaml \
+#     -f $D/docker/unraid.override.yaml --profile prod <command>
+
+services:
+  postgres:
+    volumes:
+      - /mnt/cache/appdata/my-money/pgdata:/var/lib/postgresql/data
+  worker:
+    volumes:
+      - /mnt/user/appdata/my-money/backups:/backups
+      - /mnt/user/appdata/my-money/exports:/exports
+    # environment:
+    #   TZ: America/New_York   # nightly jobs (§8) fire at local time; default UTC
+  # app:
+  #   environment:
+  #     TZ: America/New_York   # display timestamps in local time
