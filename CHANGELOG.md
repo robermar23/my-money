@@ -20,7 +20,7 @@ rewritten existing rows.
 came before, one per phase, summarized from the README's history. They were
 never tagged, and their dates are when each phase finished.
 
-## [0.19.0] - Unreleased
+## [0.19.0] - 2026-10-10
 
 Phase 19, *the second operator*: no new money feature. It makes my-money
 something a homelab that is not the author's can deploy, trust and maintain.
