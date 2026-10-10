@@ -22,6 +22,9 @@ COMPOSE := docker compose -f docker/compose.yaml --env-file .env.local
 # BUILDER     — dedicated buildx builder so we don't disturb the default one.
 IMAGE_REPO ?= robermar2/my-money
 GIT_REV    := $(shell git rev-parse --short HEAD)
+# VERSION — package.json's semver (PLAN19 P19-19, ADR-054 §2). Read with node so
+#           the same line works under cmd.exe and bash.
+VERSION    := $(shell node -p "require('./package.json').version")
 PLATFORMS  ?= linux/amd64
 BUILDER    ?= my-money-builder
 
@@ -47,7 +50,9 @@ BUILDER    ?= my-money-builder
 DOMAIN_TABLES := users, accounts, holdings, securities, plaid_items, plaid_sync_runs, webhook_log, account_snapshots, liabilities, prices, alerts, income_sources, household_profile, household_members, recommendation_dismissals
 
 # ---------------------------------------------------------------------------
-# Help (cross-platform; plain @echo lines so cmd.exe + bash both render OK)
+# Help (cross-platform; plain @echo lines so cmd.exe + bash both render OK).
+# No parentheses, <, >, |, & or ; in the text: cmd.exe tolerates them, but sh
+# reads them as syntax and `make help` (the default goal) fails on Linux.
 # ---------------------------------------------------------------------------
 
 .PHONY: help
@@ -55,13 +60,13 @@ help:
 	@echo my-money -- run "make <target>". Available targets:
 	@echo ----------------------------------------------------------
 	@echo SETUP
-	@echo   install         Install dependencies (pnpm install)
+	@echo   install         Install dependencies [pnpm install]
 	@echo   setup           First-time: install + up + migrate
 	@echo ----------------------------------------------------------
-	@echo DOCKER STACK (data only -- dev + test Postgres + Redis)
+	@echo DOCKER STACK [data only -- dev + test Postgres + Redis]
 	@echo   up              Start dev + test Postgres + Redis in background
-	@echo   down            Stop containers (data preserved)
-	@echo   nuke            Stop + WIPE volumes (destroys all DB data)
+	@echo   down            Stop containers [data preserved]
+	@echo   nuke            Stop + WIPE volumes [destroys all DB data]
 	@echo   restart         Stop and restart data containers
 	@echo   ps              Show container status
 	@echo   logs            Tail Postgres + Redis logs
@@ -69,20 +74,27 @@ help:
 	@echo   psql-test       Open psql shell in test Postgres
 	@echo   redis-cli       Open redis-cli in Redis container
 	@echo ----------------------------------------------------------
-	@echo DOCKER STACK (full prod-style -- adds app + worker)
-	@echo   prod-pull       Pull the published app + worker image (robermar2/my-money)
+	@echo DOCKER STACK [full prod-style -- adds app + worker]
+	@echo   prod-pull       Pull the published app + worker image [robermar2/my-money]
 	@echo   prod-up         Start the full stack from images
 	@echo   prod-down       Stop the full stack
 	@echo   prod-logs       Tail app + worker logs
+	@echo   -- on the server, via scripts/prod.sh -- reads .env, see docs/DEPLOY.md
+	@echo   prod-backup     Encrypted backup now -- refuses if BACKUP_AGE_RECIPIENT is unset
+	@echo   prod-migrate    Apply pending migrations in a one-off app container
+	@echo   prod-restart    Recreate app + worker
+	@echo   prod-job        Run one worker job once: make prod-job JOB=backfill-categories
+	@echo   prod-backfill-categories  Same as prod-job JOB=backfill-categories
 	@echo ----------------------------------------------------------
-	@echo PUBLISH (Docker Hub robermar2/my-money, multi-arch)
-	@echo   buildx-init     Create/bootstrap the buildx builder (one-time)
-	@echo   image-build     Build amd64+arm64 image locally (no push)
+	@echo PUBLISH [Docker Hub robermar2/my-money, multi-arch]
+	@echo   buildx-init     Create/bootstrap the buildx builder [one-time]
+	@echo   image-build     Build amd64+arm64 image locally [no push]
 	@echo   image-push      Build amd64+arm64 and push, tagged with git SHA + latest
+	@echo   image-release   Same, plus the version tag -- only from the commit tagged vVERSION
 	@echo ----------------------------------------------------------
-	@echo APP (local dev)
-	@echo   dev             Next.js dev server (http://127.0.0.1:4000)
-	@echo   worker          BullMQ worker (heartbeat + cron jobs)
+	@echo APP [local dev]
+	@echo   dev             Next.js dev server [http://127.0.0.1:4000]
+	@echo   worker          BullMQ worker [heartbeat + cron jobs]
 	@echo   build           Production Next.js build
 	@echo   start           Run the production build
 	@echo ----------------------------------------------------------
@@ -95,26 +107,26 @@ help:
 	@echo ----------------------------------------------------------
 	@echo CODE QUALITY
 	@echo   check           Biome + tsc --noEmit
-	@echo   lint            Biome lint (no fix)
+	@echo   lint            Biome lint [no fix]
 	@echo   format          Biome auto-fix + format
 	@echo   typecheck       tsc --noEmit only
 	@echo ----------------------------------------------------------
-	@echo DATABASE (Drizzle)
+	@echo DATABASE [Drizzle]
 	@echo   db-generate     Generate SQL migration from schema
 	@echo   db-migrate      Apply pending migrations
-	@echo   db-push         Push schema directly (dev iteration)
-	@echo   db-studio       Drizzle Studio (visual DB browser)
-	@echo   db-reset        Truncate domain tables (keep schema)
+	@echo   db-push         Push schema directly [dev iteration]
+	@echo   db-studio       Drizzle Studio [visual DB browser]
+	@echo   db-reset        Truncate domain tables [keep schema]
 	@echo   db-reset-password  Delete users row -- next /login sets a new password
-	@echo   db-reset-plaid  Delete Plaid Items -- re-link via Plaid Link (keeps accounts)
+	@echo   db-reset-plaid  Delete Plaid Items -- re-link via Plaid Link [keeps accounts]
 	@echo ----------------------------------------------------------
-	@echo WORKERS (run one job once -- no scheduling)
+	@echo WORKERS [run one job once -- no scheduling]
 	@echo   job-snapshots   Run compute-snapshots-daily once
-	@echo   job-prices      Run fetch-prices-daily once (real APIs!)
-	@echo   job-heartbeat   Run heartbeat once (smoke test)
-	@echo   job-backup      Run backup-database-daily once (needs pg_dump + age)
-	@echo   job-beancount   Run export-beancount-daily once (needs BEANCOUNT_DIR set)
-	@echo   job-anomalies   Run detect-anomalies-daily once (writes to alerts)
+	@echo   job-prices      Run fetch-prices-daily once [real APIs!]
+	@echo   job-heartbeat   Run heartbeat once [smoke test]
+	@echo   job-backup      Run backup-database-daily once [needs pg_dump + age]
+	@echo   job-beancount   Run export-beancount-daily once [needs BEANCOUNT_DIR set]
+	@echo   job-anomalies   Run detect-anomalies-daily once [writes to alerts]
 
 # ---------------------------------------------------------------------------
 # Setup
@@ -199,6 +211,30 @@ prod-down:
 prod-logs:
 	$(COMPOSE) --profile prod logs -f app worker
 
+# The server-side operator commands (PLAN19 P19-22). scripts/prod.sh is the real
+# interface — Unraid and most NAS hosts ship `sh` but not `make` — and these
+# targets only call it. It reads .env (falling back to .env.local) and takes
+# MONEY_REPO_DIR / MONEY_ENV_FILE / MONEY_COMPOSE_OVERRIDE from the environment.
+.PHONY: prod-backup
+prod-backup:
+	sh scripts/prod.sh backup
+
+.PHONY: prod-migrate
+prod-migrate:
+	sh scripts/prod.sh migrate
+
+.PHONY: prod-restart
+prod-restart:
+	sh scripts/prod.sh restart
+
+.PHONY: prod-job
+prod-job:
+	sh scripts/prod.sh job $(JOB)
+
+.PHONY: prod-backfill-categories
+prod-backfill-categories:
+	sh scripts/prod.sh job backfill-categories
+
 # ---------------------------------------------------------------------------
 # Publish multi-arch image to Docker Hub (robermar2/my-money)
 # ---------------------------------------------------------------------------
@@ -229,6 +265,16 @@ image-build:
 image-push:
 	@echo Pushing $(IMAGE_REPO):$(GIT_REV) for $(PLATFORMS)
 	docker buildx build --builder $(BUILDER) --platform $(PLATFORMS) -f Dockerfile -t $(IMAGE_REPO):$(GIT_REV) -t $(IMAGE_REPO):latest --push .
+
+# A release image (ADR-054 §2): the version tag, the git SHA and latest. Refuses
+# unless HEAD is exactly the tag v$(VERSION), so a version tag on the registry
+# always names the commit its CHANGELOG entry describes, never a work-in-progress
+# build that happened to carry the same package.json version.
+.PHONY: image-release
+image-release:
+	@node -e "const {execSync}=require('node:child_process');let t='';try{t=execSync('git describe --exact-match --tags HEAD',{stdio:['ignore','pipe','ignore']}).toString().trim()}catch{}if(t!=='v$(VERSION)'){console.error('ERROR: HEAD is not tagged v$(VERSION). Tag the release commit first (see CONTRIBUTING.md).');process.exit(1)}"
+	@echo Pushing $(IMAGE_REPO):$(VERSION) + $(GIT_REV) + latest for $(PLATFORMS)
+	docker buildx build --builder $(BUILDER) --platform $(PLATFORMS) -f Dockerfile -t $(IMAGE_REPO):$(VERSION) -t $(IMAGE_REPO):$(GIT_REV) -t $(IMAGE_REPO):latest --push .
 
 # ---------------------------------------------------------------------------
 # App

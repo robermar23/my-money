@@ -701,19 +701,16 @@ The worker runs two longevity jobs nightly (both **opt-in** via env):
    to read your backup history. This is the whole point of asymmetric backup
    encryption; see [RESTORE.md](RESTORE.md) for the decrypt/restore drill.
 
-4. Recreate the worker to pick up the env, then force one run to verify:
+4. Recreate the worker so the nightly job sees the new env, then force one run
+   now instead of waiting for 04:00:
 
    ```sh
-   docker compose -f docker/compose.yaml --profile prod up -d worker
-   # optional immediate run instead of waiting for 04:00 (recreate above means
-   # `exec` now has the new env; the register.mjs loader stubs `server-only`,
-   # without which run-once.ts fails with ERR_MODULE_NOT_FOUND):
-   docker compose -f docker/compose.yaml --profile prod exec worker \
-     node --experimental-strip-types --import tsx --import ./scripts/loaders/register.mjs \
-     src/worker/run-once.ts backup-database-daily
-   docker compose -f docker/compose.yaml --profile prod exec worker ls -lh /backups
-   # → money-YYYYMMDDTHHMMSSZ.dump.age
+   sh scripts/prod.sh restart
+   sh scripts/prod.sh backup
+   # → lists /backups, including money-YYYYMMDDTHHMMSSZ.dump.age
    ```
+
+   The `backup_not_configured` alert on `/alerts` clears on that first success.
 
 ### 6.2 — Enable the beancount export (ADR-016)
 
@@ -813,40 +810,98 @@ safe; BullMQ retries failures with exponential backoff.
 
 ## Updates
 
-Pull first, **migrate before restarting**, then recreate. Migrations are
-additive, so the old app keeps working against the migrated schema for the few
-seconds in between — the reverse order would start new code against a schema it
-expects but does not have yet.
+Every upgrade is the same five steps, and **the backup is one of them**, not a
+suggestion next to them (ADR-054 §4). [scripts/prod.sh](../scripts/prod.sh)
+runs each step with the right flags, from any directory:
 
 ```sh
-docker compose -f docker/compose.yaml --profile prod pull
-docker compose -f docker/compose.yaml --profile prod run --rm app \
-  node_modules/.bin/drizzle-kit migrate      # a no-op when already current
-docker compose -f docker/compose.yaml --profile prod up -d
+P=/path/to/my-money/scripts/prod.sh    # your checkout, e.g. /mnt/user/appdata/my-money/repo
+
+sh $P pull       # 1. fetch the new image
+                 # 2. read the new CHANGELOG.md entry, especially its Migrations: line
+sh $P backup     # 3. back up — refuses if backups are not configured
+sh $P migrate    # 4. apply pending migrations — a no-op when already current
+sh $P restart    # 5. recreate app + worker on the new image
 ```
 
-On **Unraid** (U.3), the same three steps with the `dc` command:
+1. **Pull.** If you pin a version (below), change `MONEY_IMAGE_TAG` in `.env`
+   first. Built the image yourself ([Path B](#choosing-your-image-pull-it-or-build-it-yourself))?
+   Replace this step with `git checkout <new version>` and `docker build -f
+   Dockerfile -t my-money:local .`.
+2. **Read the release's entry in [CHANGELOG.md](../CHANGELOG.md).** Its
+   `Migrations:` line names the newest migration the release needs. If
+   **Settings → Instance** shows an older one under *Database schema*, this
+   upgrade changes your schema, and step 3 is what lets you undo it.
+3. **Back up.** `backup` runs the nightly encrypted backup now, so the dump is
+   minutes old rather than up to a day. It **refuses** when
+   `BACKUP_AGE_RECIPIENT` is not set, rather than "succeeding" with nothing
+   written. Without encrypted backups, take a plain dump yourself, and keep it
+   somewhere private, because it is your unencrypted financial history:
 
-```sh
-D=/mnt/user/appdata/my-money/repo
-dc() { docker compose --project-directory "$D" -f "$D/docker/compose.yaml" -f "$D/docker/unraid.override.yaml" --profile prod "$@"; }
-dc pull && dc run --rm app node_modules/.bin/drizzle-kit migrate && dc up -d
-```
+   ```sh
+   docker compose -f docker/compose.yaml --profile prod exec -T postgres \
+     sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > pre-upgrade-$(date +%F).sql
+   grep -c 'dump complete' pre-upgrade-*.sql    # must print 1
+   ```
 
-`&&` stops at the first failure, so a failed migration never restarts the app
-on the new image. If any step asks to recreate a volume, answer **N** and stop.
+4. **Migrate before restarting.** Migrations are additive, so the running app
+   keeps working against the migrated schema for the few seconds before step 5.
+   The reverse order would start new code against a schema it expects but does
+   not have yet. Drizzle applies every pending migration in **one
+   transaction**: if one fails, none is applied and the old app keeps running.
+5. **Restart.** If compose asks to recreate a **volume**, answer **N** and
+   stop: that means the compose files changed how your data is mounted.
 
-For a release with schema changes, take a dump first (U.3a step 1 shows how);
-the nightly backup may be up to a day old.
+Once you have read the changelog, steps 3–5 chain safely, because `&&` stops at
+the first failure, so a failed backup or migration never restarts the app:
+`sh $P backup && sh $P migrate && sh $P restart`.
 
-Built the image yourself ([Path B](#choosing-your-image-pull-it-or-build-it-yourself))?
-Replace `pull` with `git checkout <new version>` and `docker build -f Dockerfile -t
-my-money:local .`; the migrate and `up -d` steps are unchanged.
+**On Unraid with the U.3 bind-mount override**, export
+`MONEY_COMPOSE_OVERRIDE=/mnt/user/appdata/my-money/repo/docker/unraid.override.yaml`
+before running the script. Only do that if your stack was **created** with the
+override. Adding it to a stack that runs on named volumes is how compose ends up
+offering to recreate the Postgres volume (U.3 explains why).
 
-By default `pull` tracks `latest`. To deploy a **specific** build, set
-`MONEY_IMAGE_TAG=<git-sha>` in `.env` (the SHA `make image-push` stamped on the
-image) and re-run the two commands — this also lets you roll back by pinning the
-previous SHA.
+The same script runs one-off jobs (`sh $P job backfill-categories`; the names
+are listed in [src/worker/run-once.ts](../src/worker/run-once.ts)). It always
+uses a fresh `run --rm` container, never `exec`. `exec` reuses the running
+worker, whose environment was frozen when it was created, so a variable you
+added to `.env` since then is invisible to it. A backup forced that way logs
+`disabled … skipping` despite a correct `.env`.
+
+**Rolling back.** Set `MONEY_IMAGE_TAG` back to the previous version and
+`sh $P restart`. Because migrations only add, an older image normally runs on
+a newer schema, and **Settings → Instance** will say *"the database is newer
+than this image"*. If it does not run, restore the dump from step 3
+([RESTORE.md](RESTORE.md)).
+
+### Automatic migration (off by default)
+
+`MONEY_AUTO_MIGRATE=true` in `.env` makes the app apply pending migrations every
+time it starts ([scripts/app-start.sh](../scripts/app-start.sh)). It is **off by
+default and not recommended**, and the reasons are specific:
+
+- It changes the schema of your financial database **unattended**, and it
+  **takes no backup first**, which is step 3 above removed.
+- A failed migration rolls back, but the app then exits, Docker restarts it, it
+  fails again, and **the app stays down** until you step in.
+
+If you turn it on anyway, only the app migrates (never the worker, so two
+containers cannot race), and **Settings → Instance** shows a warning for as long
+as it is on.
+
+### Pin a version (recommended)
+
+By default `pull` tracks `latest`, which means whatever was pushed most recently,
+including a release whose migrations you have not read yet. **Pin a version
+instead:** set `MONEY_IMAGE_TAG` in `.env` to a release number from
+[CHANGELOG.md](../CHANGELOG.md), for example `MONEY_IMAGE_TAG=0.19.0`. An upgrade
+then happens only when you change that line, after reading what the new entry
+says, and a rollback is the previous number. Every release image is also tagged
+with its git SHA, if you would rather pin a commit.
+
+`latest` keeps working and stays the default, so an existing install is
+unaffected. **Settings → Instance** shows the version and image you are running.
 
 `cloudflared` updates take a connection-cycle (~10s). Plaid retries any
 webhook that misses delivery for 24h, so a brief tunnel restart is safe.
