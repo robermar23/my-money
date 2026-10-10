@@ -36,7 +36,7 @@ const DEFAULT_DB = "postgres://money:dev_password_change_me@127.0.0.1:5433/money
 function reportWorkerHeartbeat(): void {
   const env = Object.fromEntries(
     Object.entries(process.env).filter(([name]) => name !== "BACKUP_AGE_RECIPIENT"),
-  );
+  ) as NodeJS.ProcessEnv;
   execFileSync(
     process.execPath,
     [
