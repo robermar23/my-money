@@ -77,7 +77,11 @@ pnpm test    # Vitest, against the test database above
   rules engines. Do not add a test just to have one, and do not test the
   framework or Drizzle itself.
 - Playwright (`pnpm test:e2e`) covers a handful of critical flows. Run it when
-  you touch one of them.
+  you touch one of them, and **not against a database you want to keep**: it
+  empties the users, accounts and transactions of whatever `DATABASE_URL`
+  names, which by default is your dev database. The
+  [README](README.md#resetting-the-dev-database) shows how to point it at a
+  scratch one.
 
 CI runs the same gate on every push and pull request
 ([.github/workflows/ci.yml](.github/workflows/ci.yml)): `pnpm check`, then

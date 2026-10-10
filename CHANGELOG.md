@@ -85,6 +85,14 @@ check to allow `backup_not_configured`; `0027` adds the nullable column
   figure and compares two versions of the code. This release moves none; the
   only difference from 0.18 on the demo book is the new `backup_not_configured`
   alert.
+- **No telemetry, enforced by a test** rather than by convention: no analytics
+  or error-reporting package in `package.json`, the lockfile or any import
+  under `src/`; outbound calls and hosts limited to the documented ones (Plaid,
+  the price feeds, the alert email); and Settings → Instance rendered over a
+  populated book and a full set of secrets, showing none of either.
+- A Playwright flow for a new operator's first ten minutes: set the password,
+  see backups reported as not configured, add an account, see it on the
+  dashboard.
 
 ### Changed
 
@@ -112,6 +120,11 @@ check to allow `backup_not_configured`; `0027` adds the nullable column
 - `make db-reset` now also clears planned expenses, budgets and the watchlist.
 - [docs/BACKUP.md](docs/BACKUP.md) generates the `age` identity outside the
   checkout, and says how to move one that is already there.
+- `next build` and `next dev` no longer send Next.js's anonymous usage
+  telemetry from any machine. Before, only the Docker image switched it off.
+- The README and CONTRIBUTING.md warn that `pnpm test:e2e` empties the
+  database it runs against (by default your dev database), and show how to
+  point it at a scratch one.
 
 ### Upgrade notes
 

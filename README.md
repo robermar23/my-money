@@ -4,6 +4,8 @@ A self-hosted, single-user personal finance tracker. Owns its own data, never ph
 
 **What can it do?** [docs/FEATURES.md](docs/FEATURES.md) lists every page with the question it answers, one line each.
 
+**License:** [AGPL-3.0-or-later](LICENSE). You may run, change and share it; if you run a changed copy as a service for other people, they are entitled to its source. Third-party licenses: [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md).
+
 See [plans/features/FEATURE.md](plans/features/FEATURE.md) for the why, [plans/features/IDEAS.md](plans/features/IDEAS.md) for the locked ADRs, and [CLAUDE.md](CLAUDE.md) for the guardrails enforced across the codebase.
 
 ---
@@ -311,7 +313,7 @@ re-imported. Opt in by setting `BEANCOUNT_DIR`.
 | `pnpm format`          | Auto-fix lint + formatting via Biome                                  |
 | `pnpm test`            | Run Vitest unit/integration tests                                     |
 | `pnpm test:watch`      | Vitest in watch mode                                                  |
-| `pnpm test:e2e`        | Run Playwright E2E suite (starts `pnpm dev` automatically)            |
+| `pnpm test:e2e`        | Run Playwright E2E suite (starts `pnpm dev` automatically). **Empties the database `DATABASE_URL` names**; see below |
 | `pnpm db:generate`     | Generate new SQL migration from current Drizzle schema                |
 | `pnpm db:migrate`      | Apply pending migrations to the dev database                          |
 | `pnpm db:push`         | Prototype-only: push schema directly without a migration file         |
@@ -387,6 +389,17 @@ docker compose -f docker/compose.yaml --profile dev up -d
 pnpm db:migrate
 ```
 
+**Playwright empties the database it runs against.** Its setup and several
+specs `TRUNCATE` users, accounts and transactions, and by default that is the
+dev database in `.env.local`. To keep your dev data, point the run at a scratch
+database instead (an already-set variable wins over `.env.local`):
+
+```bash
+docker compose -f docker/compose.yaml exec -T postgres psql -U money -d money -c "CREATE DATABASE money_e2e;"
+DATABASE_URL=postgres://money:<password>@127.0.0.1:5433/money_e2e pnpm db:migrate
+DATABASE_URL=postgres://money:<password>@127.0.0.1:5433/money_e2e REDIS_URL=redis://127.0.0.1:6380/7 pnpm test:e2e
+```
+
 For an E2E run from a clean state, the `users` table can be truncated without dropping the DB:
 
 ```bash
@@ -439,3 +452,9 @@ a `BACKUP_AGE_RECIPIENT` added to `.env` later is invisible to it and the backup
 logs `disabled … skipping`. They also load `scripts/loaders/register.mjs`,
 without which `run-once.ts` fails with `ERR_MODULE_NOT_FOUND: Cannot find
 package 'server-only'`. The script does both, so you do not have to remember.
+
+---
+
+## License
+
+my-money is free software under the [GNU Affero General Public License, version 3 or later](LICENSE) (`AGPL-3.0-or-later`, as `package.json` declares). The licenses of the packages it depends on are listed in [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md).
