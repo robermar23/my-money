@@ -127,6 +127,17 @@ it is otherwise.
 - **Never drop a column without a backup step.** Historical financial data is
   the whole product.
 
+## Every autumn: next year's contribution limits
+
+The guidance engine's IRS contribution limits are checked in, one row per year,
+in `STATUTORY_LIMITS` in
+[src/lib/advice/constants.ts](src/lib/advice/constants.ts). The IRS publishes
+the following year's 401(k), IRA and HSA figures each autumn; add the new row
+then, with its source. **Never carry a year forward**: a missing year makes the
+affected rung say so, while a copied year gives confident wrong dollars.
+Settings → Instance warns while this year or next is missing (ADR-034 §5,
+ADR-053 §2; [docs/GUIDANCE.md](docs/GUIDANCE.md#what-happens-every-january)).
+
 ## Cutting a release
 
 A release is a version, a tag that matches it, and a CHANGELOG entry that says

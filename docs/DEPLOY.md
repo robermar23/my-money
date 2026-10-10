@@ -21,9 +21,13 @@ opening a single port on your home router.
 
 - Docker Engine ≥ 24 + the `compose` plugin.
 - **An app image, from one of two co-equal paths** (below).
-- A Cloudflare account (free is fine).
-- A domain pointed at Cloudflare for nameservers, OR willing use of a
+- **Only for Plaid webhooks:** a Cloudflare account (free is fine), and a
+  domain pointed at Cloudflare for nameservers, OR willing use of a
   `*.trycloudflare.com` quick tunnel (dev-only — the URL changes per session).
+  A LAN-only install skips §3 and §4 entirely; Plaid still syncs nightly
+  ([PLAID.md §5](PLAID.md#running-lan-only-no-tunnel)).
+- A US household: my-money supports **US dollars only**, with no currency
+  conversion (ADR-051; [README §Scope](../README.md#scope-us-households-us-dollars)).
 - `.env` filled in from [.env.example](../.env.example). (The bare `docker
   compose` commands below auto-load `.env` from the project dir — not `.env.local`,
   which is the dev convenience the `make` targets pass via `--env-file`.)

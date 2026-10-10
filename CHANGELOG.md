@@ -62,6 +62,14 @@ check to allow `backup_not_configured`; `0027` adds the nullable column
   and every date the app stores stays a UTC date, so no figure moves.
   Settings → Instance shows the zone in effect and where the UTC day starts in
   it. [docs/DEPLOY.md §Time zone](docs/DEPLOY.md#time-zone).
+- **README §Scope**: my-money is for US households and supports US dollars
+  only. It names what is US-specific: the `/plan` retirement rungs and their
+  IRS limits, the `^GSPC` benchmark, and the CSV importer's formats.
+- **Running Plaid LAN-only, without a tunnel**, documented as a supported
+  setup ([docs/PLAID.md](docs/PLAID.md#running-lan-only-no-tunnel)):
+  transactions arrive within a day through the nightly sync. PLAID.md and the
+  README also say up front that Plaid production access needs your own
+  approval, which is not guaranteed for a personal project.
 
 ### Changed
 
@@ -76,6 +84,11 @@ check to allow `backup_not_configured`; `0027` adds the nullable column
   host/container `TZ` accordingly"*. Anyone east of UTC+1:30 who did would have
   changed which date each price is stored under, and from about UTC+5
   eastward the "close" stored would have been a mid-session price.
+- When a year's retirement-contribution limits are missing, the `/plan`
+  workplace rung now names the file to edit as well as the year. Adding next
+  year's limits each autumn is in [CONTRIBUTING.md](CONTRIBUTING.md).
+- A Cloudflare account is listed as needed only for Plaid webhooks, no longer
+  as a deployment prerequisite.
 - [docs/DEPLOY.md §Updates](docs/DEPLOY.md#updates) is now a five-step upgrade
   with the backup inside it, and recommends pinning `MONEY_IMAGE_TAG` to a
   version. `latest` still works and is still the default.

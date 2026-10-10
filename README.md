@@ -6,6 +6,26 @@ See [plans/features/FEATURE.md](plans/features/FEATURE.md) for the why, [plans/f
 
 ---
 
+## Scope: US households, US dollars
+
+my-money is built for a US household and supports **US dollars only**: every
+amount is USD, and there is no currency conversion (ADR-051). Some features
+encode US conventions outright:
+
+- **Guidance (`/plan`)** implements US retirement accounts (401(k)/403(b)/457,
+  IRA, HSA) against IRS contribution limits that are checked into
+  [src/lib/advice/constants.ts](src/lib/advice/constants.ts). The IRS publishes
+  next year's limits each autumn; until a row for the new year is added, the
+  rungs that need it say so and stay silent rather than reuse last year's
+  figures ([docs/GUIDANCE.md](docs/GUIDANCE.md)). Settings → Instance shows
+  which years are configured.
+- **The performance benchmark** is the S&P 500 (`^GSPC`), hardcoded.
+- **CSV import** reads US formats: month-first dates, `.` decimals, `,`
+  thousands ([docs/IMPORT.md](docs/IMPORT.md)).
+- **Plaid** (automatic bank sync) needs your own Plaid production approval,
+  which is not guaranteed for a personal project. QFX/CSV import is the route
+  that always works ([docs/PLAID.md](docs/PLAID.md#before-you-start-production-access-is-not-guaranteed)).
+
 ## Status
 
 **Phase 0 (bedrock) — complete.** Next.js 15 + TypeScript + Tailwind v4 + Postgres + Redis + Drizzle + BullMQ + auth (iron-session + argon2id) + Vitest + Playwright + Docker Compose. The app boots, the single-user flow works, the worker emits heartbeats.

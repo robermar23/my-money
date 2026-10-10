@@ -219,7 +219,9 @@ Pick a date range and (optionally) a single account with the controls at top.
   contributions are lumpy — that difference is the point.
 - **vs S&P 500** — your TWR minus a buy-and-hold `^GSPC` TWR over the same range,
   both indexed to 100 at the range start. The benchmark price rides the existing
-  nightly fetcher (just another symbol in `prices`).
+  nightly fetcher (just another symbol in `prices`). The benchmark is
+  **hardcoded** to this US index and is not configurable (ADR-053 §1): changing
+  it would change every figure this page has shown.
 - **Contributions vs. market growth** — splits the change in value into money you
   *added* (`netExternalFlows` = buys/deposits − sells/withdrawals) versus
   `marketGrowth = (end − start) − netFlows`. Answers "did it grow, or did I just

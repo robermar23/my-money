@@ -103,6 +103,17 @@ the importer itself.)
 `dateFormat` is optional — the parser auto-detects `YYYY-MM-DD`, `MM/DD/YYYY`,
 and `MM-DD-YYYY` if you leave it off.
 
+**The CSV importer reads US formats** (ADR-051, ADR-053):
+
+- Slash and dash dates are **month first**. A day-first file (`25/03/2026`) is
+  not supported; re-export it as `YYYY-MM-DD` and use Preset 2's
+  `"dateFormat": "YYYY-MM-DD"`.
+- Amounts use `.` for decimals and `,` for thousands; `$`, spaces and
+  accountants' parentheses for negatives are accepted. A European amount such
+  as `1.234,56` is read wrongly, so check the preview before confirming.
+- The only bank-specific preset is M&T. Presets for other banks wait until
+  someone has a real export to verify them against.
+
 ## Reconciliation mismatch — what to do
 
 The preview banner is your early-warning system. After confirm, the account

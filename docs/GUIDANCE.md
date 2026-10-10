@@ -17,6 +17,10 @@ it, and you can fix the input.
 your reserve across a 4-rung ladder maturing every 3 months"* is in scope.
 *"Buy VOO at Vanguard"* is not, and never will be.
 
+**It is US-specific.** The rungs implement US retirement accounts
+(401(k)/403(b)/457, IRA, HSA) and IRS contribution limits. Outside the US they
+will not produce meaningful output (ADR-053 §1).
+
 Locked by **ADR-032** (the engine and its boundaries), **ADR-033** (the
 prerequisite schema), and **ADR-034** (benchmark methodology) in
 [IDEAS.md](../plans/features/IDEAS.md) §11; task breakdown in
@@ -217,12 +221,13 @@ pretend a payoff date exists.
 
 Statutory limits are **year-keyed and fail loud** (ADR-034 §5). `limitsForYear()`
 returns `null` for a year that is not in the table, which **suppresses that rung**
-with *"limit not configured for 2027"* rather than silently applying last year's
-dollars to this year's money.
+with *"The contribution limit is not configured for 2027"*, naming the file to
+edit (ADR-053 §2), rather than silently applying last year's dollars to this
+year's money.
 
 The table is hand-maintained in
-[`constants.ts`](../src/lib/advice/constants.ts) and currently covers **2024,
-2025, and 2026**.
+[`constants.ts`](../src/lib/advice/constants.ts). **Settings → Instance** lists
+the configured years and warns once this year or next is missing.
 
 **To update it:** the IRS announces the following year's figures each autumn. Add
 a row to `STATUTORY_LIMITS`, and the pacing rule and the workplace rung come back
