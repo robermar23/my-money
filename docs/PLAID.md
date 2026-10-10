@@ -11,6 +11,18 @@ day-to-day failure modes live in [RUNBOOK_PLAID.md](RUNBOOK_PLAID.md).
 > Identity, no Liabilities. One Plaid Item per institution — two M&T accounts
 > share a single Item; the credit card is its own.
 
+## Before you start: production access is not guaranteed
+
+Sandbox is open to anyone, but connecting **real** banks needs Plaid to approve
+**your own** Plaid account for Production (ADR-053 §6). Plaid reviews each
+application, and approval for an individual running a personal project is not
+guaranteed. Approval is per operator and not transferable: nobody else's
+approval covers your install, and the app cannot ship one.
+
+Find out before you spend a weekend on setup. If you are not approved, every
+feature still works from **QFX/CSV import** ([IMPORT.md](IMPORT.md)); you lose
+only the automatic daily pull.
+
 ## 0. Prerequisites — run BOTH the dev server AND the worker
 
 Plaid sync runs in BullMQ, which lives in a separate worker process. The
@@ -133,6 +145,24 @@ on first sync; the worker paginates through everything and writes
 > laptop, skip this section. The daily 03:00 cron (P4-27) catches anything
 > webhooks would have delivered. Come back here when you're ready for
 > "transactions arrive within minutes" UX.
+
+### Running LAN-only (no tunnel)
+
+A supported configuration, not a degraded one (ADR-002, ADR-053 §5). Webhooks
+are a **latency optimization**: the nightly safety-net sync (03:00 UTC, P4-27)
+pulls every active Item whether or not a webhook arrived. Without a tunnel:
+
+- Leave `PLAID_WEBHOOK_URL` and `CLOUDFLARED_TOKEN` empty, and start only
+  `app worker` by name ([DEPLOY.md §2](DEPLOY.md#2-bring-up-app--worker)); skip
+  DEPLOY.md §3 and §4.
+- Transactions arrive **within a day** instead of within minutes. **Force sync**
+  on `/settings/connections` pulls on demand.
+- A broken Item (`ITEM_LOGIN_REQUIRED`) surfaces at the next sync rather than
+  the moment Plaid notices.
+- Remote access, if you want it, can come from any VPN you already run, such as
+  Tailscale or WireGuard. Plaid never needs to reach the app.
+
+### With a tunnel
 
 Per ADR-010, public ingress runs through **Cloudflare Tunnel** — a
 `cloudflared` container dials OUT to Cloudflare's edge, so no inbound port

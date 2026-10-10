@@ -692,3 +692,79 @@ period** on each source, and asked that the form **recommend it from deposits** 
   reaches the bank, not something derived from gross.
 
 Implemented under **ADR-049** (IDEAS.md §11 Decision Log).
+
+### 2026-10-10 — The second operator: making my-money adoptable without making it multi-user (in scope)
+
+Source: the **2026-10-04 adoption audit**, run against the tree at `717090a` under the
+`self-host-adoption-audit` discipline (every finding names a file, a symbol or a command), and the
+owner's follow-up instruction to plan it. The question nobody had asked in eighteen phases is
+***"could someone other than the author actually run this?"***
+
+The audit's verdict sets the scope. **The expensive-to-retrofit things are already right**: money
+precision end to end, egress discipline enforced by seven `privacy-egress.test.ts` suites,
+idempotent imports and syncs, and reconciliation that reports `unexplained` honestly. **What is
+missing is the packaging layer**: no license, no CI, no version, no changelog, a backup system
+that is off by default and says so to nobody, and a README
+that routes everyone to the author's registry account and the author's Unraid paths.
+
+Phase 19 is lifted into scope on the same grounds as ADR-018, ADR-030, ADR-032, ADR-036, ADR-039
+and ADR-043: **the owner explicitly asked**, and this file is where that is recorded. It is the
+first phase that adds **no capability**. Its subject is the project, not the household's money.
+
+- **In scope (newly added):**
+  - **A license** (ADR-050). The owner chose **AGPL-3.0-or-later** at the P19-00 gate on
+    2026-10-10, plus a recorded third-party license check.
+  - **Build-your-own parity** with the published image: docs and one `MONEY_IMAGE_REPO` variable,
+    for an operator who will not run a stranger's prebuilt binary over their financial life.
+  - **Instance self-disclosure** (ADR-052): a `backup_not_configured` alert, and a read-only
+    `/settings/instance` page reporting configuration state, migrations, version, worker liveness,
+    the last backup and a **self-reported** restore drill.
+  - **One sentence: my-money supports US dollars only** (ADR-051). The owner scrapped all
+    currency work at the gate; nothing in the money path changes.
+  - **Release discipline** (ADR-054): GitHub Actions CI, a real version and tags, `CHANGELOG.md`
+    with a `Migrations:` line per release, a written migration policy, and portable operator
+    commands in place of hardcoded paths.
+  - **A documented `TZ`** for *when jobs run*, with the internal UTC date discipline unchanged and
+    the UTC snapshot-boundary caveat stated.
+  - **Labels where the app is author-shaped** (ADR-053): US retirement accounts on `/plan`,
+    `^GSPC`, author-shaped enums, the importer's US date and decimal conventions, Tailscale as a
+    supported deployment, and Plaid production approval as a prerequisite.
+  - **Onboarding**: a synthetic `make seed-demo` that refuses a non-empty database, a password
+    change form, `postgres_test` off the prod profile, `docs/FEATURES.md`, and
+    `CONTRIBUTING.md` / `SECURITY.md`.
+- **The line, stated once: "a second operator" is not "a second user."** ADR-004 stands
+  unamended. A second homelab gets its **own instance**, not an account on this one. The test for
+  any task: **if it makes the app able to serve two people, it is the wrong task.** No second
+  `users` row, no `user_id` foreign key, no roles, invitations, signup path, admin surface, or
+  external identity provider.
+- **The invariant that defines this phase: no figure moves.** Every money figure, chart series,
+  rung, recommendation and projection is byte-identical before and after, with exactly one
+  disclosed exception, which replaces silence rather than a number: ADR-052's new alert rows. P19-31 proves it with a
+  parity run.
+- **Reaffirmed OUT of scope, recorded as decisions rather than oversights:** **any telemetry**
+  (no analytics, crash reporting, update-check ping or "help us improve" dialog; this is the phase
+  where one would arrive with a reasonable argument, and the project exists because the
+  alternatives sell data); **multi-user anything** (ADR-004); **any currency work at all** (ADR-051: USD only,
+  by the owner's decision); **enum widening** (ADR-053 §3: one
+  migration whenever a real household asks); **auto-migrate by default** (ADR-054 §4);
+  **a second aggregator**; **a configurable benchmark**; **a statutory-limits settings UI**;
+  **an in-app tour or onboarding wizard**; **i18n**; and **a plugin system**.
+- **Two alerts deliberately not added** (ADR-052 §4): no `beancount_not_configured`, because the
+  mirror is a longevity hedge over data Postgres still holds; and no `smtp_not_configured`, because
+  `/alerts`-only is ADR-015's documented default, and alerting about a missing alert transport
+  through that transport is a loop.
+- **Rescoped at the gate.** The audit's "European CSV presets as data" turned out to be
+  impossible: the importer strips every comma, so `12,50` imports as `1250`. With non-US formats
+  out of scope (ADR-051), what ships is a **label** of the importer's US conventions. The three unverified US bank presets were deferred by the
+  `personal-tool-builder` counterweight, since the author can verify none of them.
+- **Privacy stance:** net egress change **zero**, asserted tree-wide rather than per directory.
+  `/settings/instance` is the first surface built to be **screenshotted into a public issue**, so
+  it reports configuration and never a figure, account name or secret value. The demo seeder is
+  synthetic and refuses a non-empty database. `SECURITY.md` and `CONTRIBUTING.md` are the first
+  documents addressed to a stranger, and they tell that stranger never to paste a `.env`, a dump,
+  a token or a transaction row anywhere.
+- **Publication is gated separately.** The scan behind PLAN_PRE_PUBLICATION found real financial
+  data in history. Nothing from this phase is pushed to a public remote until that plan's history
+  rewrite and acceptance scan are done.
+
+Implemented under **ADR-050 → ADR-054** (IDEAS.md §11 Decision Log) via [PLAN19.md](PLAN19.md).

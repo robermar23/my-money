@@ -1,7 +1,8 @@
 {
   "name": "my-money",
-  "version": "0.0.0",
+  "version": "0.19.0",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "description": "Self-hosted, single-user personal finance tracker.",
   "engines": {
@@ -24,7 +25,9 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "perf:dashboard": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/dashboard-perf.ts",
+    "seed:demo": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/seed-demo.ts",
     "parity:networth": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/networth-parity.ts",
+    "parity:figures": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/figures-parity.ts",
     "plaid:ping": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/plaid-ping.ts",
     "plaid:set-webhook-url": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/plaid-set-webhook-url.ts",
     "plaid:rotate-key": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/rotate-encryption.ts"

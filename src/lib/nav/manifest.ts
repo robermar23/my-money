@@ -219,6 +219,12 @@ export const NAV_GROUPS: readonly NavGroup[] = [
         label: "Connections",
         description: "Plaid connections, sync status, and re-authentication",
       },
+      // P19-11 (ADR-052 §5): last on purpose — operational, not a money setting.
+      {
+        href: "/settings/instance",
+        label: "Instance",
+        description: "Backups, worker, schema version, and which features are configured",
+      },
     ],
   },
 ] as const;

@@ -7,13 +7,15 @@
 
 Backups are the entire point of the app — the historical data is the product. An
 untested backup is not a backup, so **test a restore quarterly** (CLAUDE.md
-§Backup Discipline).
+§Backup Discipline) and record it on `/settings/instance` when you do
+([RESTORE.md](RESTORE.md#record-the-drill)).
 
 ## How it works
 
 A BullMQ repeatable job — `backup-database-daily`
 ([src/worker/jobs/backup-database-daily.ts](../src/worker/jobs/backup-database-daily.ts)) —
-runs in the **worker** process at **04:00 local**, after the 03:00 Plaid
+runs in the **worker** process at **04:00 in your time zone** (`MONEY_TZ`, UTC
+when unset; [DEPLOY.md §Time zone](DEPLOY.md#time-zone)), after the 03:00 UTC Plaid
 safety-net sync so the dump captures that day's transactions. It is a BullMQ job,
 not OS cron, so the schedule lives inside the app (CLAUDE.md §Background Jobs).
 
@@ -33,18 +35,50 @@ the next successful run.
 The job is **opt-in**: with `BACKUP_AGE_RECIPIENT` unset it logs "disabled" and
 skips. Nothing is ever sent anywhere by the app — replication off-host is yours.
 
+## You will be warned while it is off
+
+A skipped backup never *fails*, so `backup_failure` cannot fire for it. Instead,
+each night the job skips it raises a **`backup_not_configured`** alert
+(Phase 19, ADR-052), which appears on [`/alerts`](ALERTS.md) like any other.
+
+- **What it means:** nothing is being backed up. Every transaction, balance and
+  snapshot this instance holds exists only in its Postgres volume.
+- **Severity `warning`, not `critical`:** a brand-new install has no backup yet,
+  and that is normal on day one. It is not normal on day ninety.
+- **It does not nag.** There is only ever one open, however many nights pass. If
+  you dismiss it without configuring backups, it comes back once the next month.
+- **It clears itself** on the first successful backup after you finish the steps
+  below. You do not need to dismiss it.
+
+**Settings → Instance** (`/settings/instance`) shows the same fact, plus when the
+last successful backup finished and when you last practised a restore
+([RESTORE.md](RESTORE.md#record-the-drill)).
+
 ## Enable it
 
 ### 1. Generate an `age` keypair — off this server
 
-Do this on your laptop or a machine that is **not** the home server:
+Do this on your laptop or a machine that is **not** the home server, and **not
+inside your my-money checkout**:
 
 ```bash
-age-keygen -o money-backup.key
+mkdir -p ~/keys && age-keygen -o ~/keys/money-backup.key
 # Output:
 #   Public key: age1qz...        ← this is BACKUP_AGE_RECIPIENT (safe to keep)
 # The file money-backup.key holds the line  AGE-SECRET-KEY-1...  ← the IDENTITY
 ```
+
+> **Why not in the repo directory.** `age-keygen -o money-backup.key` writes to
+> wherever you are standing, and in a checkout that is the repository root. The
+> `*.key` line in `.gitignore` keeps it out of commits, but that is all it does:
+> `git clean -fdx`, deleting the checkout to re-clone it, or a fresh clone on a
+> new laptop all lose an ignored file without a word, and with it every backup
+> you have ever taken. If yours is already there, move it out now (and then to
+> one of the places in step 3):
+>
+> ```bash
+> mv money-backup.key ~/keys/    # from the checkout root
+> ```
 
 ### 2. Put **only the public key** on the server
 
@@ -131,5 +165,5 @@ to clear confirmed import rows if size ever becomes a concern.
 
 ## Recovery
 
-→ [RESTORE.md](RESTORE.md): `age -d -i money-backup.key … | pg_restore`, plus the
+→ [RESTORE.md](RESTORE.md): `age -d -i ~/keys/money-backup.key … | pg_restore`, plus the
 quarterly restore-test discipline.

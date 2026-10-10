@@ -130,9 +130,24 @@ export async function saveCashFlowSettings(
   return upsertProfile(patch, "saveCashFlowSettings");
 }
 
+/**
+ * Record that the operator completed a restore drill (Phase 19, P19-12,
+ * ADR-052 §8).
+ *
+ * Self-reported: this stores what the human says, and when. It verifies
+ * nothing, and its one caller says so on the page. Routed through
+ * {@link upsertProfile} so the singleton keeps exactly one writer.
+ *
+ * @param at - When the drill was completed (the action passes "now").
+ * @returns The saved profile row.
+ */
+export async function recordRestoreDrill(at: Date): Promise<HouseholdProfile> {
+  return upsertProfile({ restoreDrillAt: at }, "recordRestoreDrill");
+}
+
 /** Insert-or-update the singleton profile row with whichever columns are given. */
 async function upsertProfile(
-  patch: HouseholdProfilePatch | CashFlowSettingsPatch,
+  patch: HouseholdProfilePatch | CashFlowSettingsPatch | { readonly restoreDrillAt: Date },
   label: string,
 ): Promise<HouseholdProfile> {
   return db.transaction(async (tx) => {

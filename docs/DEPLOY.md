@@ -20,15 +20,62 @@ opening a single port on your home router.
 ## Prerequisites
 
 - Docker Engine ≥ 24 + the `compose` plugin.
-- Network access to Docker Hub to pull the prebuilt image `robermar2/my-money`
-  (public — no registry login). **No build toolchain, Node, pnpm, or git checkout
-  is needed on the server** — just the `docker/compose.yaml` file and a `.env`.
-- A Cloudflare account (free is fine).
-- A domain pointed at Cloudflare for nameservers, OR willing use of a
+- **An app image, from one of two co-equal paths** (below).
+- **Only for Plaid webhooks:** a Cloudflare account (free is fine), and a
+  domain pointed at Cloudflare for nameservers, OR willing use of a
   `*.trycloudflare.com` quick tunnel (dev-only — the URL changes per session).
+  A LAN-only install skips §3 and §4 entirely; Plaid still syncs nightly
+  ([PLAID.md §5](PLAID.md#running-lan-only-no-tunnel)).
+- A US household: my-money supports **US dollars only**, with no currency
+  conversion (ADR-051; [README §Scope](../README.md#scope-us-households-us-dollars)).
 - `.env` filled in from [.env.example](../.env.example). (The bare `docker
   compose` commands below auto-load `.env` from the project dir — not `.env.local`,
   which is the dev convenience the `make` targets pass via `--env-file`.)
+
+### Choosing your image: pull it, or build it yourself
+
+The `app` and `worker` services run the same image. You can get it either way,
+and the rest of this document is identical for both.
+
+**Path A — pull the published image.** `docker compose pull` fetches
+`robermar2/my-money` from Docker Hub (public, no registry login). **No build
+toolchain, Node, pnpm, or git checkout is needed on the server**, just the
+`docker/compose.yaml` file and a `.env`. This is the default; you set nothing.
+
+**Path B — build it from this source.** This path exists for a plain reason:
+my-money will hold your whole financial life, and you should not have to run a
+stranger's prebuilt binary over it, or reverse-engineer the Makefile to avoid
+doing so. Building needs Docker and a checkout of the repository at the version
+you want, and nothing else: no Node or pnpm on the host, because the
+[Dockerfile](../Dockerfile) installs and builds everything inside the image. It
+is multi-stage, glibc-based, and builds for `linux/amd64` and `linux/arm64`
+(§1.1). On the machine that will run the stack:
+
+```sh
+git clone <your fork or this repository> my-money && cd my-money
+git checkout <the commit or tag you reviewed>
+docker build -f Dockerfile -t my-money:local .
+```
+
+Then tell compose to use it, in `.env`:
+
+```sh
+MONEY_IMAGE_REPO=my-money
+MONEY_IMAGE_TAG=local
+```
+
+Both `app` and `worker` read these two variables, so one setting switches both.
+**Skip `docker compose pull`** in §1 and in [Updates](#updates): it tries to
+fetch `my-money:local` from Docker Hub and fails, because that image exists
+only on your machine. To upgrade, check out the new version, rebuild, and run
+the migration step as usual.
+
+Building on a different machine and pushing to a registry you control works the
+same way: `make buildx-init` once, then `make image-push IMAGE_REPO=<you>/my-money`
+(§1.1), and set `MONEY_IMAGE_REPO=<you>/my-money` in `.env`. Path A's `pull`
+then works against your registry. (`make image-build` is a **verification-only**
+build. Its result stays in the buildx builder and never reaches the local image
+list, so use `docker build` or `image-push` to get an image compose can run.)
 
 ## Deploy at a glance
 
@@ -375,6 +422,9 @@ What you actually set in `.env` for prod:
   for a manual-only deploy; required once you use Plaid.
 - **`PLAID_WEBHOOK_URL`** — set after the tunnel is up (§4).
 - **`CLOUDFLARED_TOKEN`** — set in §3.
+- **`MONEY_TZ`** (optional, default UTC) — your IANA time zone, such as
+  `America/New_York`. Moves the nightly backup and Beancount export into your
+  night; changes no date or figure. See [§8 Time zone](#time-zone).
 
 Generate the two random secrets:
 
@@ -398,7 +448,7 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 
 ```sh
 # From the directory holding docker/compose.yaml (+ your .env).
-docker compose -f docker/compose.yaml --profile prod pull   # fetch robermar2/my-money
+docker compose -f docker/compose.yaml --profile prod pull   # fetch robermar2/my-money (Path A only)
 docker compose -f docker/compose.yaml up -d postgres redis
 ```
 
@@ -454,6 +504,30 @@ compose env.
 
 At this point `https://localhost:4000` is reachable from the host. Plaid is
 **not** yet reachable — that's the next step.
+
+### 2.0 — (Optional) Try it on demo data first
+
+Before you hand the app your own finances, you can fill an **empty** instance
+with a fictional household: a year of transactions across checking, savings and
+a card, a brokerage with two holdings, a mortgage, a home, one planned expense,
+one recurring bill and two budgets. Every name and figure is made up.
+
+```sh
+docker compose -f docker/compose.yaml --profile prod run --rm --no-deps   -e SEED_DEMO_CONFIRM=yes worker   node --import tsx --import ./scripts/loaders/register.mjs scripts/seed-demo.ts
+```
+
+It **refuses, and writes nothing**, if the database holds any record of its
+own: an account, a transaction, a planned expense, and so on. It never
+overwrites or merges, so it cannot damage a real book. The image runs with
+`NODE_ENV=production`, which is why `SEED_DEMO_CONFIRM=yes` has to be passed by
+name. The two demo tickers do not exist, so the nightly price fetch logs a
+failure for each and the demo keeps its last seeded price.
+
+**Seed a stack you will throw away.** There is no "remove the demo" command for
+a production stack: when you are ready for real data, delete the stack's volumes
+(`docker compose -f docker/compose.yaml --profile prod down -v`, which
+**destroys everything in it**) and start again from step 1. In a dev checkout,
+`make seed-demo` does the same and `make db-reset` clears it.
 
 ### 2.1 — Verify the health probe (P6-22)
 
@@ -636,10 +710,11 @@ The worker runs two longevity jobs nightly (both **opt-in** via env):
 ### 6.1 — Enable encrypted backups (ADR-014)
 
 1. Generate an `age` keypair **off this server** (your laptop / a password
-   manager host):
+   manager host), and outside the my-money checkout
+   ([BACKUP.md](BACKUP.md#1-generate-an-age-keypair--off-this-server) says why):
 
    ```sh
-   age-keygen -o money-backup.key
+   mkdir -p ~/keys && age-keygen -o ~/keys/money-backup.key
    # prints:  Public key: age1qz...   ← the RECIPIENT
    ```
 
@@ -658,19 +733,16 @@ The worker runs two longevity jobs nightly (both **opt-in** via env):
    to read your backup history. This is the whole point of asymmetric backup
    encryption; see [RESTORE.md](RESTORE.md) for the decrypt/restore drill.
 
-4. Recreate the worker to pick up the env, then force one run to verify:
+4. Recreate the worker so the nightly job sees the new env, then force one run
+   now instead of waiting for 04:00:
 
    ```sh
-   docker compose -f docker/compose.yaml --profile prod up -d worker
-   # optional immediate run instead of waiting for 04:00 (recreate above means
-   # `exec` now has the new env; the register.mjs loader stubs `server-only`,
-   # without which run-once.ts fails with ERR_MODULE_NOT_FOUND):
-   docker compose -f docker/compose.yaml --profile prod exec worker \
-     node --experimental-strip-types --import tsx --import ./scripts/loaders/register.mjs \
-     src/worker/run-once.ts backup-database-daily
-   docker compose -f docker/compose.yaml --profile prod exec worker ls -lh /backups
-   # → money-YYYYMMDDTHHMMSSZ.dump.age
+   sh scripts/prod.sh restart
+   sh scripts/prod.sh backup
+   # → lists /backups, including money-YYYYMMDDTHHMMSSZ.dump.age
    ```
+
+   The `backup_not_configured` alert on `/alerts` clears on that first success.
 
 ### 6.2 — Enable the beancount export (ADR-016)
 
@@ -735,18 +807,21 @@ docker compose -f docker/compose.yaml --profile prod run --rm --no-deps worker \
 
 All jobs are BullMQ repeatable jobs scheduled in
 [src/worker/index.ts](../src/worker/index.ts) — **not OS cron** — so the
-schedule lives inside the app and is visible to the worker on boot. Times are
-the worker container's local time; set the host/container `TZ` accordingly.
+schedule lives inside the app and is visible to the worker on boot. Each job
+names its clock in [src/worker/schedule.ts](../src/worker/schedule.ts): most
+run on **UTC**, and the backup and Beancount export run in **your** time zone
+when you set one (see [Time zone](#time-zone) below; with none set, that is UTC
+too).
 
-| Time  | Job                          | Why this order                                  |
-|-------|------------------------------|-------------------------------------------------|
-| 01:30 | `fetch-prices-daily`         | prices land before holdings are valued          |
-| 01:45 | `materialize-contributions`  | after 01:30's prices, before 02:00's snapshots  |
-| 02:00 | `compute-snapshots-daily`    | values holdings using 01:30's prices            |
-| 03:00 | `enqueue-plaid-syncs-daily`  | safety-net Plaid sync (webhooks are primary)    |
-| 04:00 | `backup-database-daily`      | dump captures the day's synced transactions     |
-| 04:30 | `export-beancount-daily`     | mirror reflects the same data as the 04:00 dump |
-| 05:00 | `detect-anomalies-daily`     | runs last so a failed 04:00 backup is alertable |
+| Time  | Clock | Job                          | Why this order                                  |
+|-------|-------|------------------------------|-------------------------------------------------|
+| 01:30 | UTC   | `fetch-prices-daily`         | after the US close; prices land before valuing  |
+| 01:45 | UTC   | `materialize-contributions`  | after 01:30's prices, before 02:00's snapshots  |
+| 02:00 | UTC   | `compute-snapshots-daily`    | values holdings using 01:30's prices            |
+| 03:00 | UTC   | `enqueue-plaid-syncs-daily`  | safety-net Plaid sync (webhooks are primary)    |
+| 04:00 | yours | `backup-database-daily`      | dump captures the day's synced transactions     |
+| 04:30 | yours | `export-beancount-daily`     | mirror reflects the same data as the 04:00 dump |
+| 05:00 | UTC   | `detect-anomalies-daily`     | after the 04:00 backup, while your zone is UTC  |
 
 Two more jobs run **chained off 02:00** rather than on their own cron, because
 both read `account_snapshots` and a cron that fired first would evaluate
@@ -762,44 +837,187 @@ the candidate list at `/plan/cashflow/review`. It shares the day with the 06:00
 [CASHFLOW.md](CASHFLOW.md).
 
 A 60-second `heartbeat` also ticks continuously to confirm worker plumbing.
+Each tick also reports the worker's configuration (on or off, never a value), which
+is how **Settings → Instance** knows the worker is alive and whether backups,
+the Beancount mirror and alert email are configured on it.
 Each job is idempotent (CLAUDE.md §Background Jobs), so a missed or double run is
 safe; BullMQ retries failures with exponential backoff.
 
+### Time zone
+
+Set `MONEY_TZ` in `.env` to your IANA zone name, for example
+`America/New_York` or `Australia/Sydney`, then `scripts/prod.sh restart`.
+Compose passes it to `app` and `worker` as `TZ`. It is read from `MONEY_TZ`
+rather than `TZ` so a `TZ` exported in the host's shell cannot leak in through
+compose. If you already set `TZ` on the containers another way, such as an
+Unraid template or an override file, it still works (it is the same variable
+inside the container), but move it to `MONEY_TZ` so both containers get it
+from one place.
+
+**What it changes: when the backup and the Beancount export run.** They move to
+04:00 and 04:30 in your zone, so "nightly" means your night rather than the
+middle of a Sydney afternoon. The worker re-registers both schedules at start,
+in place, so changing the zone never runs a job twice. A zone the runtime does
+not recognize is ignored: the worker logs it, those two jobs stay on UTC, and
+Settings → Instance shows a warning.
+
+**What it does not change: anything the app computes.** Two things are easy to
+conflate here, and the difference is the whole design:
+
+- **When a job runs.** Only the backup and the export follow your zone. The
+  price fetch, contributions, snapshots, the Plaid safety-net sync and anomaly
+  detection stay at their UTC times, because the price fetch stores Yahoo's
+  *latest* price under the date it runs on. At 01:30 UTC that is the previous
+  US session's close. At 01:30 in Sydney (14:30 or 15:30 UTC) the US market is open, and
+  every stored "close" would really be a mid-session price, permanently.
+- **What date a job computes against.** my-money dates its days in UTC,
+  everywhere: the snapshot written each night, the date a price is stored
+  under, and the date the forms fill in as "today". Setting `MONEY_TZ` changes
+  none of that. A test (`src/lib/schedule/utc-discipline.test.ts`) keeps
+  local-clock date math out of the code, so the zone cannot reach a figure.
+
+**The day boundary, and what it means for you.** Because days are UTC dates,
+your day and the app's day are not the same day unless you live on UTC. In
+Sydney (UTC+10/+11) the app's new day starts at 10:00 or 11:00 local time, so
+the date the balance form suggests before then is still yesterday's, and the
+snapshot labelled with a date was taken during your afternoon. In New York
+(UTC-5/-4) the app's day starts at 19:00 or 20:00 the evening before. Dates
+you type in and dates your bank supplies on transactions are stored exactly as
+given and never shift. Settings → Instance shows where the UTC day starts in
+your zone. A local-midnight day boundary is not offered: it would move the
+anchor under every figure the app has already computed, and it is an open
+design question, not a setting.
+
+One ordering trade-off: with `MONEY_TZ` set, the 05:00 UTC anomaly check no
+longer runs an hour after the backup. A failed backup still writes its
+`backup_failure` alert immediately, but its email can wait for the next
+05:00 UTC run.
+
 ## Updates
 
-Pull first, **migrate before restarting**, then recreate. Migrations are
-additive, so the old app keeps working against the migrated schema for the few
-seconds in between — the reverse order would start new code against a schema it
-expects but does not have yet.
+Every upgrade is the same five steps, and **the backup is one of them**, not a
+suggestion next to them (ADR-054 §4). [scripts/prod.sh](../scripts/prod.sh)
+runs each step with the right flags, from any directory:
 
 ```sh
-docker compose -f docker/compose.yaml --profile prod pull
-docker compose -f docker/compose.yaml --profile prod run --rm app \
-  node_modules/.bin/drizzle-kit migrate      # a no-op when already current
-docker compose -f docker/compose.yaml --profile prod up -d
+P=/path/to/my-money/scripts/prod.sh    # your checkout, e.g. /mnt/user/appdata/my-money/repo
+
+sh $P pull       # 1. fetch the new image
+                 # 2. read the new CHANGELOG.md entry, especially its Migrations: line
+sh $P backup     # 3. back up — refuses if backups are not configured
+sh $P migrate    # 4. apply pending migrations — a no-op when already current
+sh $P restart    # 5. recreate app + worker on the new image
 ```
 
-On **Unraid** (U.3), the same three steps with the `dc` command:
+1. **Pull.** If you pin a version (below), change `MONEY_IMAGE_TAG` in `.env`
+   first. Built the image yourself ([Path B](#choosing-your-image-pull-it-or-build-it-yourself))?
+   Replace this step with `git checkout <new version>` and `docker build -f
+   Dockerfile -t my-money:local .`.
+2. **Read the release's entry in [CHANGELOG.md](../CHANGELOG.md).** Its
+   `Migrations:` line names the newest migration the release needs. If
+   **Settings → Instance** shows an older one under *Database schema*, this
+   upgrade changes your schema, and step 3 is what lets you undo it.
+3. **Back up.** `backup` runs the nightly encrypted backup now, so the dump is
+   minutes old rather than up to a day. It **refuses** when
+   `BACKUP_AGE_RECIPIENT` is not set, rather than "succeeding" with nothing
+   written. Without encrypted backups, take a plain dump yourself, and keep it
+   somewhere private, because it is your unencrypted financial history:
 
-```sh
-D=/mnt/user/appdata/my-money/repo
-dc() { docker compose --project-directory "$D" -f "$D/docker/compose.yaml" -f "$D/docker/unraid.override.yaml" --profile prod "$@"; }
-dc pull && dc run --rm app node_modules/.bin/drizzle-kit migrate && dc up -d
-```
+   ```sh
+   docker compose -f docker/compose.yaml --profile prod exec -T postgres \
+     sh -c 'pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB"' > pre-upgrade-$(date +%F).sql
+   grep -c 'dump complete' pre-upgrade-*.sql    # must print 1
+   ```
 
-`&&` stops at the first failure, so a failed migration never restarts the app
-on the new image. If any step asks to recreate a volume, answer **N** and stop.
+4. **Migrate before restarting.** Migrations are additive, so the running app
+   keeps working against the migrated schema for the few seconds before step 5.
+   The reverse order would start new code against a schema it expects but does
+   not have yet. Drizzle applies every pending migration in **one
+   transaction**: if one fails, none is applied and the old app keeps running.
+5. **Restart.** If compose asks to recreate a **volume**, answer **N** and
+   stop: that means the compose files changed how your data is mounted.
 
-For a release with schema changes, take a dump first (U.3a step 1 shows how);
-the nightly backup may be up to a day old.
+Once you have read the changelog, steps 3–5 chain safely, because `&&` stops at
+the first failure, so a failed backup or migration never restarts the app:
+`sh $P backup && sh $P migrate && sh $P restart`.
 
-By default `pull` tracks `latest`. To deploy a **specific** build, set
-`MONEY_IMAGE_TAG=<git-sha>` in `.env` (the SHA `make image-push` stamped on the
-image) and re-run the two commands — this also lets you roll back by pinning the
-previous SHA.
+**On Unraid with the U.3 bind-mount override**, export
+`MONEY_COMPOSE_OVERRIDE=/mnt/user/appdata/my-money/repo/docker/unraid.override.yaml`
+before running the script. Only do that if your stack was **created** with the
+override. Adding it to a stack that runs on named volumes is how compose ends up
+offering to recreate the Postgres volume (U.3 explains why).
+
+The same script runs one-off jobs (`sh $P job backfill-categories`; the names
+are listed in [src/worker/run-once.ts](../src/worker/run-once.ts)). It always
+uses a fresh `run --rm` container, never `exec`. `exec` reuses the running
+worker, whose environment was frozen when it was created, so a variable you
+added to `.env` since then is invisible to it. A backup forced that way logs
+`disabled … skipping` despite a correct `.env`.
+
+**Rolling back.** Set `MONEY_IMAGE_TAG` back to the previous version and
+`sh $P restart`. Because migrations only add, an older image normally runs on
+a newer schema, and **Settings → Instance** will say *"the database is newer
+than this image"*. If it does not run, restore the dump from step 3
+([RESTORE.md](RESTORE.md)).
+
+### Automatic migration (off by default)
+
+`MONEY_AUTO_MIGRATE=true` in `.env` makes the app apply pending migrations every
+time it starts ([scripts/app-start.sh](../scripts/app-start.sh)). It is **off by
+default and not recommended**, and the reasons are specific:
+
+- It changes the schema of your financial database **unattended**, and it
+  **takes no backup first**, which is step 3 above removed.
+- A failed migration rolls back, but the app then exits, Docker restarts it, it
+  fails again, and **the app stays down** until you step in.
+
+If you turn it on anyway, only the app migrates (never the worker, so two
+containers cannot race), and **Settings → Instance** shows a warning for as long
+as it is on.
+
+### Pin a version (recommended)
+
+By default `pull` tracks `latest`, which means whatever was pushed most recently,
+including a release whose migrations you have not read yet. **Pin a version
+instead:** set `MONEY_IMAGE_TAG` in `.env` to a release number from
+[CHANGELOG.md](../CHANGELOG.md), for example `MONEY_IMAGE_TAG=0.19.0`. An upgrade
+then happens only when you change that line, after reading what the new entry
+says, and a rollback is the previous number. Every release image is also tagged
+with its git SHA, if you would rather pin a commit.
+
+`latest` keeps working and stays the default, so an existing install is
+unaffected. **Settings → Instance** shows the version and image you are running.
 
 `cloudflared` updates take a connection-cycle (~10s). Plaid retries any
 webhook that misses delivery for 24h, so a brief tunnel restart is safe.
+
+### The test database (installs from before 0.19.0)
+
+Before 0.19.0, `--profile prod` also started `postgres_test`, the database the
+developer test suite uses. The app never used it. It now starts only with
+`--profile dev`, but compose does not remove a container that is already
+running, so an older install keeps it until you remove it:
+
+```sh
+docker stop my-money-postgres_test-1 && docker rm my-money-postgres_test-1
+docker volume rm my-money_postgres_test_data   # holds only test fixtures
+```
+
+Neither command touches the `postgres` service that holds your data.
+
+## Forgotten password
+
+There is no reset email and no recovery question (ADR-004). While you are signed
+in, change the password under **Settings → Instance**; that also signs every
+other browser out. If you have forgotten it, delete the user row. **Your
+financial data is kept**, and the next visit to `/login` sets a new password:
+
+```sh
+docker compose -f docker/compose.yaml --profile prod exec -T postgres   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "DELETE FROM users;"'
+```
+
+Do this promptly, because until a new password is set, anyone who can reach
+`/login` can set it. In a dev checkout the same thing is `make db-reset-password`.
 
 ## Tearing down the tunnel
 

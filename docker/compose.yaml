@@ -1,13 +1,16 @@
 # Dev compose stack for my-money.
 #
 # Profiles:
-#   - (default) `postgres`, `redis` — for local `pnpm dev` against containerized data services.
-#   - `prod` adds `app` and `worker` services (defined in P0-14) — for running the full
+#   - (default) `postgres`, `redis` — the data services every mode needs.
+#   - `dev` adds `postgres_test`, the Vitest database (PLAN19 P19-33). `make up`
+#     passes it; a production deploy does not, so the test database no longer
+#     starts on the home server.
+#   - `prod` adds `app`, `worker` and `cloudflared` — for running the full
 #     stack from built images, e.g., on the home server.
 #
 # Usage:
-#   docker compose -f docker/compose.yaml up -d            # postgres + redis only
-#   docker compose -f docker/compose.yaml --profile prod up -d  # everything
+#   docker compose -f docker/compose.yaml --profile dev up -d   # dev: postgres + test postgres + redis
+#   docker compose -f docker/compose.yaml --profile prod up -d  # production: everything but the test DB
 #
 # Per ADR-002 and CLAUDE.md: Postgres is NOT exposed to the host network in production.
 # In dev, we publish 5432/6379 to localhost so `pnpm dev` and `drizzle-kit` can reach them.
@@ -44,6 +47,9 @@ services:
   # TEST_DATABASE_URL in .env.local; vitest.setup.ts overrides DATABASE_URL
   # to point here.
   postgres_test:
+    # Dev/test only. Without a profile it also started under `--profile prod`,
+    # with its own volume and RAM, on a Raspberry Pi that never runs the suite.
+    profiles: ["dev"]
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -86,12 +92,17 @@ services:
 
   app:
     profiles: ["prod"]
-    # Pull the prebuilt multi-arch image from Docker Hub — no build/clone on the
-    # server. Pin a specific git-SHA tag with MONEY_IMAGE_TAG in .env; defaults to
-    # `latest`. To run your own build instead, `make image-push IMAGE_REPO=...`
-    # and set MONEY_IMAGE_TAG / this repo accordingly.
-    image: robermar2/my-money:${MONEY_IMAGE_TAG:-latest}
+    # Defaults to the prebuilt multi-arch image on Docker Hub — no build/clone on
+    # the server. Pin a specific git-SHA tag with MONEY_IMAGE_TAG in .env; defaults
+    # to `latest`. To run an image you built yourself from this source instead, set
+    # MONEY_IMAGE_REPO (and MONEY_IMAGE_TAG) in .env — see docs/DEPLOY.md
+    # §Prerequisites, "Path B" (PLAN19 P19-05, ADR-050).
+    image: ${MONEY_IMAGE_REPO:-robermar2/my-money}:${MONEY_IMAGE_TAG:-latest}
     restart: unless-stopped
+    # `exec node server.js`, the image's own CMD, unless MONEY_AUTO_MIGRATE is
+    # exactly "true" — then pending migrations are applied first (PLAN19 P19-21,
+    # ADR-054 §4). Off by default; read scripts/app-start.sh before turning it on.
+    command: ["sh", "./scripts/app-start.sh"]
     environment:
       NODE_ENV: production
       PORT: "4000"
@@ -106,6 +117,16 @@ services:
       # `true` only if you reach the app exclusively over HTTPS (e.g. via the
       # Cloudflare tunnel).
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      # Shown on /settings/instance so a support request can quote the image in
+      # use (PLAN19 P19-10). Same defaults as `image:` above; neither is a secret.
+      MONEY_IMAGE_REPO: ${MONEY_IMAGE_REPO:-robermar2/my-money}
+      MONEY_IMAGE_TAG: ${MONEY_IMAGE_TAG:-latest}
+      # Opt-in, default off: migrate the database on every app start, unattended
+      # and with no backup step. Settings → Instance warns while it is on.
+      MONEY_AUTO_MIGRATE: ${MONEY_AUTO_MIGRATE:-false}
+      # The operator's time zone (PLAN19 P19-24), same value as the worker's.
+      # Here it only changes how /settings/instance describes the schedule.
+      TZ: ${MONEY_TZ:-}
       # Plaid (Phase 4+). Empty defaults so a manual-only deploy starts fine; the
       # Plaid client validates lazily and only errors when a Plaid feature is
       # actually used (Link, webhook processing, sync jobs). PLAID_WEBHOOK_URL is
@@ -147,7 +168,8 @@ services:
     profiles: ["prod"]
     # Same published image as `app` (shared codebase, different entrypoint via the
     # `command` below). Pin with MONEY_IMAGE_TAG in .env; defaults to `latest`.
-    image: robermar2/my-money:${MONEY_IMAGE_TAG:-latest}
+    # MONEY_IMAGE_REPO overrides the repository for both services at once.
+    image: ${MONEY_IMAGE_REPO:-robermar2/my-money}:${MONEY_IMAGE_TAG:-latest}
     restart: unless-stopped
     # Mirror package.json's `worker` script: `--import tsx` for TS, and
     # `--import ./scripts/loaders/register.mjs` to stub Next's `server-only`
@@ -185,6 +207,13 @@ services:
       # the dir enables the export; it's a one-way readable copy of data already
       # in Postgres (not a secret). Replicate alongside the backups off-host.
       BEANCOUNT_DIR: /exports
+      # The operator's time zone (PLAN19 P19-24), an IANA name such as
+      # America/New_York; empty means UTC. Only the backup and the Beancount
+      # export follow it. Prices, snapshots, the Plaid sync and alerts stay on
+      # UTC, and every date the app stores stays a UTC date (src/worker/schedule.ts,
+      # docs/DEPLOY.md §Time zone). Read from MONEY_TZ, not TZ, so a TZ exported
+      # in the host's shell cannot leak in through compose interpolation.
+      TZ: ${MONEY_TZ:-}
     depends_on:
       postgres:
         condition: service_healthy

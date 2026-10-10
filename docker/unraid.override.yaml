@@ -30,8 +30,5 @@ services:
     volumes:
       - /mnt/user/appdata/my-money/backups:/backups
       - /mnt/user/appdata/my-money/exports:/exports
-    # environment:
-    #   TZ: America/New_York   # nightly jobs (§8) fire at local time; default UTC
-  # app:
-  #   environment:
-  #     TZ: America/New_York   # display timestamps in local time
+    # Time zone: set MONEY_TZ in .env (docs/DEPLOY.md §Time zone) rather than
+    # TZ here. compose.yaml passes it to both app and worker from one place.

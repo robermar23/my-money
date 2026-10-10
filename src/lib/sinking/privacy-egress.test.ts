@@ -401,6 +401,9 @@ describe("P18-33 — planned expenses cannot reach the alert email", () => {
       projected_shortfall: true,
       obligation_missed: true,
       obligation_amount_changed: true,
+      // P19-06 (ADR-052): a configuration fact about the deployment. It carries
+      // no figure and no name — its `detail` is the unset variable's name only.
+      backup_not_configured: true,
     };
     for (const type of Object.keys(everyAlertType)) {
       expect(type, `${type} looks like a sinking-fund alert`).not.toMatch(/sinking|planned/i);

@@ -2,9 +2,33 @@
 
 A self-hosted, single-user personal finance tracker. Owns its own data, never phones home, never serves ads, never integrates third-party analytics.
 
+**What can it do?** [docs/FEATURES.md](docs/FEATURES.md) lists every page with the question it answers, one line each.
+
+**License:** [AGPL-3.0-or-later](LICENSE). You may run, change and share it; if you run a changed copy as a service for other people, they are entitled to its source. Third-party licenses: [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md).
+
 See [plans/features/FEATURE.md](plans/features/FEATURE.md) for the why, [plans/features/IDEAS.md](plans/features/IDEAS.md) for the locked ADRs, and [CLAUDE.md](CLAUDE.md) for the guardrails enforced across the codebase.
 
 ---
+
+## Scope: US households, US dollars
+
+my-money is built for a US household and supports **US dollars only**: every
+amount is USD, and there is no currency conversion (ADR-051). Some features
+encode US conventions outright:
+
+- **Guidance (`/plan`)** implements US retirement accounts (401(k)/403(b)/457,
+  IRA, HSA) against IRS contribution limits that are checked into
+  [src/lib/advice/constants.ts](src/lib/advice/constants.ts). The IRS publishes
+  next year's limits each autumn; until a row for the new year is added, the
+  rungs that need it say so and stay silent rather than reuse last year's
+  figures ([docs/GUIDANCE.md](docs/GUIDANCE.md)). Settings → Instance shows
+  which years are configured.
+- **The performance benchmark** is the S&P 500 (`^GSPC`), hardcoded.
+- **CSV import** reads US formats: month-first dates, `.` decimals, `,`
+  thousands ([docs/IMPORT.md](docs/IMPORT.md)).
+- **Plaid** (automatic bank sync) needs your own Plaid production approval,
+  which is not guaranteed for a personal project. QFX/CSV import is the route
+  that always works ([docs/PLAID.md](docs/PLAID.md#before-you-start-production-access-is-not-guaranteed)).
 
 ## Status
 
@@ -41,6 +65,9 @@ See [plans/features/FEATURE.md](plans/features/FEATURE.md) for the why, [plans/f
 **Phase 15 (household money guidance) — complete.** Everything before this was descriptive; this is the first phase that says what to **do**. A new **/plan** page runs a **savings waterfall** — starter buffer → employer match → high-interest debt → full 3–6 month reserve → IRA/HSA → workplace plan to the annual cap → taxable/medium-term — and ranks concrete recommendations: how big your emergency fund should be, whether you're leaving employer match on the table, which debt to attack first (avalanche vs. snowball, simulated month by month), how much cash is idle and what ladder structure would hold it, whether you're on pace against this year's contribution room, and a 50/30/20 diagnostic. It is a **deterministic rules engine, never a model** — each recommendation names the heuristic it implements and **lists the inputs it used**, so a wrong number points at a wrong *input* you can fix rather than a black box you can only distrust. It recommends **structures and amounts, never products**: no security, fund, or institution is ever named, and there is **no tax math of any kind**. New prerequisite data makes it possible — account subtype/APY/maturity/tax-treatment, category `necessity`, credit-line terms (APR/limit/minimum, manual-first), and a household profile with members' birth years at **/settings/household**. Take-home is **observed** from the deposits that actually landed, not declared. Statutory limits are **year-keyed and fail loud** — an unconfigured year suppresses the rung rather than applying last year's dollars. Rungs are **derived state, not goals** (ADR-022 stands). Material changes surface through the existing alerts, deduped so a standing condition never re-nags. The engine's egress budget is **exactly zero** — every benchmark is a constant in the repo, and household names never reach the ⌘K index or the alert email. See [docs/GUIDANCE.md](docs/GUIDANCE.md) and [plans/features/PLAN15.md](plans/features/PLAN15.md) (ADR-032 → ADR-034).
 **Phase 16 (the calendar dimension) — complete.** Every number before this was a *stock* (balance, net worth, allocation) or a *rate* (savings rate, monthly spend, APR) — almost nothing was a **date**. But money runs on a calendar, so this phase answers the question the others could not: ***“Can I spend $400 on the car repair this week, or does something bounce?”*** A weekly detector reads 24 months of transactions and **proposes** recurring bills and paychecks — a median-gap periodicity test across seven cadences with stated tolerances, amount stability by **median absolute deviation** so one annual true-up does not make fixed rent look variable, and a refusal to guess when nothing fits. **Detection never commits**: you confirm, edit or dismiss each candidate at **/plan/cashflow/review**, exactly like a QFX preview. Confirmed obligations materialize into a dated calendar, get matched against the transactions that actually posted (±5 days, 15%/$5), and drive a **deterministic daily balance projection** — one line, never a fan chart — producing one sentence a family acts on (*“your lowest projected balance is $312 on March 14”*) and one number on the dashboard: **safe-to-spend**. The correctness rule that defines the phase: recurring bills are **already inside observed spend**, so a run-rate *plus* dated obligations charges the mortgage twice — the everyday-spending rate is therefore a **residual**, and the **coverage percentage is displayed** so you can judge the number rather than trust it. The projection walks **operating cash only** (checking / cash management — spending your emergency fund is not headroom), and when an input is missing it **names it and links to where you supply it** rather than degrading silently. Deliberately **not** bill pay, money movement, envelope budgeting, or any LLM. Zero egress — no biller directory, no merchant-enrichment lookup — and no balance, projection figure or obligation amount is ever logged or emailed. See [docs/CASHFLOW.md](docs/CASHFLOW.md) and [plans/features/PLAN16.md](plans/features/PLAN16.md) (ADR-036 → ADR-038).
 **Phase 17 (why net worth moved) — complete.** The dashboard could always tell you net worth rose $18,400 last quarter. It could never tell you **why** — and "did we do that, or did the market?" are opposite answers to the same number: one is a habit that compounds, the other is weather. **`/analysis/networth`** decomposes the change over any range into five rungs — what you **saved**, **payroll-direct retirement contributions**, **debt principal** paid down, **market return**, and **revaluation** of property and personal assets — as a waterfall, a rung table, and one sentence a family can read out loud. The endpoints are **given, never recomputed**: they come from the same `computeNetWorth` behind the dashboard figure and the net-worth chart, so the two cannot silently disagree (a property test asserts it over randomly generated books). The five rungs are five *independent* estimates from five different sources, so they are not guaranteed to add up — and the gap, **`unexplained`**, is the most useful number on the page. It is reported at full magnitude, never clamped or hidden, with **named causes** and a link to each fix: uncategorized rows, transfers to untracked accounts, balances with no recent record, loans with no terms, accounts that moved with no transactions at all. A decomposition that always reconciles perfectly has not been checked, it has been arranged. Mortgage principal is deliberately counted **twice with opposite signs** — the $2,000 payment leaves `saved`, the $500 principal comes back as a rung, and the −$1,500 net is exactly what a mortgage payment costs you — because "you spent it, and $500 of it you still own" is what a household actually needs to read. Every rung **lists the inputs it used**, so a figure you disagree with points at an input you can fix rather than a black box. Read-only and **stored nowhere**: no table, no migration, no job, no new dependency, computed fresh on every read. Zero egress — no benchmark fetch, nothing logged, no new alert type, and diagnostics name **accounts** but never payees. The phase also closed the one thing it found while checking its own assumptions: a balance is stored as what it contributes to net worth, so a credit card you owe $1,200 on must be stored as `-1200.00` — a convention three write paths honoured deliberately and two honoured only by luck of what you typed. Typing `1,234.56` off a Visa statement overstated net worth by **twice** that, silently. The card form now asks for an **amount owed** and one helper owns the sign rule, with a QFX card statement whose ending balance is positive **warned about in the preview, never flipped** — bank conventions differ and guessing is confidently wrong for some of them. Landing it here was what made it free: the book held zero card snapshots, so there was nothing to migrate. See [docs/ATTRIBUTION.md](docs/ATTRIBUTION.md) and [plans/features/PLAN17.md](plans/features/PLAN17.md) (ADR-039 → ADR-042).
+**Phase 18 (sinking funds) — complete.** The annual, semiannual and irregular costs a monthly budget cannot represent — insurance, property tax, tuition, the vet — recorded as planned expenses and sized by accrual, so the app can say how much should already be set aside and whether the reserve above the emergency fund covers it. It computes a requirement and compares it to a balance you already have; it never moves, holds or reserves money. See [docs/SINKING.md](docs/SINKING.md) and [plans/features/PLAN18.md](plans/features/PLAN18.md) (ADR-043 → ADR-046).
+
+Every release from here on is listed, with the database migration it needs, in [CHANGELOG.md](CHANGELOG.md).
 
 
 ---
@@ -72,10 +99,10 @@ pnpm install
 cp .env.example .env.local
 # Generate fresh secrets and paste them into .env.local:
 node -e "console.log('SESSION_SECRET=' + require('node:crypto').randomBytes(32).toString('base64'))"
-node -e "console.log('MONEY_ENCRYPTION_KEY=' + require('node:crypto').randomBytes(32).toString('hex'))"
+node -e "console.log('MONEY_ENCRYPTION_KEY=' + require('node:crypto').randomBytes(32).toString('base64'))"
 
-# 3. Start the data services (Postgres + Redis)
-docker compose -f docker/compose.yaml up -d
+# 3. Start the data services (Postgres, the test Postgres, Redis) — or `make up`
+docker compose -f docker/compose.yaml --profile dev up -d
 
 # 4. Apply database migrations
 pnpm db:migrate
@@ -87,7 +114,9 @@ pnpm dev   # → http://127.0.0.1:4000
 pnpm worker
 ```
 
-On the very first visit to `http://127.0.0.1:4000`, you'll be redirected to `/login`. The form's submit button reads **"Set password"** because no user exists yet — whatever you type becomes the only password for this instance. After that, the same page shows **"Sign in"** and verifies. No email, no username, no minimum length, 1-year session. Forgot the password? `make db-reset` and revisit `/login`.
+On the very first visit to `http://127.0.0.1:4000`, you'll be redirected to `/login`. The form's submit button reads **"Set password"** because no user exists yet — whatever you type becomes the only password for this instance. After that, the same page shows **"Sign in"** and verifies. No email, no username, no minimum length, 1-year session. Change it under **Settings → Instance** (this signs every other browser out). Forgot it? `make db-reset-password` (it deletes only the `users` row; your data stays) and revisit `/login`; a production stack does the same with one `psql` line ([docs/DEPLOY.md §Forgotten password](docs/DEPLOY.md#forgotten-password)).
+
+Want to look around before entering anything real? `make seed-demo` fills an **empty** database with a fictional household: a year of transactions, holdings, a mortgage, a planned expense and a recurring bill. It refuses, and writes nothing, if the database already holds any record of its own. `make db-reset` clears it again.
 
 ---
 
@@ -279,12 +308,12 @@ re-imported. Opt in by setting `BEANCOUNT_DIR`.
 | Command                | What it does                                                          |
 | ---------------------- | --------------------------------------------------------------------- |
 | `pnpm dev`             | Run Next.js dev server on `127.0.0.1:4000`                            |
-| `pnpm worker`          | Run the BullMQ worker process (heartbeat in Phase 0)                  |
+| `pnpm worker`          | Run the BullMQ worker: the nightly jobs and the 60-second heartbeat   |
 | `pnpm check`           | Run Biome linter + `tsc --noEmit` strict type check                   |
 | `pnpm format`          | Auto-fix lint + formatting via Biome                                  |
 | `pnpm test`            | Run Vitest unit/integration tests                                     |
 | `pnpm test:watch`      | Vitest in watch mode                                                  |
-| `pnpm test:e2e`        | Run Playwright E2E suite (starts `pnpm dev` automatically)            |
+| `pnpm test:e2e`        | Run Playwright E2E suite (starts `pnpm dev` automatically). **Empties the database `DATABASE_URL` names**; see below |
 | `pnpm db:generate`     | Generate new SQL migration from current Drizzle schema                |
 | `pnpm db:migrate`      | Apply pending migrations to the dev database                          |
 | `pnpm db:push`         | Prototype-only: push schema directly without a migration file         |
@@ -304,17 +333,15 @@ re-imported. Opt in by setting `BEANCOUNT_DIR`.
 
 ## Running the full stack from images (prod profile)
 
-The `prod` profile in `docker/compose.yaml` adds `app` and `worker` services. This is what runs on the home server (per ADR-002).
+The `prod` profile in `docker/compose.yaml` adds `app`, `worker` and `cloudflared`. This is what runs on the home server (per ADR-002). Compose does not build anything: it runs the published image, or one you built yourself ([docs/DEPLOY.md](docs/DEPLOY.md) §Prerequisites, "Path B").
 
 ```bash
-# Build images
-docker compose -f docker/compose.yaml --profile prod build
-
-# Run all four services (postgres + redis + app + worker)
+# Fetch the image, then run postgres + redis + app + worker
+docker compose -f docker/compose.yaml --env-file .env.local --profile prod pull
 docker compose -f docker/compose.yaml --env-file .env.local --profile prod up -d
 
 # Tail logs
-docker compose -f docker/compose.yaml logs -f app worker
+docker compose -f docker/compose.yaml --env-file .env.local --profile prod logs -f app worker
 ```
 
 **Production deployment** is documented end-to-end in [docs/DEPLOY.md](docs/DEPLOY.md): the prod compose bring-up, the ARM64 (Raspberry Pi) build, public webhook exposure via a Cloudflare Tunnel (ADR-010 — no inbound port on your router), the `/api/health` container probe, off-host backup/export replication, SMTP for alert notifications, and the nightly job timeline. The compose file binds `app` to `127.0.0.1:4000`, so nothing is reachable from the LAN until the tunnel explicitly forwards the webhook path.
@@ -328,20 +355,26 @@ my-money/
 ├── plans/features/          # FEATURE.md, IDEAS.md, SKILLS.md, PLAN*.md — source of truth
 ├── src/
 │   ├── app/                 # Next.js App Router (pages, layouts, route handlers, server actions)
-│   │   ├── setup/           # First-run user bootstrap wizard
-│   │   ├── login/           # Login page + server action
-│   │   └── logout/          # POST → clear cookie + 303 to /login
+│   │   ├── login/           # Login page; on first run it sets the password (no setup wizard)
+│   │   ├── logout/          # POST → clear cookie + 303 to /login
+│   │   └── settings/        # Categories, connections, household, income, instance
 │   ├── db/
 │   │   ├── client.ts        # Postgres client + Drizzle instance
 │   │   └── schema/          # One file per domain concept
-│   ├── lib/
+│   ├── lib/                 # Domain logic, one directory per concept
 │   │   ├── auth/            # iron-session, argon2id, requireUser
+│   │   ├── money/           # The Money (decimal.js) wrapper all arithmetic goes through
+│   │   ├── instance/        # What /settings/instance reports
 │   │   └── queue/           # BullMQ shared Redis connection + queue defs
 │   └── worker/              # BullMQ worker entrypoint (separate process)
 ├── drizzle/                 # Generated migration SQL
 ├── e2e/                     # Playwright specs
-├── docker/                  # compose.yaml
+├── docker/                  # compose.yaml (+ the optional Unraid override)
+├── scripts/                 # prod.sh (operator commands), app-start.sh, one-off maintenance
+├── docs/                    # Operator and feature documentation
+├── .github/workflows/       # CI (check + test + build) and the manual Playwright run
 ├── Dockerfile               # Multi-stage build for web + worker
+├── CHANGELOG.md             # Releases, each with the migration it needs
 └── CLAUDE.md                # Agent guardrails (privacy, money precision, Plaid safety)
 ```
 
@@ -351,9 +384,20 @@ my-money/
 
 ```bash
 # Wipe Postgres + Redis volumes and start fresh
-docker compose -f docker/compose.yaml down -v
-docker compose -f docker/compose.yaml up -d
+docker compose -f docker/compose.yaml --profile dev down -v
+docker compose -f docker/compose.yaml --profile dev up -d
 pnpm db:migrate
+```
+
+**Playwright empties the database it runs against.** Its setup and several
+specs `TRUNCATE` users, accounts and transactions, and by default that is the
+dev database in `.env.local`. To keep your dev data, point the run at a scratch
+database instead (an already-set variable wins over `.env.local`):
+
+```bash
+docker compose -f docker/compose.yaml exec -T postgres psql -U money -d money -c "CREATE DATABASE money_e2e;"
+DATABASE_URL=postgres://money:<password>@127.0.0.1:5433/money_e2e pnpm db:migrate
+DATABASE_URL=postgres://money:<password>@127.0.0.1:5433/money_e2e REDIS_URL=redis://127.0.0.1:6380/7 pnpm test:e2e
 ```
 
 For an E2E run from a clean state, the `users` table can be truncated without dropping the DB:
@@ -377,65 +421,40 @@ No open known issues.
 In order of precedence when a question arises:
 
 1. [CLAUDE.md](CLAUDE.md) — guardrails (privacy, money precision, Plaid safety, repo conventions)
-2. [plans/features/IDEAS.md](plans/features/IDEAS.md) — locked ADRs 001–031 + the §11 Decision Log (build-from-scratch, web+Postgres, TS/Next/Drizzle, auth, charts, QFX parser, categorization, Plaid scope/encryption/exposure, investments, backups, alerts, beancount, account management, structured categories/analytics/budgets, investment depth II, personal assets + proof documents, watchlist, search, dashboard, income & retirement contributions)
-3. [plans/features/PLAN0_1.md](plans/features/PLAN0_1.md) … [PLAN14.md](plans/features/PLAN14.md) — per-phase task breakdowns (Phase 0/1 through Phase 14)
+2. [plans/features/IDEAS.md](plans/features/IDEAS.md) — the locked ADRs and the §11 Decision Log (ADR-001 → ADR-054 as of Phase 19)
+3. [plans/features/PLAN0_1.md](plans/features/PLAN0_1.md) … [PLAN19.md](plans/features/PLAN19.md) — per-phase task breakdowns (Phase 0/1 through Phase 19); [CHANGELOG.md](CHANGELOG.md) is the release-by-release summary
 4. [plans/features/SKILLS.md](plans/features/SKILLS.md) — curated skills catalog mapped to phases
 5. [plans/features/FEATURE.md](plans/features/FEATURE.md) — original "what & why"
 
-## PRD Commands
+## Operating the production stack
 
-### Restart App
+On the server, [scripts/prod.sh](scripts/prod.sh) runs the day-to-day commands
+from any directory, against the checkout it lives in. It needs `sh` and Docker,
+not `make`:
 
 ```sh
-docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml   --env-file /mnt/user/appdata/my-money/repo/.env --profile prod up -d --force-recreate app worker
+sh scripts/prod.sh pull                      # fetch the image MONEY_IMAGE_TAG names
+sh scripts/prod.sh backup                    # encrypted backup now; refuses if not configured
+sh scripts/prod.sh migrate                   # apply pending migrations
+sh scripts/prod.sh restart                   # recreate app + worker
+sh scripts/prod.sh job backfill-categories   # any job in src/worker/run-once.ts, once
 ```
 
-### Pull Latest
+An upgrade is those first four in order, after reading the new
+[CHANGELOG.md](CHANGELOG.md) entry: **pull → read → backup → migrate → restart**.
+[docs/DEPLOY.md §Updates](docs/DEPLOY.md#updates) explains each step, the
+Unraid override, and how to roll back. Hosts with `make` also have
+`make prod-backup`, `prod-migrate`, `prod-restart` and `prod-job JOB=<name>`.
 
-```sh
-docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml   --env-file /mnt/user/appdata/my-money/repo/.env --profile prod pull
-```
+Jobs always run in a fresh `run --rm` container, never with `exec`. `exec`
+reuses the running worker, whose environment was frozen when it was created, so
+a `BACKUP_AGE_RECIPIENT` added to `.env` later is invisible to it and the backup
+logs `disabled … skipping`. They also load `scripts/loaders/register.mjs`,
+without which `run-once.ts` fails with `ERR_MODULE_NOT_FOUND: Cannot find
+package 'server-only'`. The script does both, so you do not have to remember.
 
-### Make backup
+---
 
-Uses `run --rm` (not `exec`) so the one-off container re-reads `.env` at launch —
-`exec` reuses the **running** worker's environment, which was frozen at container
-creation, so a `BACKUP_AGE_RECIPIENT` you added *after* the worker started won't be
-seen and the job logs `disabled … skipping`. The `register.mjs` loader stubs Next's
-`server-only` marker; without it `run-once.ts` fails with `ERR_MODULE_NOT_FOUND:
-Cannot find package 'server-only'`. Requires `BACKUP_AGE_RECIPIENT` set in `.env`.
+## License
 
-```sh
-docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml \
-  --env-file /mnt/user/appdata/my-money/repo/.env --profile prod run --rm --no-deps worker \
-  node --experimental-strip-types --import tsx --import ./scripts/loaders/register.mjs \
-  src/worker/run-once.ts backup-database-daily
-
-docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml --env-file /mnt/user/appdata/my-money/repo/.env --profile prod exec worker ls -lh /backups
-# → money-YYYYMMDDTHHMMSSZ.dump.age
-```
-
-### Apply Migration for update
-
-```sh
-docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml --env-file /mnt/user/appdata/my-money/repo/.env --profile prod run --rm app node_modules/.bin/drizzle-kit migrate
-```
-
-## Backfill category assignment logic
-
-```sh
-docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml --env-file /mnt/user/appdata/my-money/repo/.env --profile prod run --rm worker node --experimental-strip-types --import tsx --import ./scripts/loaders/register.mjs \
-  src/worker/run-once.ts backfill-categories
-```
-
-## Restart
-
-```sh
- docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml   --env-file /mnt/user/appdata/my-money/repo/.env --profile prod up -d --force-recreate app worker
- ```
-
- ## Pull
-
- ```sh
- docker compose -f /mnt/user/appdata/my-money/repo/docker/compose.yaml   --env-file /mnt/user/appdata/my-money/repo/.env --profile prod pull
- ```
+my-money is free software under the [GNU Affero General Public License, version 3 or later](LICENSE) (`AGPL-3.0-or-later`, as `package.json` declares). The licenses of the packages it depends on are listed in [docs/THIRD_PARTY.md](docs/THIRD_PARTY.md).

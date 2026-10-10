@@ -8,7 +8,8 @@
 ## Automated nightly backup (ADR-014)
 
 A BullMQ repeatable job (`backup-database-daily`, [src/worker/jobs/backup-database-daily.ts](../src/worker/jobs/backup-database-daily.ts))
-runs in the worker at **04:00 local**, after the 03:00 Plaid safety-net sync so
+runs in the worker at **04:00 in your time zone** (`MONEY_TZ`, UTC when unset), after the
+03:00 UTC Plaid safety-net sync so
 the dump captures that day's transactions. It:
 
 1. Runs `pg_dump --format=custom` and pipes the output **straight into `age`** —
@@ -24,8 +25,11 @@ skips. A failed dump throws (BullMQ retries with backoff) and — once the Phase
 
 ### One-time setup: the age keypair
 
+Run it off the server and outside the my-money checkout
+([BACKUP.md](BACKUP.md#1-generate-an-age-keypair--off-this-server) says why):
+
 ```bash
-age-keygen -o money-backup.key
+mkdir -p ~/keys && age-keygen -o ~/keys/money-backup.key
 # Output:
 #   Public key: age1qz...        ← this is BACKUP_AGE_RECIPIENT (safe to keep)
 # The file money-backup.key contains the line AGE-SECRET-KEY-1...  ← the IDENTITY
@@ -112,7 +116,7 @@ You need the encrypted dump (`money-<ts>.dump.age`) and the **age identity**
 2. **Decrypt and restore in one pipe** (plaintext never hits disk):
 
    ```bash
-   age -d -i money-backup.key money-20260607T040000Z.dump.age \
+   age -d -i ~/keys/money-backup.key money-20260607T040000Z.dump.age \
      | pg_restore -U money -d money_new
    ```
 
@@ -132,6 +136,20 @@ You need the encrypted dump (`money-<ts>.dump.age`) and the **age identity**
 6. If you use Plaid, confirm `MONEY_ENCRYPTION_KEY` matches the one that was live
    when the tokens were stored; otherwise re-link each Item.
 7. **Test restore quarterly per CLAUDE.md** — an untested backup is not a backup.
+8. **Record the drill** (see below).
+
+### Record the drill
+
+When a practice restore has worked — you logged in to the restored copy and a
+figure you know looked right — open **Settings → Instance** on your *real*
+instance and press **I completed a restore drill today**. The page then shows
+the drill's date and age, and marks it due after a quarter (92 days).
+
+This is **self-reported, and the app checks nothing**. It cannot know whether
+your restore worked, and it does not pretend to; it records that you said so,
+and when. There is also **no alert** when a drill goes stale: practising a
+restore is your own discipline, and the alert channel is kept for conditions in
+the data (Phase 19, ADR-052 §8).
 
 > **Verification status (P6-07):** the `pg_dump -Fc` → `pg_restore` round-trip was
 > executed against the live PG16 dev database (16 tables recreated in a throwaway

@@ -63,10 +63,13 @@ import postgres from "postgres";
  *     `available` is a real figure and the page reaches `status: 'ok'` rather
  *     than a degradation. Net worth is therefore exactly **$29,500.00** —
  *     deterministic, which is what makes assertion 2 an equality.
- *   - **A $14,000 cost 40 days out.** Big enough that the day it lands is the
- *     low point of the window on *every* calendar day. At $8,000 the drop would
- *     clear the pre-cost minimum on some run dates and not others, and the test
- *     would fail for a reason that has nothing to do with what it asserts.
+ *   - **A $24,000 cost 40 days out.** Big enough that the day it lands is the
+ *     low point of the window, and below zero, on *every* calendar day. Forty
+ *     days can hold two of the 15th-of-the-month paychecks ($5,200 net each),
+ *     so the most the line can hold before the cost is $9,500 + $10,400 =
+ *     $19,900. The first sizing, $14,000, cleared that on a run between the 1st
+ *     and the 15th and the shortfall never appeared (found 2026-10-10, P19-38);
+ *     at $8,000 the drop would not even be the low point on some dates.
  *   - **Funding from six months back.** With the default start of today,
  *     `elapsed` is 0 and `requiredToday` is `"$0.00"` — arithmetically correct
  *     and useless as a test subject. Six months back makes the figure a real
@@ -113,7 +116,7 @@ const HISTORY_MONTHS = 7;
 
 /** The cost the household records, and the label every assertion hunts for. */
 const COST_LABEL = "Attic insulation";
-const COST_AMOUNT = "14000.00";
+const COST_AMOUNT = "24000.00";
 /** Inside the 60-day projection horizon AND the 12-month sinking horizon. */
 const COST_DUE = daysAhead(40);
 /** Six months of elapsed accrual, so `requiredToday` is not `"$0.00"`. */
@@ -282,14 +285,14 @@ test.describe("phase 18: a known cost becomes a requirement, in four places", ()
     await expect(headline).toBeVisible();
     const required = /\$[\d,]+\.\d{2}/.exec(await headline.innerText())?.[0] as string;
     expect(required, "the headline carries no figure").toMatch(/^\$[\d,]+\.\d{2}$/);
-    // Six of roughly eight months elapsed on a $14,000 cost: a real fraction,
+    // Six of roughly eight months elapsed on a $24,000 cost: a real fraction,
     // not the degenerate $0.00 a same-day funding start would produce.
     expect(Number(required.replace(/[$,]/g, ""))).toBeGreaterThan(1000);
 
     await expect(page.getByRole("heading", { name: "The costs behind the figure" })).toBeVisible();
     const costRow = page.locator("tbody tr").filter({ hasText: COST_LABEL }).first();
     await expect(costRow).toBeVisible();
-    await expect(costRow).toContainText("$14,000.00");
+    await expect(costRow).toContainText("$24,000.00");
     await expect(costRow).toContainText("Recorded here");
     // The itemization claim: one cost, so the last cell must be the headline.
     expect(
@@ -300,7 +303,7 @@ test.describe("phase 18: a known cost becomes a requirement, in four places", ()
     // ── 6. THE CLAIM: nothing moved ─────────────────────────────────────────
     // The envelope line, end to end. A `funded_amount`, a funding account, or a
     // contributions row would all have to show up here eventually; none of them
-    // exists, so net worth is untouched by a $14,000 commitment.
+    // exists, so net worth is untouched by a $24,000 commitment.
     await page.goto("/");
     await expect(page.getByText("$29,500.00", { exact: true }).first()).toBeVisible();
 
@@ -321,8 +324,8 @@ test.describe("phase 18: a known cost becomes a requirement, in four places", ()
 
     // ── 8. THE CLAIM: the projection charges it, and says where it lands ────
     // The fourth event kind reaching the day walk. The cost lands 40 days out,
-    // inside the 60-day horizon, and $14,000 against $9,500 of operating cash
-    // takes the line below zero — so the headline is no longer a figure to
+    // inside the 60-day horizon, and $24,000 against at most $19,900 of
+    // operating cash by then takes the line below zero — so the headline is no longer a figure to
     // spend at all. The heading FLIPPING is the assertion: a projection that
     // dropped the event would still read "Safe to spend", with the same
     // comfortable number it had a minute ago.

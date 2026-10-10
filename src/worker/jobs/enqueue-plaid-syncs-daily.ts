@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
  *
  * Webhooks are the primary sync trigger; this cron catches the ones Plaid
  * dropped, our tunnel missed, or we accidentally dropped on the floor. Runs at
- * 03:00 local (one hour after the snapshot job) — by then the daily price +
+ * 03:00 UTC (one hour after the snapshot job) — by then the daily price +
  * snapshot work is finished and the worker is otherwise idle.
  *
  * Strategy:

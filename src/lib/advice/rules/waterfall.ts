@@ -416,8 +416,9 @@ function workplacePlan(input: AdviceInput): RungCore {
       rung: "workplace_plan",
       status: "unknown_input",
       satisfied: false,
-      // The one sentence ADR-034 §5 exists to produce.
-      reason: `The contribution limit is not configured for ${input.contributionYear}, so this cannot be paced. Last year's ceiling would be the wrong number.`,
+      // The one sentence ADR-034 §5 exists to produce, naming the file that
+      // fixes it (ADR-053 §2), so the gap is actionable rather than mysterious.
+      reason: `The contribution limit is not configured for ${input.contributionYear}, so this cannot be paced. Last year's ceiling would be the wrong number. The IRS publishes each year's limits in the autumn; add a ${input.contributionYear} row to STATUTORY_LIMITS in src/lib/advice/constants.ts.`,
       target: null,
       current: null,
       gap: null,

@@ -104,14 +104,32 @@ const FIXED_NOW = new Date("2026-06-07T16:00:00.000Z");
 describe("backupDatabaseDailyProcessor", () => {
   it("skips (no spawn) when BACKUP_AGE_RECIPIENT is unset", async () => {
     const { spawn, calls } = makeFakeSpawn();
+    const onNotConfiguredAlert = vi.fn(async () => {});
     const result = await backupDatabaseDailyProcessor(fakeJob, {
       spawn,
       env: { DATABASE_URL: "postgres://x" },
       fs: { readdir: vi.fn(), unlink: vi.fn() },
       now: () => FIXED_NOW,
+      onNotConfiguredAlert,
     });
     expect(result).toEqual({ skipped: true });
     expect(calls).toHaveLength(0);
+    // P19-08: the skip is reported, not just logged.
+    expect(onNotConfiguredAlert).toHaveBeenCalledWith(FIXED_NOW);
+  });
+
+  it("still skips cleanly when the not-configured alert write fails", async () => {
+    const { spawn } = makeFakeSpawn();
+    const result = await backupDatabaseDailyProcessor(fakeJob, {
+      spawn,
+      env: { DATABASE_URL: "postgres://x" },
+      fs: { readdir: vi.fn(), unlink: vi.fn() },
+      now: () => FIXED_NOW,
+      onNotConfiguredAlert: async () => {
+        throw new Error("db down");
+      },
+    });
+    expect(result).toEqual({ skipped: true });
   });
 
   it("streams pg_dump → age with correct args and prunes stale backups", async () => {
