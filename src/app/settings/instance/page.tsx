@@ -58,6 +58,10 @@ export default async function InstanceSettingsPage(): Promise<React.JSX.Element>
           How this installation is set up, read from its own configuration. Only the restore-drill
           date and the password can be changed here; the rest is set in your <code>.env</code> file.
         </p>
+        <p className="mt-1 max-w-3xl text-sm text-zinc-500">
+          Every page the app has, and the question each one answers, is listed in{" "}
+          <code>docs/FEATURES.md</code>.
+        </p>
       </div>
 
       <div className="mt-4 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-900/50">

@@ -2,6 +2,8 @@
 
 A self-hosted, single-user personal finance tracker. Owns its own data, never phones home, never serves ads, never integrates third-party analytics.
 
+**What can it do?** [docs/FEATURES.md](docs/FEATURES.md) lists every page with the question it answers, one line each.
+
 See [plans/features/FEATURE.md](plans/features/FEATURE.md) for the why, [plans/features/IDEAS.md](plans/features/IDEAS.md) for the locked ADRs, and [CLAUDE.md](CLAUDE.md) for the guardrails enforced across the codebase.
 
 ---
