@@ -132,6 +132,20 @@ You need the encrypted dump (`money-<ts>.dump.age`) and the **age identity**
 6. If you use Plaid, confirm `MONEY_ENCRYPTION_KEY` matches the one that was live
    when the tokens were stored; otherwise re-link each Item.
 7. **Test restore quarterly per CLAUDE.md** — an untested backup is not a backup.
+8. **Record the drill** (see below).
+
+### Record the drill
+
+When a practice restore has worked — you logged in to the restored copy and a
+figure you know looked right — open **Settings → Instance** on your *real*
+instance and press **I completed a restore drill today**. The page then shows
+the drill's date and age, and marks it due after a quarter (92 days).
+
+This is **self-reported, and the app checks nothing**. It cannot know whether
+your restore worked, and it does not pretend to; it records that you said so,
+and when. There is also **no alert** when a drill goes stale: practising a
+restore is your own discipline, and the alert channel is kept for conditions in
+the data (Phase 19, ADR-052 §8).
 
 > **Verification status (P6-07):** the `pg_dump -Fc` → `pg_restore` round-trip was
 > executed against the live PG16 dev database (16 tables recreated in a throwaway

@@ -7,7 +7,8 @@
 
 Backups are the entire point of the app — the historical data is the product. An
 untested backup is not a backup, so **test a restore quarterly** (CLAUDE.md
-§Backup Discipline).
+§Backup Discipline) and record it on `/settings/instance` when you do
+([RESTORE.md](RESTORE.md#record-the-drill)).
 
 ## How it works
 
@@ -32,6 +33,25 @@ the next successful run.
 
 The job is **opt-in**: with `BACKUP_AGE_RECIPIENT` unset it logs "disabled" and
 skips. Nothing is ever sent anywhere by the app — replication off-host is yours.
+
+## You will be warned while it is off
+
+A skipped backup never *fails*, so `backup_failure` cannot fire for it. Instead,
+each night the job skips it raises a **`backup_not_configured`** alert
+(Phase 19, ADR-052), which appears on [`/alerts`](ALERTS.md) like any other.
+
+- **What it means:** nothing is being backed up. Every transaction, balance and
+  snapshot this instance holds exists only in its Postgres volume.
+- **Severity `warning`, not `critical`:** a brand-new install has no backup yet,
+  and that is normal on day one. It is not normal on day ninety.
+- **It does not nag.** There is only ever one open, however many nights pass. If
+  you dismiss it without configuring backups, it comes back once the next month.
+- **It clears itself** on the first successful backup after you finish the steps
+  below. You do not need to dismiss it.
+
+**Settings → Instance** (`/settings/instance`) shows the same fact, plus when the
+last successful backup finished and when you last practised a restore
+([RESTORE.md](RESTORE.md#record-the-drill)).
 
 ## Enable it
 

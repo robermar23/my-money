@@ -805,6 +805,9 @@ the candidate list at `/plan/cashflow/review`. It shares the day with the 06:00
 [CASHFLOW.md](CASHFLOW.md).
 
 A 60-second `heartbeat` also ticks continuously to confirm worker plumbing.
+Each tick also reports the worker's configuration (on or off, never a value), which
+is how **Settings → Instance** knows the worker is alive and whether backups,
+the Beancount mirror and alert email are configured on it.
 Each job is idempotent (CLAUDE.md §Background Jobs), so a missed or double run is
 safe; BullMQ retries failures with exponential backoff.
 

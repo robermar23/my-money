@@ -37,6 +37,7 @@ View everything at **`/alerts`** (severity-colored; dismiss to resolve manually)
 | `stale_price` | info | a held symbol's newest price is older than N days (feed dying) | `ALERT_STALE_DAYS` (3) | symbol + latest price date |
 | `sync_failure` | warning | a Plaid sync run recorded an error in the last day | — | sync-run id + started date |
 | `backup_failure` | critical | the nightly backup job threw | — | per day; **cleared only by a successful backup**, never by this job |
+| `backup_not_configured` | warning | the nightly backup job skipped because `BACKUP_AGE_RECIPIENT` is unset — see [BACKUP.md](BACKUP.md#you-will-be-warned-while-it-is-off) | — | per calendar month, and **never a second open row**: one standing alert however long it stays unset, back the next month if dismissed unfixed. **Cleared only by a successful backup**, never by this job |
 | `advice` | inherits the recommendation's (critical/warning only) | household guidance changes state — see [GUIDANCE.md](GUIDANCE.md) | `household_profile.high_interest_threshold_apr` and the other tunables | rule + subject + `severity\|status`, **deliberately excluding the amount** |
 | `projected_shortfall` | **critical** if the balance goes negative, else warning | the daily cash-flow projection dips below your cash floor inside the horizon — see [CASHFLOW.md](CASHFLOW.md) | `household_profile.cash_floor` / `projection_horizon_days` | the low-water **date** (so a moving shortfall re-fires, a standing one does not) |
 | `obligation_missed` | warning | a confirmed obligation's match window closed with nothing found. Fires for receipts too — an expected payment that never arrived leaves the projection wrong in the optimistic direction | ±5 days (`DEFAULT_MATCH_TOLERANCE`) | occurrence + due date, so it fires exactly once |
@@ -49,9 +50,15 @@ Notes:
   (CLAUDE.md §Money).
 - Accounts/symbols that were **never** snapshotted or priced (NULL) are skipped,
   so a freshly-added holding doesn't immediately alert.
-- `backup_failure` is written **directly** by the backup job, not by a rule. The
-  resolve sweep only touches rule-managed types, so a standing backup failure
-  stays open until a backup actually succeeds.
+- `backup_failure` and `backup_not_configured` are written **directly** by the
+  backup job, not by a rule. The resolve sweep only touches rule-managed types,
+  so either stays open until a backup actually succeeds. They are separate on
+  purpose: "your backup broke" and "you never set one up" have different fixes,
+  and a configured-but-failing instance shows both until a run succeeds.
+- **No alert for the Beancount mirror or for email being off** (ADR-052 §4). The
+  mirror is a second copy of data Postgres still holds, so its absence risks no
+  data, and "your alert email is off" cannot usefully be sent by email. Both
+  show on `/settings/instance` instead.
 - `advice` is likewise **exempt from the resolve sweep**. A guidance rule can go
   quiet for two very different reasons — the household fixed the problem, or an
   input it depended on went missing — and auto-resolving would treat those
