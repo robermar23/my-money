@@ -121,7 +121,7 @@ describe("detectAnomaliesDailyProcessor", () => {
     // The backup job writes this row DIRECTLY; backup_failure is NOT a rule type,
     // so the resolve sweep (which iterates RULE_ALERT_TYPES only) must leave it
     // open even on a run where no rule fires. It clears only on a successful
-    // backup (clearBackupFailure), not here.
+    // backup (clearBackupAlerts), not here.
     await db.insert(alerts).values({
       type: "backup_failure",
       severity: "critical",

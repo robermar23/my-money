@@ -3,7 +3,11 @@ import * as nodeFs from "node:fs/promises";
 // posix join: the backup job runs in the Linux worker container, so paths must
 // use `/` regardless of the host the tests happen to run on (Windows dev box).
 import { join } from "node:path/posix";
-import { clearBackupFailure, recordBackupFailure } from "@/lib/alerts/backup-alert.ts";
+import {
+  clearBackupAlerts,
+  recordBackupFailure,
+  recordBackupNotConfigured,
+} from "@/lib/alerts/backup-alert.ts";
 import type { Job } from "bullmq";
 
 /**
@@ -61,8 +65,10 @@ export interface BackupDeps {
   readonly now?: () => Date;
   /** Raise a `backup_failure` alert (P6-16). DB-backed default; no-op-able in tests. */
   readonly onFailureAlert?: (now: Date, error: string) => Promise<void>;
-  /** Clear open `backup_failure` alerts on success. DB-backed default. */
+  /** Clear open backup alerts (both types) on success. DB-backed default. */
   readonly onSuccessAlert?: (now: Date) => Promise<void>;
+  /** Raise `backup_not_configured` on the disabled path (P19-08). DB-backed default. */
+  readonly onNotConfiguredAlert?: (now: Date) => Promise<void>;
 }
 
 /** Filesystem-safe, sortable backup filename: `money-YYYYMMDDTHHMMSSZ.dump.age`. */
@@ -148,11 +154,16 @@ export async function backupDatabaseDailyProcessor(
   const env = deps.env ?? process.env;
   const now = (deps.now ?? (() => new Date()))();
   const onFailureAlert = deps.onFailureAlert ?? recordBackupFailure;
-  const onSuccessAlert = deps.onSuccessAlert ?? clearBackupFailure;
+  const onSuccessAlert = deps.onSuccessAlert ?? clearBackupAlerts;
+  const onNotConfiguredAlert = deps.onNotConfiguredAlert ?? recordBackupNotConfigured;
 
   const recipient = env.BACKUP_AGE_RECIPIENT?.trim();
   if (!recipient) {
     console.error("[backup-database-daily] disabled: BACKUP_AGE_RECIPIENT not set; skipping");
+    // A disabled job never fails, so `backup_failure` cannot fire here. Say so
+    // through /alerts instead (P19-08, ADR-052). Wrapped like the failure hook:
+    // an alert-write hiccup must not turn a skip into a failed job.
+    await onNotConfiguredAlert(now).catch(() => {});
     return { skipped: true };
   }
 
@@ -209,7 +220,8 @@ export async function backupDatabaseDailyProcessor(
     );
   }
 
-  // A good backup clears any open backup_failure alert (P6-16).
+  // A good backup clears any open backup_failure / backup_not_configured alert
+  // (P6-16, P19-08).
   await onSuccessAlert(now).catch(() => {});
 
   console.error(`[backup-database-daily] wrote ${backupFilename(now)} (pruned ${pruned})`);
