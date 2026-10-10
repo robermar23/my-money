@@ -20,15 +20,58 @@ opening a single port on your home router.
 ## Prerequisites
 
 - Docker Engine ≥ 24 + the `compose` plugin.
-- Network access to Docker Hub to pull the prebuilt image `robermar2/my-money`
-  (public — no registry login). **No build toolchain, Node, pnpm, or git checkout
-  is needed on the server** — just the `docker/compose.yaml` file and a `.env`.
+- **An app image, from one of two co-equal paths** (below).
 - A Cloudflare account (free is fine).
 - A domain pointed at Cloudflare for nameservers, OR willing use of a
   `*.trycloudflare.com` quick tunnel (dev-only — the URL changes per session).
 - `.env` filled in from [.env.example](../.env.example). (The bare `docker
   compose` commands below auto-load `.env` from the project dir — not `.env.local`,
   which is the dev convenience the `make` targets pass via `--env-file`.)
+
+### Choosing your image: pull it, or build it yourself
+
+The `app` and `worker` services run the same image. You can get it either way,
+and the rest of this document is identical for both.
+
+**Path A — pull the published image.** `docker compose pull` fetches
+`robermar2/my-money` from Docker Hub (public, no registry login). **No build
+toolchain, Node, pnpm, or git checkout is needed on the server**, just the
+`docker/compose.yaml` file and a `.env`. This is the default; you set nothing.
+
+**Path B — build it from this source.** This path exists for a plain reason:
+my-money will hold your whole financial life, and you should not have to run a
+stranger's prebuilt binary over it, or reverse-engineer the Makefile to avoid
+doing so. Building needs Docker and a checkout of the repository at the version
+you want, and nothing else: no Node or pnpm on the host, because the
+[Dockerfile](../Dockerfile) installs and builds everything inside the image. It
+is multi-stage, glibc-based, and builds for `linux/amd64` and `linux/arm64`
+(§1.1). On the machine that will run the stack:
+
+```sh
+git clone <your fork or this repository> my-money && cd my-money
+git checkout <the commit or tag you reviewed>
+docker build -f Dockerfile -t my-money:local .
+```
+
+Then tell compose to use it, in `.env`:
+
+```sh
+MONEY_IMAGE_REPO=my-money
+MONEY_IMAGE_TAG=local
+```
+
+Both `app` and `worker` read these two variables, so one setting switches both.
+**Skip `docker compose pull`** in §1 and in [Updates](#updates): it tries to
+fetch `my-money:local` from Docker Hub and fails, because that image exists
+only on your machine. To upgrade, check out the new version, rebuild, and run
+the migration step as usual.
+
+Building on a different machine and pushing to a registry you control works the
+same way: `make buildx-init` once, then `make image-push IMAGE_REPO=<you>/my-money`
+(§1.1), and set `MONEY_IMAGE_REPO=<you>/my-money` in `.env`. Path A's `pull`
+then works against your registry. (`make image-build` is a **verification-only**
+build. Its result stays in the buildx builder and never reaches the local image
+list, so use `docker build` or `image-push` to get an image compose can run.)
 
 ## Deploy at a glance
 
@@ -398,7 +441,7 @@ node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 
 ```sh
 # From the directory holding docker/compose.yaml (+ your .env).
-docker compose -f docker/compose.yaml --profile prod pull   # fetch robermar2/my-money
+docker compose -f docker/compose.yaml --profile prod pull   # fetch robermar2/my-money (Path A only)
 docker compose -f docker/compose.yaml up -d postgres redis
 ```
 
@@ -792,6 +835,10 @@ on the new image. If any step asks to recreate a volume, answer **N** and stop.
 
 For a release with schema changes, take a dump first (U.3a step 1 shows how);
 the nightly backup may be up to a day old.
+
+Built the image yourself ([Path B](#choosing-your-image-pull-it-or-build-it-yourself))?
+Replace `pull` with `git checkout <new version>` and `docker build -f Dockerfile -t
+my-money:local .`; the migrate and `up -d` steps are unchanged.
 
 By default `pull` tracks `latest`. To deploy a **specific** build, set
 `MONEY_IMAGE_TAG=<git-sha>` in `.env` (the SHA `make image-push` stamped on the

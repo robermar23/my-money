@@ -86,11 +86,12 @@ services:
 
   app:
     profiles: ["prod"]
-    # Pull the prebuilt multi-arch image from Docker Hub — no build/clone on the
-    # server. Pin a specific git-SHA tag with MONEY_IMAGE_TAG in .env; defaults to
-    # `latest`. To run your own build instead, `make image-push IMAGE_REPO=...`
-    # and set MONEY_IMAGE_TAG / this repo accordingly.
-    image: robermar2/my-money:${MONEY_IMAGE_TAG:-latest}
+    # Defaults to the prebuilt multi-arch image on Docker Hub — no build/clone on
+    # the server. Pin a specific git-SHA tag with MONEY_IMAGE_TAG in .env; defaults
+    # to `latest`. To run an image you built yourself from this source instead, set
+    # MONEY_IMAGE_REPO (and MONEY_IMAGE_TAG) in .env — see docs/DEPLOY.md
+    # §Prerequisites, "Path B" (PLAN19 P19-05, ADR-050).
+    image: ${MONEY_IMAGE_REPO:-robermar2/my-money}:${MONEY_IMAGE_TAG:-latest}
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -147,7 +148,8 @@ services:
     profiles: ["prod"]
     # Same published image as `app` (shared codebase, different entrypoint via the
     # `command` below). Pin with MONEY_IMAGE_TAG in .env; defaults to `latest`.
-    image: robermar2/my-money:${MONEY_IMAGE_TAG:-latest}
+    # MONEY_IMAGE_REPO overrides the repository for both services at once.
+    image: ${MONEY_IMAGE_REPO:-robermar2/my-money}:${MONEY_IMAGE_TAG:-latest}
     restart: unless-stopped
     # Mirror package.json's `worker` script: `--import tsx` for TS, and
     # `--import ./scripts/loaders/register.mjs` to stub Next's `server-only`
