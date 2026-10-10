@@ -4,10 +4,10 @@ import { describe, expect, it } from "vitest";
 import { payeeKey } from "./payee-key.ts";
 
 /**
- * Real-shaped payee strings, taken verbatim from the checking-account screenshot
- * in [checking-transactions.png](../../../plans/features/checking-transactions.png).
- * These are what a real bank actually emits, which is the only thing worth
- * testing a normalizer against.
+ * Real-shaped payee strings: the shapes a real bank register emits (truncated
+ * descriptors, trailing account numbers, processor separators, embedded dates),
+ * which is the only thing worth testing a normalizer against. The values are
+ * synthetic; never paste a line from a real statement here (CONTRIBUTING.md).
  */
 const REAL_PAYEES = [
   "DEPOSIT - DETAIL NOT YET AVAILABLE",

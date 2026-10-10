@@ -29,7 +29,7 @@ You are an expert TypeScript developer working on **my-money**, a self-hosted, s
 
 **Reference architecture** (read-only inspiration, do NOT copy code from):
 
-- `E:\AntiGravityCode\maybe` — Maybe Finance (Rails). Study its domain model, sync orchestration, and balance-snapshot pattern. Never copy Ruby into this project. Never assume "Maybe does X, so we should too" — Maybe made stack choices we explicitly rejected.
+- A local, read-only clone of Maybe Finance (Rails), kept outside this repository. Study its domain model, sync orchestration, and balance-snapshot pattern. Never copy Ruby into this project. Never assume "Maybe does X, so we should too" — Maybe made stack choices we explicitly rejected.
 
 ## Code Style & Structure
 ### TypeScript Defaults

@@ -22,7 +22,7 @@ function entries(): { heading: string; body: string }[] {
   for (let i = 1; i < parts.length; i += 2) {
     const heading = parts[i] ?? "";
     // Section headings inside a release, not releases themselves.
-    if (/^### (Added|Changed|Fixed|Removed|Upgrade notes)$/.test(heading)) continue;
+    if (/^### (Added|Changed|Fixed|Removed|Security|Upgrade notes)$/.test(heading)) continue;
     if (heading === "## Before 0.19.0") continue;
     out.push({ heading, body: parts[i + 1] ?? "" });
   }

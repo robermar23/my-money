@@ -54,8 +54,8 @@ function series(
  */
 function realisticHistory(): DetectionTransaction[] {
   return [
-    // The mortgage — deliberately UNCATEGORIZED, exactly as it appears in the
-    // real checking-account screenshot. Detection must not depend on the user
+    // The mortgage — deliberately UNCATEGORIZED, as it is in a real bank feed
+    // before the user has touched it. Detection must not depend on the user
     // having categorized anything.
     ...series(
       { name: "Pinecrest Mortgag Mortgage", amount: "-2481.37" },

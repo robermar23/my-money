@@ -22,3 +22,9 @@ plans
 docs
 README.md
 *.md
+
+# Tests and their fixtures never ship. The runtime stage copies src/ whole, so
+# without these lines every test file and fixture lands in the published image.
+**/*.test.ts
+**/*.test.tsx
+**/__fixtures__

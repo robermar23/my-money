@@ -1,6 +1,6 @@
 # my-money — SKILLS
 
-> Curated list of skills from `C:\Users\Robert\AppData\Roaming\Antigravity\skills\skills\` that apply to
+> Curated list of skills from the author's local skills library that apply to
 > designing, building, testing, and securing my-money. Filtered against the locked ADRs in
 > [IDEAS.md](IDEAS.md) and the guardrails in [../../CLAUDE.md](../../CLAUDE.md).
 >
@@ -143,7 +143,7 @@ More automation means more code running unattended at 3 a.m. with nobody watchin
 | 🆕 `redis-cli` | Inspecting and debugging BullMQ queues directly — stuck jobs, orphaned repeatable-job keys, backlog inspection |
 | 🆕 `database-migrations-sql-migrations` | Rollback plans and safe column changes. Directly reinforces CLAUDE.md's "never `drop column` without a paired data backup step" |
 | 🆕 `codebase-audit-pre-push` | Occasional deep sweep for junk files, dead code, and stray secrets before a push. Heavier than `code-reviewer` — use sparingly |
-| 🆕 `privacy-mask` | Redacts balances, account numbers, and PII from **screenshots** via OCR. The right tool before pasting a UI screenshot into any bug report, issue, or forum post. Note `plans/features/checking-transactions.png` already lives in the repo |
+| 🆕 `privacy-mask` | Redacts balances, account numbers, and PII from **screenshots** via OCR. The right tool before pasting a UI screenshot into any bug report, issue, or forum post. A screenshot of the author's real register was once committed here and had to be purged from history before publication |
 | 🆕 `performance-profiling` | Measurement discipline before optimizing — CLAUDE.md §Performance opens with "profile before optimizing" |
 | 🆕 `personal-tool-builder` | Framing, not implementation: scratch-your-own-itch scope discipline. Genuinely useful as a counterweight when the automation push starts inventing features nobody asked for |
 | 🆕 `data-storytelling` | Narrative framing for the `advice` and `plan` surfaces — turning computed numbers into a sentence a family member acts on. Copy/UX only; the math stays deterministic |

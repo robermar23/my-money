@@ -50,3 +50,6 @@ test-results/
 # age backup identity — the PRIVATE key must NEVER live in the repo (ADR-014)
 *.key
 money-backup.key
+
+# Private PII denylist for no-pii.test.ts; holds real strings, NEVER commit it
+.pii-denylist
