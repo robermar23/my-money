@@ -4,7 +4,7 @@
 
 I want to expand the analysys and auto categortization features of my-money
 
-See plans/features/checking-transactions.png
+See the screenshot of my checking register (removed from the repository before publication).
 
 Notice most items are not categorized.
 

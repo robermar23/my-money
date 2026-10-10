@@ -171,6 +171,16 @@ it is otherwise.
   and webhooks are signature-verified and idempotent.
 - **Never drop a column without a backup step.** Historical financial data is
   the whole product.
+- **Never commit real financial data.** No real statement, export, screenshot,
+  account number or payee line, not even in a test. Fixtures are synthetic by
+  construction and live in `src/lib/importers/*/__fixtures__/`; a test that needs
+  a real-world shape gets an invented value with the same shape. A screenshot
+  for the docs comes from the demo household (`make seed-demo`), never from a
+  real instance. [no-pii.test.ts](src/lib/instance/no-pii.test.ts) fails the
+  build on a statement file or image outside the fixtures and on an
+  account-number-shaped digit run; it also checks an optional private denylist
+  (`.pii-denylist`, git-ignored, or `MONEY_PII_DENYLIST`), which is never
+  committed because a published list would publish its contents.
 
 ## Every autumn: next year's contribution limits
 

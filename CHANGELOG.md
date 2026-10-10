@@ -20,6 +20,20 @@ rewritten existing rows.
 came before, one per phase, summarized from the README's history. They were
 never tagged, and their dates are when each phase finished.
 
+## [Unreleased]
+
+**Migrations:** `0027_jazzy_matthew_murdock` (unchanged).
+
+### Security
+
+- The Docker image no longer contains test files or test fixtures
+  (`.dockerignore`). Images up to and including 0.19.0 shipped them.
+- Test fixtures that had been taken from a real bank register are replaced with
+  synthetic values of the same shape, and the repository history was rewritten
+  to remove the originals before publication (ADR-055, ADR-056).
+- A new test fails the build on a statement file or image outside the importer
+  fixtures, or an account-number-shaped number that is not visibly synthetic.
+
 ## [0.19.0] - 2026-10-10
 
 Phase 19, *the second operator*: no new money feature. It makes my-money
