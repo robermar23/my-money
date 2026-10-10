@@ -93,6 +93,10 @@ services:
     # §Prerequisites, "Path B" (PLAN19 P19-05, ADR-050).
     image: ${MONEY_IMAGE_REPO:-robermar2/my-money}:${MONEY_IMAGE_TAG:-latest}
     restart: unless-stopped
+    # `exec node server.js`, the image's own CMD, unless MONEY_AUTO_MIGRATE is
+    # exactly "true" — then pending migrations are applied first (PLAN19 P19-21,
+    # ADR-054 §4). Off by default; read scripts/app-start.sh before turning it on.
+    command: ["sh", "./scripts/app-start.sh"]
     environment:
       NODE_ENV: production
       PORT: "4000"
@@ -111,6 +115,9 @@ services:
       # use (PLAN19 P19-10). Same defaults as `image:` above; neither is a secret.
       MONEY_IMAGE_REPO: ${MONEY_IMAGE_REPO:-robermar2/my-money}
       MONEY_IMAGE_TAG: ${MONEY_IMAGE_TAG:-latest}
+      # Opt-in, default off: migrate the database on every app start, unattended
+      # and with no backup step. Settings → Instance warns while it is on.
+      MONEY_AUTO_MIGRATE: ${MONEY_AUTO_MIGRATE:-false}
       # Plaid (Phase 4+). Empty defaults so a manual-only deploy starts fine; the
       # Plaid client validates lazily and only errors when a Plaid feature is
       # actually used (Link, webhook processing, sync jobs). PLAID_WEBHOOK_URL is

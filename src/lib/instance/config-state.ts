@@ -70,6 +70,12 @@ export interface InstanceConfigState {
    * `src/lib/auth/session.ts` makes. The cookie is then only sent over HTTPS.
    */
   readonly sessionCookieSecure: boolean;
+  /**
+   * `MONEY_AUTO_MIGRATE` is exactly `"true"` — the same strict comparison
+   * `scripts/app-start.sh` makes before it migrates on start (P19-21). Set on
+   * the `app` container only, so the worker's own report always says `false`.
+   */
+  readonly autoMigrate: boolean;
 }
 
 const DEFAULT_BACKUP_DIR = "/backups";
@@ -116,5 +122,6 @@ export function instanceConfigState(
       webhookUrlSet: present(env.PLAID_WEBHOOK_URL),
     },
     sessionCookieSecure: env.SESSION_COOKIE_SECURE === "true",
+    autoMigrate: env.MONEY_AUTO_MIGRATE === "true",
   };
 }

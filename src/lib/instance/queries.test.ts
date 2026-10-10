@@ -42,6 +42,7 @@ const workerConfig = {
   email: { smtpSet: false, recipientSet: false },
   plaid: { env: "sandbox", clientIdSet: false, secretSet: false, webhookUrlSet: false },
   sessionCookieSecure: false,
+  autoMigrate: false,
 };
 
 async function reset(): Promise<void> {

@@ -24,6 +24,7 @@ const config = {
   email: { smtpSet: false, recipientSet: false },
   plaid: { env: "unset", clientIdSet: false, secretSet: false, webhookUrlSet: false },
   sessionCookieSecure: false,
+  autoMigrate: false,
 } as const;
 
 const base: InstanceState = {
@@ -64,7 +65,15 @@ describe("/settings/instance", () => {
     });
     expect(html).toContain("The database is at 0025_charming_invaders");
     expect(html).toContain("this image expects 0027_jazzy_matthew_murdock");
+    expect(html).toContain("scripts/prod.sh migrate");
     expect(html).toContain("docs/DEPLOY.md");
+  });
+
+  it("warns while MONEY_AUTO_MIGRATE is on, and says it is off otherwise (P19-21)", async () => {
+    expect(await render(base)).toContain("Migrations run only when you run them");
+    const html = await render({ ...base, app: { ...config, autoMigrate: true } });
+    expect(html).toContain("On (MONEY_AUTO_MIGRATE)");
+    expect(html).toContain("without taking a backup first");
   });
 
   it("still renders when Redis and the database are unavailable", async () => {

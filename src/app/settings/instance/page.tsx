@@ -147,16 +147,35 @@ function ReleaseSection({ state }: { readonly state: InstanceState }): React.JSX
         }
       />
       <MigrationRow status={state.migrations} />
+      <AutoMigrateRow on={state.app.autoMigrate} />
     </Section>
   );
 }
 
 const MIGRATE_NOTE = (
   <>
-    Back up first, then run the migrate step in <code>docs/DEPLOY.md</code> §Updates. The app never
-    migrates on its own.
+    Back up first, then run <code>scripts/prod.sh migrate</code> and restart. The steps are in{" "}
+    <code>docs/DEPLOY.md</code> §Updates.
   </>
 );
+
+/** P19-21: on is a warning, because it trades the backup step for convenience. */
+function AutoMigrateRow({ on }: { readonly on: boolean }): React.JSX.Element {
+  return on ? (
+    <Row
+      label="Automatic migration"
+      tone="warn"
+      value="On (MONEY_AUTO_MIGRATE)"
+      note="The app changes the database schema every time it starts, unattended, without taking a backup first. Recommended: turn it off and migrate by hand after a backup (docs/DEPLOY.md §Updates)."
+    />
+  ) : (
+    <Row
+      label="Automatic migration"
+      value="Off"
+      note="Migrations run only when you run them, which is the recommended setting."
+    />
+  );
+}
 
 function MigrationRow({ status }: { readonly status: Loaded<MigrationStatus> }): React.JSX.Element {
   if (isUnavailable(status)) {

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { instanceConfigState } from "./config-state.ts";
 
@@ -28,6 +29,7 @@ const FULL = {
   BEANCOUNT_DIR: "/exports",
   PLAID_ENV: "production",
   SESSION_COOKIE_SECURE: "true",
+  MONEY_AUTO_MIGRATE: "true",
 };
 
 /** Every string leaf in `value`, depth-first. */
@@ -45,6 +47,7 @@ describe("instanceConfigState", () => {
       email: { smtpSet: false, recipientSet: false },
       plaid: { env: "unset", clientIdSet: false, secretSet: false, webhookUrlSet: false },
       sessionCookieSecure: false,
+      autoMigrate: false,
     });
   });
 
@@ -55,6 +58,7 @@ describe("instanceConfigState", () => {
       email: { smtpSet: true, recipientSet: true },
       plaid: { env: "production", clientIdSet: true, secretSet: true, webhookUrlSet: true },
       sessionCookieSecure: true,
+      autoMigrate: true,
     });
   });
 
@@ -74,6 +78,16 @@ describe("instanceConfigState", () => {
   it("matches the session's strict SESSION_COOKIE_SECURE check", () => {
     expect(instanceConfigState({ SESSION_COOKIE_SECURE: "TRUE" }).sessionCookieSecure).toBe(false);
     expect(instanceConfigState({ SESSION_COOKIE_SECURE: "1" }).sessionCookieSecure).toBe(false);
+  });
+
+  it("reports MONEY_AUTO_MIGRATE on under exactly the value the start script acts on", () => {
+    // scripts/app-start.sh migrates only when the variable is the literal
+    // string "true"; the page must not say "on" for any other spelling.
+    const script = readFileSync("scripts/app-start.sh", "utf8");
+    expect(script).toContain('if [ "${MONEY_AUTO_MIGRATE:-}" = "true" ]; then');
+    expect(instanceConfigState({ MONEY_AUTO_MIGRATE: "true" }).autoMigrate).toBe(true);
+    expect(instanceConfigState({ MONEY_AUTO_MIGRATE: "TRUE" }).autoMigrate).toBe(false);
+    expect(instanceConfigState({ MONEY_AUTO_MIGRATE: "1" }).autoMigrate).toBe(false);
   });
 
   it("falls back to the job's retention default instead of throwing", () => {

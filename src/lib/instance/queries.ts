@@ -90,6 +90,7 @@ const workerConfigSchema = z.object({
     webhookUrlSet: z.boolean(),
   }),
   sessionCookieSecure: z.boolean(),
+  autoMigrate: z.boolean(),
 });
 
 const heartbeatReportSchema = z.object({ config: workerConfigSchema });
