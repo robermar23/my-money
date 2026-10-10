@@ -57,6 +57,11 @@ check to allow `backup_not_configured`; `0027` adds the nullable column
 - **`MONEY_AUTO_MIGRATE`**, off by default and not recommended: applies pending
   migrations when the app starts, unattended and with no backup step. Settings →
   Instance warns while it is on.
+- **`MONEY_TZ`**: the nightly backup (04:00) and Beancount export (04:30) run
+  in your time zone. Prices, snapshots, the Plaid sync and alerts stay on UTC,
+  and every date the app stores stays a UTC date, so no figure moves.
+  Settings → Instance shows the zone in effect and where the UTC day starts in
+  it. [docs/DEPLOY.md §Time zone](docs/DEPLOY.md#time-zone).
 
 ### Changed
 
@@ -65,6 +70,12 @@ check to allow `backup_not_configured`; `0027` adds the nullable column
   sees settings that only the worker container has.
 - The `app` service now starts through `scripts/app-start.sh`, which is
   `exec node server.js` unless `MONEY_AUTO_MIGRATE=true`.
+- Every scheduled job now names its clock in `src/worker/schedule.ts`. The data
+  jobs are pinned to UTC; before, they ran in the container's local time, which
+  was UTC only because nothing set `TZ`. DEPLOY.md used to say *"set the
+  host/container `TZ` accordingly"*. Anyone east of UTC+1:30 who did would have
+  changed which date each price is stored under, and from about UTC+5
+  eastward the "close" stored would have been a mid-session price.
 - [docs/DEPLOY.md §Updates](docs/DEPLOY.md#updates) is now a five-step upgrade
   with the backup inside it, and recommends pinning `MONEY_IMAGE_TAG` to a
   version. `latest` still works and is still the default.
@@ -74,6 +85,9 @@ check to allow `backup_not_configured`; `0027` adds the nullable column
 - **Update `docker/compose.yaml` and the image together.** The new compose file
   starts `app` with `scripts/app-start.sh`, which exists only in images from
   this release on.
+- **If you set `TZ` on the containers yourself**, it now moves only the backup
+  and the Beancount export. The other jobs return to their UTC times. Moving
+  the value to `MONEY_TZ` in `.env` is recommended.
 
 ## Before 0.19.0
 

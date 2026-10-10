@@ -14,7 +14,8 @@ untested backup is not a backup, so **test a restore quarterly** (CLAUDE.md
 
 A BullMQ repeatable job — `backup-database-daily`
 ([src/worker/jobs/backup-database-daily.ts](../src/worker/jobs/backup-database-daily.ts)) —
-runs in the **worker** process at **04:00 local**, after the 03:00 Plaid
+runs in the **worker** process at **04:00 in your time zone** (`MONEY_TZ`, UTC
+when unset; [DEPLOY.md §Time zone](DEPLOY.md#time-zone)), after the 03:00 UTC Plaid
 safety-net sync so the dump captures that day's transactions. It is a BullMQ job,
 not OS cron, so the schedule lives inside the app (CLAUDE.md §Background Jobs).
 

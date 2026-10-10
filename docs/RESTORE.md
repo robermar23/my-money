@@ -8,7 +8,8 @@
 ## Automated nightly backup (ADR-014)
 
 A BullMQ repeatable job (`backup-database-daily`, [src/worker/jobs/backup-database-daily.ts](../src/worker/jobs/backup-database-daily.ts))
-runs in the worker at **04:00 local**, after the 03:00 Plaid safety-net sync so
+runs in the worker at **04:00 in your time zone** (`MONEY_TZ`, UTC when unset), after the
+03:00 UTC Plaid safety-net sync so
 the dump captures that day's transactions. It:
 
 1. Runs `pg_dump --format=custom` and pipes the output **straight into `age`** —

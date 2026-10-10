@@ -418,6 +418,9 @@ What you actually set in `.env` for prod:
   for a manual-only deploy; required once you use Plaid.
 - **`PLAID_WEBHOOK_URL`** — set after the tunnel is up (§4).
 - **`CLOUDFLARED_TOKEN`** — set in §3.
+- **`MONEY_TZ`** (optional, default UTC) — your IANA time zone, such as
+  `America/New_York`. Moves the nightly backup and Beancount export into your
+  night; changes no date or figure. See [§8 Time zone](#time-zone).
 
 Generate the two random secrets:
 
@@ -775,18 +778,21 @@ docker compose -f docker/compose.yaml --profile prod run --rm --no-deps worker \
 
 All jobs are BullMQ repeatable jobs scheduled in
 [src/worker/index.ts](../src/worker/index.ts) — **not OS cron** — so the
-schedule lives inside the app and is visible to the worker on boot. Times are
-the worker container's local time; set the host/container `TZ` accordingly.
+schedule lives inside the app and is visible to the worker on boot. Each job
+names its clock in [src/worker/schedule.ts](../src/worker/schedule.ts): most
+run on **UTC**, and the backup and Beancount export run in **your** time zone
+when you set one (see [Time zone](#time-zone) below; with none set, that is UTC
+too).
 
-| Time  | Job                          | Why this order                                  |
-|-------|------------------------------|-------------------------------------------------|
-| 01:30 | `fetch-prices-daily`         | prices land before holdings are valued          |
-| 01:45 | `materialize-contributions`  | after 01:30's prices, before 02:00's snapshots  |
-| 02:00 | `compute-snapshots-daily`    | values holdings using 01:30's prices            |
-| 03:00 | `enqueue-plaid-syncs-daily`  | safety-net Plaid sync (webhooks are primary)    |
-| 04:00 | `backup-database-daily`      | dump captures the day's synced transactions     |
-| 04:30 | `export-beancount-daily`     | mirror reflects the same data as the 04:00 dump |
-| 05:00 | `detect-anomalies-daily`     | runs last so a failed 04:00 backup is alertable |
+| Time  | Clock | Job                          | Why this order                                  |
+|-------|-------|------------------------------|-------------------------------------------------|
+| 01:30 | UTC   | `fetch-prices-daily`         | after the US close; prices land before valuing  |
+| 01:45 | UTC   | `materialize-contributions`  | after 01:30's prices, before 02:00's snapshots  |
+| 02:00 | UTC   | `compute-snapshots-daily`    | values holdings using 01:30's prices            |
+| 03:00 | UTC   | `enqueue-plaid-syncs-daily`  | safety-net Plaid sync (webhooks are primary)    |
+| 04:00 | yours | `backup-database-daily`      | dump captures the day's synced transactions     |
+| 04:30 | yours | `export-beancount-daily`     | mirror reflects the same data as the 04:00 dump |
+| 05:00 | UTC   | `detect-anomalies-daily`     | after the 04:00 backup, while your zone is UTC  |
 
 Two more jobs run **chained off 02:00** rather than on their own cron, because
 both read `account_snapshots` and a cron that fired first would evaluate
@@ -807,6 +813,56 @@ is how **Settings → Instance** knows the worker is alive and whether backups,
 the Beancount mirror and alert email are configured on it.
 Each job is idempotent (CLAUDE.md §Background Jobs), so a missed or double run is
 safe; BullMQ retries failures with exponential backoff.
+
+### Time zone
+
+Set `MONEY_TZ` in `.env` to your IANA zone name, for example
+`America/New_York` or `Australia/Sydney`, then `scripts/prod.sh restart`.
+Compose passes it to `app` and `worker` as `TZ`. It is read from `MONEY_TZ`
+rather than `TZ` so a `TZ` exported in the host's shell cannot leak in through
+compose. If you already set `TZ` on the containers another way, such as an
+Unraid template or an override file, it still works (it is the same variable
+inside the container), but move it to `MONEY_TZ` so both containers get it
+from one place.
+
+**What it changes: when the backup and the Beancount export run.** They move to
+04:00 and 04:30 in your zone, so "nightly" means your night rather than the
+middle of a Sydney afternoon. The worker re-registers both schedules at start,
+in place, so changing the zone never runs a job twice. A zone the runtime does
+not recognize is ignored: the worker logs it, those two jobs stay on UTC, and
+Settings → Instance shows a warning.
+
+**What it does not change: anything the app computes.** Two things are easy to
+conflate here, and the difference is the whole design:
+
+- **When a job runs.** Only the backup and the export follow your zone. The
+  price fetch, contributions, snapshots, the Plaid safety-net sync and anomaly
+  detection stay at their UTC times, because the price fetch stores Yahoo's
+  *latest* price under the date it runs on. At 01:30 UTC that is the previous
+  US session's close. At 01:30 in Sydney (14:30 or 15:30 UTC) the US market is open, and
+  every stored "close" would really be a mid-session price, permanently.
+- **What date a job computes against.** my-money dates its days in UTC,
+  everywhere: the snapshot written each night, the date a price is stored
+  under, and the date the forms fill in as "today". Setting `MONEY_TZ` changes
+  none of that. A test (`src/lib/schedule/utc-discipline.test.ts`) keeps
+  local-clock date math out of the code, so the zone cannot reach a figure.
+
+**The day boundary, and what it means for you.** Because days are UTC dates,
+your day and the app's day are not the same day unless you live on UTC. In
+Sydney (UTC+10/+11) the app's new day starts at 10:00 or 11:00 local time, so
+the date the balance form suggests before then is still yesterday's, and the
+snapshot labelled with a date was taken during your afternoon. In New York
+(UTC-5/-4) the app's day starts at 19:00 or 20:00 the evening before. Dates
+you type in and dates your bank supplies on transactions are stored exactly as
+given and never shift. Settings → Instance shows where the UTC day starts in
+your zone. A local-midnight day boundary is not offered: it would move the
+anchor under every figure the app has already computed, and it is an open
+design question, not a setting.
+
+One ordering trade-off: with `MONEY_TZ` set, the 05:00 UTC anomaly check no
+longer runs an hour after the backup. A failed backup still writes its
+`backup_failure` alert immediately, but its email can wait for the next
+05:00 UTC run.
 
 ## Updates
 

@@ -36,7 +36,7 @@ BEANCOUNT_DIR=/exports     # a Docker volume; leave empty in dev to skip the job
 
 A BullMQ repeatable job — `export-beancount-daily`
 ([src/worker/jobs/export-beancount-daily.ts](../src/worker/jobs/export-beancount-daily.ts)) —
-runs in the worker at **04:30 local**, right after the 04:00 backup so the
+runs in the worker at **04:30 in your time zone** (`MONEY_TZ`, UTC when unset), right after the 04:00 backup so the
 encrypted dump and the plain-text mirror reflect the same day's data. It writes
 `BEANCOUNT_DIR/money.beancount` **atomically** (temp file → rename), so a reader
 never sees a half-written file. Output is **deterministic**: identical data

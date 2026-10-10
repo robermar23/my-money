@@ -9,8 +9,9 @@
 
 A BullMQ repeatable job — `detect-anomalies-daily`
 ([src/worker/jobs/detect-anomalies-daily.ts](../src/worker/jobs/detect-anomalies-daily.ts)) —
-runs in the worker at **05:00 local**, last in the nightly chain so a failed
-04:00 backup is already alertable. Each pass:
+runs in the worker at **05:00 UTC**, last in the nightly chain so a failed
+04:00 backup is already alertable (while `MONEY_TZ` is unset; see
+[DEPLOY.md §Time zone](DEPLOY.md#time-zone)). Each pass:
 
 1. Loads rule inputs from Postgres and runs the **pure, deterministic rules**
    ([src/lib/alerts/rules.ts](../src/lib/alerts/rules.ts)) — no ML, mirroring the
