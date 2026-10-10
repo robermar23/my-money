@@ -107,6 +107,10 @@ services:
       # `true` only if you reach the app exclusively over HTTPS (e.g. via the
       # Cloudflare tunnel).
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      # Shown on /settings/instance so a support request can quote the image in
+      # use (PLAN19 P19-10). Same defaults as `image:` above; neither is a secret.
+      MONEY_IMAGE_REPO: ${MONEY_IMAGE_REPO:-robermar2/my-money}
+      MONEY_IMAGE_TAG: ${MONEY_IMAGE_TAG:-latest}
       # Plaid (Phase 4+). Empty defaults so a manual-only deploy starts fine; the
       # Plaid client validates lazily and only errors when a Plaid feature is
       # actually used (Link, webhook processing, sync jobs). PLAID_WEBHOOK_URL is

@@ -1,6 +1,9 @@
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  // Next compiles JSX with the automatic runtime; match it so a `.tsx` test can
+  // render a component without importing React (P19-10's page test is the first).
+  esbuild: { jsx: "automatic" },
   resolve: {
     alias: {
       "@": new URL("./src/", import.meta.url).pathname,
