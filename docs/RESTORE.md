@@ -25,8 +25,11 @@ skips. A failed dump throws (BullMQ retries with backoff) and — once the Phase
 
 ### One-time setup: the age keypair
 
+Run it off the server and outside the my-money checkout
+([BACKUP.md](BACKUP.md#1-generate-an-age-keypair--off-this-server) says why):
+
 ```bash
-age-keygen -o money-backup.key
+mkdir -p ~/keys && age-keygen -o ~/keys/money-backup.key
 # Output:
 #   Public key: age1qz...        ← this is BACKUP_AGE_RECIPIENT (safe to keep)
 # The file money-backup.key contains the line AGE-SECRET-KEY-1...  ← the IDENTITY
@@ -113,7 +116,7 @@ You need the encrypted dump (`money-<ts>.dump.age`) and the **age identity**
 2. **Decrypt and restore in one pipe** (plaintext never hits disk):
 
    ```bash
-   age -d -i money-backup.key money-20260607T040000Z.dump.age \
+   age -d -i ~/keys/money-backup.key money-20260607T040000Z.dump.age \
      | pg_restore -U money -d money_new
    ```
 

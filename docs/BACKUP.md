@@ -58,14 +58,27 @@ last successful backup finished and when you last practised a restore
 
 ### 1. Generate an `age` keypair — off this server
 
-Do this on your laptop or a machine that is **not** the home server:
+Do this on your laptop or a machine that is **not** the home server, and **not
+inside your my-money checkout**:
 
 ```bash
-age-keygen -o money-backup.key
+mkdir -p ~/keys && age-keygen -o ~/keys/money-backup.key
 # Output:
 #   Public key: age1qz...        ← this is BACKUP_AGE_RECIPIENT (safe to keep)
 # The file money-backup.key holds the line  AGE-SECRET-KEY-1...  ← the IDENTITY
 ```
+
+> **Why not in the repo directory.** `age-keygen -o money-backup.key` writes to
+> wherever you are standing, and in a checkout that is the repository root. The
+> `*.key` line in `.gitignore` keeps it out of commits, but that is all it does:
+> `git clean -fdx`, deleting the checkout to re-clone it, or a fresh clone on a
+> new laptop all lose an ignored file without a word, and with it every backup
+> you have ever taken. If yours is already there, move it out now (and then to
+> one of the places in step 3):
+>
+> ```bash
+> mv money-backup.key ~/keys/    # from the checkout root
+> ```
 
 ### 2. Put **only the public key** on the server
 
@@ -152,5 +165,5 @@ to clear confirmed import rows if size ever becomes a concern.
 
 ## Recovery
 
-→ [RESTORE.md](RESTORE.md): `age -d -i money-backup.key … | pg_restore`, plus the
+→ [RESTORE.md](RESTORE.md): `age -d -i ~/keys/money-backup.key … | pg_restore`, plus the
 quarterly restore-test discipline.

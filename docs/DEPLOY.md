@@ -710,10 +710,11 @@ The worker runs two longevity jobs nightly (both **opt-in** via env):
 ### 6.1 — Enable encrypted backups (ADR-014)
 
 1. Generate an `age` keypair **off this server** (your laptop / a password
-   manager host):
+   manager host), and outside the my-money checkout
+   ([BACKUP.md](BACKUP.md#1-generate-an-age-keypair--off-this-server) says why):
 
    ```sh
-   age-keygen -o money-backup.key
+   mkdir -p ~/keys && age-keygen -o ~/keys/money-backup.key
    # prints:  Public key: age1qz...   ← the RECIPIENT
    ```
 
