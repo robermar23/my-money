@@ -70,6 +70,21 @@ check to allow `backup_not_configured`; `0027` adds the nullable column
   transactions arrive within a day through the nightly sync. PLAID.md and the
   README also say up front that Plaid production access needs your own
   approval, which is not guaranteed for a personal project.
+- **`make seed-demo`**: a fictional household (a year of transactions, two
+  holdings, a mortgage, a planned expense, a recurring bill) for trying the app
+  before it holds real finances. It **refuses, and writes nothing**, if the
+  database holds any record of its own, and under `NODE_ENV=production` unless
+  `SEED_DEMO_CONFIRM=yes`. [DEPLOY.md §2.0](docs/DEPLOY.md#20--optional-try-it-on-demo-data-first).
+- **Change the password under Settings → Instance**, with the current one.
+  Changing it signs every other browser out. There is still no reset email
+  (ADR-004); a forgotten password is
+  [DEPLOY.md §Forgotten password](docs/DEPLOY.md#forgotten-password).
+- **[docs/FEATURES.md](docs/FEATURES.md)**: every page and the question it
+  answers, one line each. A test fails when a page has no line there.
+- `scripts/figures-parity.ts` (`pnpm parity:figures`): captures every headline
+  figure and compares two versions of the code. This release moves none; the
+  only difference from 0.18 on the demo book is the new `backup_not_configured`
+  alert.
 
 ### Changed
 
@@ -92,6 +107,11 @@ check to allow `backup_not_configured`; `0027` adds the nullable column
 - [docs/DEPLOY.md §Updates](docs/DEPLOY.md#updates) is now a five-step upgrade
   with the backup inside it, and recommends pinning `MONEY_IMAGE_TAG` to a
   version. `latest` still works and is still the default.
+- `postgres_test`, the database the developer test suite uses, no longer starts
+  under `--profile prod`; it sits behind a `dev` profile that `make up` passes.
+- `make db-reset` now also clears planned expenses, budgets and the watchlist.
+- [docs/BACKUP.md](docs/BACKUP.md) generates the `age` identity outside the
+  checkout, and says how to move one that is already there.
 
 ### Upgrade notes
 
@@ -101,6 +121,10 @@ check to allow `backup_not_configured`; `0027` adds the nullable column
 - **If you set `TZ` on the containers yourself**, it now moves only the backup
   and the Beancount export. The other jobs return to their UTC times. Moving
   the value to `MONEY_TZ` in `.env` is recommended.
+- **An install from before 0.19.0 keeps its `postgres_test` container** until
+  you remove it. The app never used it.
+  [DEPLOY.md](docs/DEPLOY.md#the-test-database-installs-from-before-0190) has
+  the two commands. Neither touches the database that holds your data.
 
 ## Before 0.19.0
 
