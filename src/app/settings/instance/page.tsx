@@ -10,6 +10,7 @@ import {
 } from "@/lib/schedule/zone.ts";
 import Link from "next/link";
 import { recordRestoreDrillAction } from "./actions.ts";
+import { PasswordForm } from "./password-form.tsx";
 
 /**
  * `/settings/instance` — what this deployment is configured to do (PLAN19
@@ -18,7 +19,9 @@ import { recordRestoreDrillAction } from "./actions.ts";
  * Answers, on one screen, what a second operator otherwise needs a shell for:
  * which optional subsystems are on, whether the database matches this image,
  * whether the worker is alive, when the last backup ran and when a restore was
- * last practised, and which years of statutory limits are configured.
+ * last practised, and which years of statutory limits are configured. It also
+ * carries the change-password form (P19-33), the one other thing a second
+ * operator needed a shell for.
  *
  * ── Safe to screenshot (ADR-052 §6) ────────────────────────────────────────
  * Configuration and time only. No balance, no account name, no transaction, no
@@ -52,9 +55,8 @@ export default async function InstanceSettingsPage(): Promise<React.JSX.Element>
         </Link>
         <h1 className="mt-2 font-semibold text-2xl tracking-tight">Instance</h1>
         <p className="mt-1 max-w-3xl text-sm text-zinc-500">
-          How this installation is set up, read from its own configuration. Nothing here can be
-          changed from the browser except the restore-drill date; the rest is set in your{" "}
-          <code>.env</code> file.
+          How this installation is set up, read from its own configuration. Only the restore-drill
+          date and the password can be changed here; the rest is set in your <code>.env</code> file.
         </p>
       </div>
 
@@ -73,6 +75,7 @@ export default async function InstanceSettingsPage(): Promise<React.JSX.Element>
       <BackupSection state={state} workerConfig={workerConfig} />
       <SubsystemSection app={state.app} worker={workerConfig} />
       <LimitsSection limits={state.limits} />
+      <PasswordSection />
     </main>
   );
 }
@@ -552,5 +555,24 @@ function LimitsSection({
         }
       />
     </Section>
+  );
+}
+
+/**
+ * P19-33(b): the password, changed with the current one. No reset path: a
+ * forgotten password is still a deleted `users` row (ADR-004), which
+ * docs/DEPLOY.md §Forgotten password spells out for a production stack.
+ */
+function PasswordSection(): React.JSX.Element {
+  return (
+    <section className="mt-8 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+      <h2 className="font-medium">Password</h2>
+      <p className="mt-1 max-w-3xl text-sm text-zinc-500">
+        Changing it signs out every other browser. There is no reset link: if you forget it, delete
+        the user row on the server (<code>docs/DEPLOY.md</code> §Forgotten password) and set a new
+        one at the sign-in page. Your data is kept.
+      </p>
+      <PasswordForm />
+    </section>
   );
 }

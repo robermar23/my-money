@@ -505,6 +505,30 @@ compose env.
 At this point `https://localhost:4000` is reachable from the host. Plaid is
 **not** yet reachable — that's the next step.
 
+### 2.0 — (Optional) Try it on demo data first
+
+Before you hand the app your own finances, you can fill an **empty** instance
+with a fictional household: a year of transactions across checking, savings and
+a card, a brokerage with two holdings, a mortgage, a home, one planned expense,
+one recurring bill and two budgets. Every name and figure is made up.
+
+```sh
+docker compose -f docker/compose.yaml --profile prod run --rm --no-deps   -e SEED_DEMO_CONFIRM=yes worker   node --import tsx --import ./scripts/loaders/register.mjs scripts/seed-demo.ts
+```
+
+It **refuses, and writes nothing**, if the database holds any record of its
+own: an account, a transaction, a planned expense, and so on. It never
+overwrites or merges, so it cannot damage a real book. The image runs with
+`NODE_ENV=production`, which is why `SEED_DEMO_CONFIRM=yes` has to be passed by
+name. The two demo tickers do not exist, so the nightly price fetch logs a
+failure for each and the demo keeps its last seeded price.
+
+**Seed a stack you will throw away.** There is no "remove the demo" command for
+a production stack: when you are ready for real data, delete the stack's volumes
+(`docker compose -f docker/compose.yaml --profile prod down -v`, which
+**destroys everything in it**) and start again from step 1. In a dev checkout,
+`make seed-demo` does the same and `make db-reset` clears it.
+
 ### 2.1 — Verify the health probe (P6-22)
 
 The `app` service has a Docker healthcheck that hits its own `/api/health`
@@ -965,6 +989,34 @@ unaffected. **Settings → Instance** shows the version and image you are runnin
 
 `cloudflared` updates take a connection-cycle (~10s). Plaid retries any
 webhook that misses delivery for 24h, so a brief tunnel restart is safe.
+
+### The test database (installs from before 0.19.0)
+
+Before 0.19.0, `--profile prod` also started `postgres_test`, the database the
+developer test suite uses. The app never used it. It now starts only with
+`--profile dev`, but compose does not remove a container that is already
+running, so an older install keeps it until you remove it:
+
+```sh
+docker stop my-money-postgres_test-1 && docker rm my-money-postgres_test-1
+docker volume rm my-money_postgres_test_data   # holds only test fixtures
+```
+
+Neither command touches the `postgres` service that holds your data.
+
+## Forgotten password
+
+There is no reset email and no recovery question (ADR-004). While you are signed
+in, change the password under **Settings → Instance**; that also signs every
+other browser out. If you have forgotten it, delete the user row. **Your
+financial data is kept**, and the next visit to `/login` sets a new password:
+
+```sh
+docker compose -f docker/compose.yaml --profile prod exec -T postgres   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "DELETE FROM users;"'
+```
+
+Do this promptly, because until a new password is set, anyone who can reach
+`/login` can set it. In a dev checkout the same thing is `make db-reset-password`.
 
 ## Tearing down the tunnel
 

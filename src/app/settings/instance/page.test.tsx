@@ -14,7 +14,10 @@ const loaded = vi.hoisted(() => ({ state: null as unknown }));
 
 vi.mock("@/lib/auth/require-user.ts", () => ({ requireUser: async () => ({ id: "u" }) }));
 vi.mock("@/lib/instance/queries.ts", () => ({ loadInstanceState: async () => loaded.state }));
-vi.mock("./actions.ts", () => ({ recordRestoreDrillAction: async () => {} }));
+vi.mock("./actions.ts", () => ({
+  recordRestoreDrillAction: async () => {},
+  changePasswordAction: async () => ({}),
+}));
 
 const { default: InstanceSettingsPage } = await import("./page.tsx");
 
@@ -130,5 +133,16 @@ describe("/settings/instance", () => {
     // <form> is not valid inside <p>; the browser would split it and React
     // would report a hydration mismatch.
     expect(await render(base)).not.toMatch(/<p[^>]*>(?:(?!<\/p>).)*<form/s);
+  });
+
+  it("offers a password change with three empty fields and no reset path (P19-33)", async () => {
+    const html = await render(base);
+    const fields = html.match(/<input[^>]*type="password"[^>]*>/g) ?? [];
+
+    expect(fields).toHaveLength(3);
+    // Safe to screenshot: nothing is ever pre-filled.
+    for (const field of fields) expect(field).not.toMatch(/\svalue=/);
+    expect(html).toContain("signs out every other browser");
+    expect(html).not.toMatch(/forgot your password|reset email|security question/i);
   });
 });

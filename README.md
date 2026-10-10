@@ -110,7 +110,9 @@ pnpm dev   # → http://127.0.0.1:4000
 pnpm worker
 ```
 
-On the very first visit to `http://127.0.0.1:4000`, you'll be redirected to `/login`. The form's submit button reads **"Set password"** because no user exists yet — whatever you type becomes the only password for this instance. After that, the same page shows **"Sign in"** and verifies. No email, no username, no minimum length, 1-year session. Forgot the password? `make db-reset-password` (it deletes only the `users` row; your data stays) and revisit `/login`.
+On the very first visit to `http://127.0.0.1:4000`, you'll be redirected to `/login`. The form's submit button reads **"Set password"** because no user exists yet — whatever you type becomes the only password for this instance. After that, the same page shows **"Sign in"** and verifies. No email, no username, no minimum length, 1-year session. Change it under **Settings → Instance** (this signs every other browser out). Forgot it? `make db-reset-password` (it deletes only the `users` row; your data stays) and revisit `/login`; a production stack does the same with one `psql` line ([docs/DEPLOY.md §Forgotten password](docs/DEPLOY.md#forgotten-password)).
+
+Want to look around before entering anything real? `make seed-demo` fills an **empty** database with a fictional household: a year of transactions, holdings, a mortgage, a planned expense and a recurring bill. It refuses, and writes nothing, if the database already holds any record of its own. `make db-reset` clears it again.
 
 ---
 
