@@ -41,7 +41,9 @@ make up                        # dev Postgres :5433, test Postgres :5434, Redis 
 ```
 
 `make up` starts a **second** Postgres on `127.0.0.1:5434` with a database named
-`money_test`. The suite applies every migration to it before any test runs, so
+`money_test`. It sits behind the compose `dev` profile, which `make up` passes, so a
+production deploy (`--profile prod`) never starts it; a bare
+`docker compose up` without `--profile dev` will not start it either. The suite applies every migration to it before any test runs, so
 you never migrate it by hand.
 
 ## Getting set up

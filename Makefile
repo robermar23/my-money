@@ -11,6 +11,9 @@
 # never require them (the prod profile fails loudly at runtime if the token is
 # missing).
 COMPOSE := docker compose -f docker/compose.yaml --env-file .env.local
+# The dev stack: the data services plus `postgres_test`, which sits behind the
+# `dev` profile so a production deploy never starts it (PLAN19 P19-33).
+COMPOSE_DEV := $(COMPOSE) --profile dev
 
 # ---------------------------------------------------------------------------
 # Container image publishing (Docker Hub: robermar2/my-money)
@@ -159,18 +162,18 @@ setup:
 
 .PHONY: up
 up:
-	$(COMPOSE) up -d
+	$(COMPOSE_DEV) up -d
 	@echo Dev Postgres on 127.0.0.1:5433, test Postgres on 127.0.0.1:5434, Redis on 127.0.0.1:6380.
 
 .PHONY: down
 down:
-	$(COMPOSE) down
+	$(COMPOSE_DEV) down
 
 .PHONY: nuke
 nuke:
 	@echo About to WIPE all Postgres + Redis data. Ctrl-C within 3 seconds to abort.
 	@node -e "setTimeout(() => {}, 3000)"
-	$(COMPOSE) down -v
+	$(COMPOSE_DEV) down -v
 
 .PHONY: restart
 restart:
@@ -179,7 +182,7 @@ restart:
 
 .PHONY: ps
 ps:
-	$(COMPOSE) ps
+	$(COMPOSE_DEV) ps
 
 .PHONY: logs
 logs:
@@ -191,7 +194,7 @@ psql:
 
 .PHONY: psql-test
 psql-test:
-	$(COMPOSE) exec postgres_test psql -U money -d money_test
+	$(COMPOSE_DEV) exec postgres_test psql -U money -d money_test
 
 .PHONY: redis-cli
 redis-cli:

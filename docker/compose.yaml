@@ -1,13 +1,16 @@
 # Dev compose stack for my-money.
 #
 # Profiles:
-#   - (default) `postgres`, `redis` — for local `pnpm dev` against containerized data services.
-#   - `prod` adds `app` and `worker` services (defined in P0-14) — for running the full
+#   - (default) `postgres`, `redis` — the data services every mode needs.
+#   - `dev` adds `postgres_test`, the Vitest database (PLAN19 P19-33). `make up`
+#     passes it; a production deploy does not, so the test database no longer
+#     starts on the home server.
+#   - `prod` adds `app`, `worker` and `cloudflared` — for running the full
 #     stack from built images, e.g., on the home server.
 #
 # Usage:
-#   docker compose -f docker/compose.yaml up -d            # postgres + redis only
-#   docker compose -f docker/compose.yaml --profile prod up -d  # everything
+#   docker compose -f docker/compose.yaml --profile dev up -d   # dev: postgres + test postgres + redis
+#   docker compose -f docker/compose.yaml --profile prod up -d  # production: everything but the test DB
 #
 # Per ADR-002 and CLAUDE.md: Postgres is NOT exposed to the host network in production.
 # In dev, we publish 5432/6379 to localhost so `pnpm dev` and `drizzle-kit` can reach them.
@@ -44,6 +47,9 @@ services:
   # TEST_DATABASE_URL in .env.local; vitest.setup.ts overrides DATABASE_URL
   # to point here.
   postgres_test:
+    # Dev/test only. Without a profile it also started under `--profile prod`,
+    # with its own volume and RAM, on a Raspberry Pi that never runs the suite.
+    profiles: ["dev"]
     image: postgres:16-alpine
     restart: unless-stopped
     environment:

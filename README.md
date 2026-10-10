@@ -97,8 +97,8 @@ cp .env.example .env.local
 node -e "console.log('SESSION_SECRET=' + require('node:crypto').randomBytes(32).toString('base64'))"
 node -e "console.log('MONEY_ENCRYPTION_KEY=' + require('node:crypto').randomBytes(32).toString('base64'))"
 
-# 3. Start the data services (Postgres + Redis)
-docker compose -f docker/compose.yaml up -d
+# 3. Start the data services (Postgres, the test Postgres, Redis) — or `make up`
+docker compose -f docker/compose.yaml --profile dev up -d
 
 # 4. Apply database migrations
 pnpm db:migrate
@@ -378,8 +378,8 @@ my-money/
 
 ```bash
 # Wipe Postgres + Redis volumes and start fresh
-docker compose -f docker/compose.yaml down -v
-docker compose -f docker/compose.yaml up -d
+docker compose -f docker/compose.yaml --profile dev down -v
+docker compose -f docker/compose.yaml --profile dev up -d
 pnpm db:migrate
 ```
 
