@@ -47,7 +47,12 @@ BUILDER    ?= my-money-builder
 # `recommendation_dismissals` have no FK at all — deliberately (see
 # src/db/schema/household.ts). Without them here a "clean slate" would silently
 # keep the previous household's members and every dismissed recommendation.
-DOMAIN_TABLES := users, accounts, holdings, securities, plaid_items, plaid_sync_runs, webhook_log, account_snapshots, liabilities, prices, alerts, income_sources, household_profile, household_members, recommendation_dismissals
+# `planned_expenses`, `category_budgets` and `watchlist_items` likewise hang off
+# nothing that is truncated here (PLAN19 P19-32 found the first two surviving a
+# reset, which left `make seed-demo` refusing a book that looked empty). With
+# them listed, every table `seed-demo` counts as the household's own records
+# (src/lib/demo/seed.ts BOOK_TABLES) is reached, directly or by CASCADE.
+DOMAIN_TABLES := users, accounts, holdings, securities, plaid_items, plaid_sync_runs, webhook_log, account_snapshots, liabilities, prices, alerts, income_sources, household_profile, household_members, recommendation_dismissals, planned_expenses, category_budgets, watchlist_items
 
 # ---------------------------------------------------------------------------
 # Help (cross-platform; plain @echo lines so cmd.exe + bash both render OK).
@@ -119,6 +124,7 @@ help:
 	@echo   db-reset        Truncate domain tables [keep schema]
 	@echo   db-reset-password  Delete users row -- next /login sets a new password
 	@echo   db-reset-plaid  Delete Plaid Items -- re-link via Plaid Link [keeps accounts]
+	@echo   seed-demo       Fill an EMPTY dev book with a fictional household -- refuses otherwise
 	@echo ----------------------------------------------------------
 	@echo WORKERS [run one job once -- no scheduling]
 	@echo   job-snapshots   Run compute-snapshots-daily once
@@ -372,6 +378,13 @@ db-reset:
 db-reset-password:
 	@echo Deleting users row -- next /login sets a new password.
 	$(COMPOSE) exec -T postgres psql -U money -d money -c "DELETE FROM users;"
+
+# A fictional household for evaluating the app (PLAN19 P19-32). Refuses, and
+# writes nothing, unless the book is empty; refuses under NODE_ENV=production
+# unless SEED_DEMO_CONFIRM=yes. Clear it again with `make db-reset`.
+.PHONY: seed-demo
+seed-demo:
+	pnpm seed:demo
 
 # Stale Plaid Items (INVALID_ACCESS_TOKEN on the map-accounts step) happen when
 # an Item carries a fake/seeded token or was encrypted under a since-rotated
