@@ -210,6 +210,13 @@ describe("evaluateWaterfall — blocking", () => {
     expect(rungs[5]?.reason).toContain("not configured for 2099");
     expect(rungs[5]?.reason).toContain("Last year's ceiling would be the wrong number");
   });
+
+  it("names the missing year and the file that supplies it (ADR-053 §2)", () => {
+    const rungs = evaluateWaterfall(healthy({ today: "2099-07-01", contributionYear: 2099 }));
+
+    expect(rungs[5]?.reason).toContain("add a 2099 row to STATUTORY_LIMITS");
+    expect(rungs[5]?.reason).toContain("src/lib/advice/constants.ts");
+  });
 });
 
 describe("focusRung", () => {
