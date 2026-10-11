@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { addAnchor, fakeLayout, fixtureTour } from "@/__test-support__/tour-layout.ts";
+import { START_TOUR_EVENT, type StartTourDetail } from "@/lib/help/events.ts";
 import type { GlossaryEntry } from "@/lib/help/glossary.ts";
 import type { HelpEntry } from "@/lib/help/types.ts";
 import { act } from "react";
@@ -180,5 +182,55 @@ describe("HelpPanel", () => {
 
     expect(isOpen()).toBe(false);
     expect(document.activeElement).toBe(button);
+  });
+});
+
+describe("HelpPanel › Take the tour (P20-16)", () => {
+  let restoreLayout: () => void;
+
+  beforeEach(() => {
+    restoreLayout = fakeLayout();
+  });
+
+  afterEach(() => {
+    for (const el of document.querySelectorAll("[data-tour]")) el.remove();
+    restoreLayout();
+  });
+
+  function takeTourButton(): HTMLButtonElement | undefined {
+    return [...container.querySelectorAll("button")].find((b) => b.textContent === "Take the tour");
+  }
+
+  it("offers the tour, and taking it closes the panel and starts it", async () => {
+    const tour = fixtureTour("cashflow", ["chart", "table", "gone"]);
+    loaded.entry = { ...ENTRY, tour };
+    addAnchor("chart");
+    addAnchor("table");
+    const started: StartTourDetail[] = [];
+    const onStart = (e: Event): void => {
+      started.push((e as CustomEvent<StartTourDetail>).detail);
+    };
+    window.addEventListener(START_TOUR_EVENT, onStart);
+
+    const button = helpButton();
+    button.focus();
+    await act(async () => button.click());
+    await act(async () => takeTourButton()?.click());
+    window.removeEventListener(START_TOUR_EVENT, onStart);
+
+    expect(isOpen()).toBe(false);
+    expect(started).toEqual([{ tour }]);
+    expect(document.activeElement).toBe(button);
+  });
+
+  it("does not offer a tour when fewer than two of its anchors are on the page", async () => {
+    loaded.entry = { ...ENTRY, tour: fixtureTour("cashflow", ["chart", "table"]) };
+    addAnchor("chart");
+    addAnchor("table", true);
+
+    await act(async () => helpButton().click());
+
+    expect(isOpen()).toBe(true);
+    expect(takeTourButton()).toBeUndefined();
   });
 });

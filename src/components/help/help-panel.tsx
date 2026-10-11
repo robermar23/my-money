@@ -1,14 +1,21 @@
 "use client";
 
-import { OPEN_HELP_EVENT, type OpenHelpDetail, isTypingTarget } from "@/lib/help/events.ts";
+import {
+  OPEN_HELP_EVENT,
+  type OpenHelpDetail,
+  isTypingTarget,
+  startTour,
+} from "@/lib/help/events.ts";
 import type { GlossaryEntry } from "@/lib/help/glossary.ts";
 import { loadGlossaryTerms, loadHelpEntry } from "@/lib/help/load.ts";
 import { resolveHelpRoute } from "@/lib/help/resolve.ts";
 import type { HelpRoute } from "@/lib/help/routes.ts";
-import type { HelpEntry } from "@/lib/help/types.ts";
+import { runnableSteps } from "@/lib/help/tour-plan.ts";
+import type { HelpEntry, TourDefinition } from "@/lib/help/types.ts";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { HelpContent } from "./help-content.tsx";
+import { isAnchorVisible } from "./tour-dom.ts";
 
 /**
  * The help panel (PLAN20 P20-05, ADR-058).
@@ -26,6 +33,9 @@ import { HelpContent } from "./help-content.tsx";
  * `usePathname()` picks the entry, so the panel follows client-side navigation,
  * and the entry is loaded lazily by {@link loadHelpEntry}: the bundle carries
  * one nav group's help, not all 33 pages'.
+ *
+ * When the page has a tour that can run on it as it is (P20-13), the panel
+ * offers "Take the tour", which closes the panel and starts it (P20-16).
  */
 
 /** What the panel body shows. */
@@ -35,6 +45,8 @@ type Content =
       readonly kind: "ready";
       readonly entry: HelpEntry;
       readonly terms: readonly GlossaryEntry[];
+      /** The page's tour, when at least two of its steps can run right now. */
+      readonly tour: TourDefinition | null;
     }
   | { readonly kind: "none" };
 
@@ -102,7 +114,10 @@ export function HelpPanel(): React.JSX.Element {
     void (async () => {
       const entry = await loadHelpEntry(route);
       const terms = entry ? await loadGlossaryTerms(entry.terms ?? []) : [];
-      if (current) setContent(entry ? { kind: "ready", entry, terms } : { kind: "none" });
+      if (!current) return;
+      setContent(
+        entry ? { kind: "ready", entry, terms, tour: offeredTour(entry) } : { kind: "none" },
+      );
     })();
     return () => {
       current = false;
@@ -115,6 +130,19 @@ export function HelpPanel(): React.JSX.Element {
     const target = returnFocusRef.current;
     returnFocusRef.current = null;
     if (target?.isConnected) target.focus();
+  };
+
+  /**
+   * Close the panel and start the tour. Focus goes back to whatever opened the
+   * panel first, so the tour returns it there when it ends; the dialog's own
+   * `close` event arrives later and must not take focus from the tour card.
+   */
+  const takeTour = (tour: TourDefinition): void => {
+    const target = returnFocusRef.current;
+    returnFocusRef.current = null;
+    dialogRef.current?.close();
+    if (target?.isConnected) target.focus();
+    startTour(tour);
   };
 
   const title = content.kind === "ready" ? content.entry.title : "Help";
@@ -151,6 +179,9 @@ export function HelpPanel(): React.JSX.Element {
             </button>
           </div>
           <div className="overflow-y-auto px-5 py-4" aria-busy={content.kind === "loading"}>
+            {content.kind === "ready" && content.tour && (
+              <TakeTour tour={content.tour} onTake={takeTour} />
+            )}
             {content.kind === "ready" && (
               <HelpContent entry={content.entry} terms={content.terms} />
             )}
@@ -162,5 +193,28 @@ export function HelpPanel(): React.JSX.Element {
         </div>
       )}
     </dialog>
+  );
+}
+
+/** The entry's tour, if enough of its anchors are on the page to be worth taking. */
+function offeredTour(entry: HelpEntry): TourDefinition | null {
+  const tour = entry.tour;
+  return tour && runnableSteps(tour.steps, isAnchorVisible).length > 0 ? tour : null;
+}
+
+interface TakeTourProps {
+  readonly tour: TourDefinition;
+  readonly onTake: (tour: TourDefinition) => void;
+}
+
+function TakeTour({ tour, onTake }: TakeTourProps): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={() => onTake(tour)}
+      className="mb-4 w-full rounded-md bg-zinc-900 px-3 py-2 font-medium text-sm text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+    >
+      Take the tour
+    </button>
   );
 }
