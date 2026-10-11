@@ -22,7 +22,7 @@ export const ACCOUNTS_HELP: readonly HelpEntry[] = [
             text: [
               "Each row is one account with its type and its ",
               { strong: "latest balance" },
-              ": the newest balance recorded for it, from a bank sync, an import, or your own entry. Cards and loans show as negative, because that is what they add to your net worth.",
+              ": the newest balance recorded for it, from a bank sync, an import, or your own entry, with the day it is for. Cards and loans show as negative, because that is what they add to your net worth.",
             ],
           },
           {
@@ -49,7 +49,7 @@ export const ACCOUNTS_HELP: readonly HelpEntry[] = [
         blocks: [
           {
             kind: "paragraph",
-            text: "This list shows a balance but not its date. Open the account and read its snapshot history to see when it last changed. Alerts tells you when an account's balances stop updating.",
+            text: "An old as-of date on a bank-linked account usually means its connection needs attention; on a manual account it means you have not recorded a balance since. Alerts tells you when a linked account's balances stop updating.",
           },
           {
             kind: "callout",
