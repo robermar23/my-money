@@ -29,3 +29,4 @@ README.md
 **/*.test.ts
 **/*.test.tsx
 **/__fixtures__
+**/__test-support__

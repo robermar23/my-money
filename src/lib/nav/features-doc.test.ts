@@ -1,6 +1,7 @@
 // @vitest-environment node
-import { readFile, readdir } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { pageRoutes } from "@/__test-support__/page-routes.ts";
 import { describe, expect, it } from "vitest";
 import { ALL_NAV_GROUPS, UNNAVIGATED_ROUTES } from "./manifest.ts";
 
@@ -11,7 +12,6 @@ import { ALL_NAV_GROUPS, UNNAVIGATED_ROUTES } from "./manifest.ts";
  */
 
 const DOC = join(process.cwd(), "docs", "FEATURES.md");
-const APP = join(process.cwd(), "src", "app");
 
 /**
  * Sub-steps of a flow that FEATURES.md lists by its entry point, not on their
@@ -26,19 +26,6 @@ const LISTED_BY_PARENT = [
   "/watchlist/<id>",
   "/watchlist/<id>/edit",
 ];
-
-async function pageRoutes(dir: string): Promise<string[]> {
-  const routes: string[] = [];
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) routes.push(...(await pageRoutes(path)));
-    else if (entry.name === "page.tsx") {
-      const rel = relative(APP, dir).split(sep).join("/");
-      routes.push(`/${rel}`.replace(/\[[^\]]+\]/g, "<id>").replace(/\/$/, "") || "/");
-    }
-  }
-  return routes;
-}
 
 /** A route is listed when it appears in backticks, alone or followed by text. */
 function listed(doc: string, route: string): boolean {
@@ -57,7 +44,7 @@ describe("docs/FEATURES.md", () => {
 
   it("lists every page route, apart from steps inside a listed flow", async () => {
     const doc = await readFile(DOC, "utf8");
-    const routes = await pageRoutes(APP);
+    const routes = await pageRoutes();
     expect(routes.length).toBeGreaterThan(30);
     const missing = routes.filter(
       (r) => !UNNAVIGATED_ROUTES.includes(r) && !LISTED_BY_PARENT.includes(r) && !listed(doc, r),

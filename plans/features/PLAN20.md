@@ -99,6 +99,14 @@ These are appended to [IDEAS.md](IDEAS.md) §11 as **ADR-058 → ADR-060**, gate
 - **P20-03** — Move `pageRoutes()` out of [features-doc.test.ts](../../src/lib/nav/features-doc.test.ts) into a shared test helper, and add `src/lib/help/coverage.test.ts`. It checks that **every page route except `UNNAVIGATED_ROUTES` has a help entry**, and that no two entries claim the same pattern. A new page without help then fails CI exactly as a new page missing from the nav does.
 - **P20-04** — **Placeholder entries for all 33 routes**, each with a title, a one-line summary taken from FEATURES.md's question column, and nothing else. This makes the guard pass in the batch that introduces it. The real writing happens in Batch 3, so this batch is reviewable as plumbing.
 
+  **Batch 1 outcome (2026-10-11):**
+  - **The patterns are kept separate from the entries.** [routes.ts](../../src/lib/help/routes.ts) holds `HELP_ROUTES` (33 patterns), and `HelpEntry.route` is typed against it. `resolveHelpRoute()` needs no help text, so P20-05 can resolve a path first and then lazily load one group's content. `helpFor()` in [registry.ts](../../src/lib/help/registry.ts) is the synchronous lookup that P20-02 asked for.
+  - **Matching is per segment, and the pattern with the most literal segments wins**, with no prefix fallback. So `/accounts/new` beats `/accounts/<id>`, and `/accounts/<id>/unknown` resolves to `null` rather than to the account page.
+  - **Content is one module per nav group** (`content/overview.ts` … `content/settings.ts`), so each Batch 3 PR touches one file.
+  - **`pageRoutes()` now lives in `src/__test-support__/page-routes.ts`.** That file is not a `*.test.ts`, so [.dockerignore](../../.dockerignore) gains `**/__test-support__` to keep it out of the image, following the `__fixtures__` precedent.
+  - **`TOUR_ANCHORS` is an empty `as const` list**, so `TourAnchor` is `never` until Batch 5 adds anchors. `GlossaryTermId` is `string` until P20-09 narrows it.
+  - The guard was checked by adding a throwaway `src/app/zz-probe/page.tsx`, which failed it as expected.
+
 ### Batch 2 — The help panel (the `?` everywhere)
 
 - **P20-05** — `src/components/help/help-panel.tsx` (`'use client'`): a right-side drawer on `sm:` and up, and a bottom sheet below `sm:`. It is built on a native `<dialog>` opened with `showModal()`, so the browser handles focus trapping, `Esc`, and inert background. It renders the resolved entry's blocks as **text nodes only**. It loads its entry **lazily**: the registry maps each pattern to a dynamic `import()` of that page's content module, so the client bundle carries one page's help, not all 33. *Skills*: `nextjs-app-router-patterns` (a client island inside the server `AppNav`), `tailwind-patterns` (`dark:` parity with the existing chrome), **`fixing-accessibility`** (labelled dialog, focus returns to the trigger on close, headings in order).
