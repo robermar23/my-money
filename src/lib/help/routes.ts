@@ -9,11 +9,10 @@
  * Every page under `src/app` except `/login` is listed here, and
  * [coverage.test.ts](./coverage.test.ts) fails when a page is missing.
  */
-export const HELP_ROUTES = [
-  // Overview
-  "/",
-  "/alerts",
-  // Accounts
+
+const OVERVIEW = ["/", "/alerts"] as const;
+
+const ACCOUNTS = [
   "/accounts",
   "/accounts/new",
   "/accounts/<id>",
@@ -21,7 +20,9 @@ export const HELP_ROUTES = [
   "/accounts/<id>/import/<id>",
   "/accounts/<id>/import/<id>/preview",
   "/transactions",
-  // Investing
+] as const;
+
+const INVESTING = [
   "/investments",
   "/investments/performance",
   "/investments/forecast",
@@ -30,18 +31,19 @@ export const HELP_ROUTES = [
   "/watchlist/new",
   "/watchlist/<id>",
   "/watchlist/<id>/edit",
-  // Analysis
+] as const;
+
+const ANALYSIS = [
   "/analysis",
   "/analysis/networth",
   "/analysis/category/<id>",
   "/analysis/budgets",
   "/analysis/review",
-  // Planning
-  "/plan",
-  "/plan/cashflow",
-  "/plan/cashflow/review",
-  "/plan/sinking",
-  // Settings
+] as const;
+
+const PLANNING = ["/plan", "/plan/cashflow", "/plan/cashflow/review", "/plan/sinking"] as const;
+
+const SETTINGS = [
   "/settings/categories",
   "/settings/connections",
   "/settings/connections/<id>/map",
@@ -49,6 +51,32 @@ export const HELP_ROUTES = [
   "/settings/household",
   "/settings/income",
   "/settings/instance",
+] as const;
+
+/**
+ * The patterns by nav group. Each group's entries live in one content module,
+ * so the panel loads only the group of the page it is on (P20-05).
+ */
+export const HELP_ROUTE_GROUPS = {
+  overview: OVERVIEW,
+  accounts: ACCOUNTS,
+  investing: INVESTING,
+  analysis: ANALYSIS,
+  planning: PLANNING,
+  settings: SETTINGS,
+} as const;
+
+/** A nav group with its own help content module. */
+export type HelpGroup = keyof typeof HELP_ROUTE_GROUPS;
+
+/** Every pattern, in nav order. */
+export const HELP_ROUTES = [
+  ...OVERVIEW,
+  ...ACCOUNTS,
+  ...INVESTING,
+  ...ANALYSIS,
+  ...PLANNING,
+  ...SETTINGS,
 ] as const;
 
 /** A route pattern with a help entry. */

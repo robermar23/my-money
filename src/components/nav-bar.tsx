@@ -13,6 +13,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useId, useState } from "react";
 import { OPEN_COMMAND_PALETTE_EVENT } from "./command-palette.tsx";
+import { HelpButton } from "./help/help-button.tsx";
 import { NavGroupMenu } from "./nav-group-menu.tsx";
 
 /**
@@ -271,6 +272,8 @@ export function NavBar({ badges }: Props): React.JSX.Element {
           </kbd>
         </button>
 
+        <HelpButton variant="icon" />
+
         {NAV_UTILITIES.map((item) => {
           const current = isCurrent(item, pathname);
           return (
@@ -348,6 +351,7 @@ export function NavBar({ badges }: Props): React.JSX.Element {
               <SearchIcon className="h-4 w-4" />
               Search
             </button>
+            <HelpButton variant="row" onOpen={() => setMobileOpen(false)} />
 
             {NAV_GROUPS.map((group) => {
               const only = group.items.length === 1 ? group.items[0] : undefined;

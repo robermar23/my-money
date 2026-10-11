@@ -1,0 +1,50 @@
+import type { HelpRoute } from "./routes.ts";
+
+/**
+ * Opening the help panel from anywhere (PLAN20 P20-06).
+ *
+ * The panel is mounted once in the chrome, like the ⌘K palette, and opens on a
+ * window event. The `?` buttons and the palette dispatch it, so nothing needs a
+ * prop or a shared store to reach the panel.
+ */
+
+/** Window event that opens the help panel. */
+export const OPEN_HELP_EVENT = "money:open-help";
+
+/** What the open event carries. */
+export interface OpenHelpDetail {
+  /**
+   * Show this pattern's help instead of the current page's. The palette uses
+   * it for a page with an `<id>`, which has no concrete path to navigate to.
+   */
+  readonly route?: HelpRoute;
+}
+
+/**
+ * Open the single mounted help panel.
+ *
+ * @param route - Optional pattern to explain; defaults to the current page.
+ */
+export function openHelp(route?: HelpRoute): void {
+  const detail: OpenHelpDetail = route === undefined ? {} : { route };
+  window.dispatchEvent(new CustomEvent<OpenHelpDetail>(OPEN_HELP_EVENT, { detail }));
+}
+
+/** Form controls where `?` is text, not a shortcut. */
+const TYPING_TAGS: ReadonlySet<string> = new Set(["INPUT", "TEXTAREA", "SELECT"]);
+
+/**
+ * Whether a key event's target is somewhere the user is typing.
+ *
+ * Typing a question mark into a payee search must never open a dialog, so the
+ * `?` shortcut is ignored in inputs, textareas, selects, and contenteditable.
+ *
+ * @param target - The key event's target.
+ * @returns `true` when the key belongs to the field, not to the shortcut.
+ */
+export function isTypingTarget(target: EventTarget | null): boolean {
+  if (target === null || typeof target !== "object") return false;
+  const el = target as { readonly tagName?: unknown; readonly isContentEditable?: unknown };
+  if (el.isContentEditable === true) return true;
+  return typeof el.tagName === "string" && TYPING_TAGS.has(el.tagName.toUpperCase());
+}
