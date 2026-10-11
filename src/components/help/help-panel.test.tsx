@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { GlossaryEntry } from "@/lib/help/glossary.ts";
 import type { HelpEntry } from "@/lib/help/types.ts";
 import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
@@ -16,8 +17,17 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 const nav = vi.hoisted(() => ({ pathname: "/plan/cashflow" }));
 const loaded = vi.hoisted(() => ({ entry: null as HelpEntry | null }));
 
+const LOW_POINT: GlossaryEntry = {
+  term: "Lowest projected balance",
+  means: "The tightest day ahead.",
+  tellsYou: "Move money in before then.",
+};
+
 vi.mock("next/navigation", () => ({ usePathname: () => nav.pathname }));
-vi.mock("@/lib/help/load.ts", () => ({ loadHelpEntry: vi.fn(async () => loaded.entry) }));
+vi.mock("@/lib/help/load.ts", () => ({
+  loadHelpEntry: vi.fn(async () => loaded.entry),
+  loadGlossaryTerms: vi.fn(async (ids: readonly string[]) => (ids.length > 0 ? [LOW_POINT] : [])),
+}));
 
 const { loadHelpEntry } = await import("@/lib/help/load.ts");
 const { HelpButton } = await import("./help-button.tsx");
@@ -112,6 +122,24 @@ describe("HelpPanel", () => {
     expect(dialog?.querySelector("dt")?.textContent).toBe("Low-water date");
     expect(dialog?.querySelector('[role="note"]')?.textContent).toContain("A stale account");
     expect(loadHelpEntry).toHaveBeenCalledWith("/plan/cashflow");
+  });
+
+  it("adds the page's glossary terms and links to related pages", async () => {
+    loaded.entry = {
+      ...ENTRY,
+      terms: ["lowest-projected-balance"],
+      relatedRoutes: ["/settings/household"],
+    };
+    await act(async () => helpButton().click());
+
+    const dialog = q("dialog");
+    const headings = [...(dialog?.querySelectorAll("h3") ?? [])].map((h) => h.textContent);
+    expect(headings).toEqual(["How to read it", "Words on this page", "See also"]);
+    expect([...(dialog?.querySelectorAll("dt") ?? [])].map((d) => d.textContent)).toContain(
+      "Lowest projected balance",
+    );
+    const link = dialog?.querySelector<HTMLAnchorElement>('a[href="/settings/household"]');
+    expect(link?.textContent).toBe("Settings → Household");
   });
 
   it("says calmly that there is no help when the registry has none", async () => {

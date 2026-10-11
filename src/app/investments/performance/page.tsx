@@ -1,3 +1,4 @@
+import { Term } from "@/components/help/term.tsx";
 import { listAccounts } from "@/lib/accounts/queries.ts";
 import { resolveRange } from "@/lib/analytics/range.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
@@ -138,8 +139,16 @@ export default async function PerformancePage(props: PageProps): Promise<React.J
 
       {/* Summary tiles */}
       <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Tile label="Time-weighted return" value={pct(portfolioTwr)} tone={tone(portfolioTwr)} />
-        <Tile label="Money-weighted (XIRR)" value={pct(mwr)} tone={tone(mwr)} />
+        <Tile
+          label={<Term id="time-weighted-return">Time-weighted return</Term>}
+          value={pct(portfolioTwr)}
+          tone={tone(portfolioTwr)}
+        />
+        <Tile
+          label={<Term id="xirr">Money-weighted (XIRR)</Term>}
+          value={pct(mwr)}
+          tone={tone(mwr)}
+        />
         <Tile
           label="Gain / loss"
           value={lastGain?.gain ? Money.fromString(lastGain.gain, CURRENCY).format() : "—"}
@@ -218,7 +227,7 @@ function Tile({
   value,
   tone = "",
 }: {
-  readonly label: string;
+  readonly label: React.ReactNode;
   readonly value: string;
   readonly tone?: string;
 }): React.JSX.Element {

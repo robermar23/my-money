@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import { isTypingTarget } from "./events.ts";
-import { loadHelpEntry } from "./load.ts";
+import { loadGlossaryTerms, loadHelpEntry } from "./load.ts";
 import { HELP_ROUTES } from "./routes.ts";
 
 describe("loadHelpEntry", () => {
@@ -11,6 +11,14 @@ describe("loadHelpEntry", () => {
     for (const route of HELP_ROUTES) {
       expect((await loadHelpEntry(route))?.route, route).toBe(route);
     }
+  });
+});
+
+describe("loadGlossaryTerms", () => {
+  it("returns the named definitions in the entry's order", async () => {
+    const terms = await loadGlossaryTerms(["xirr", "time-weighted-return"]);
+    expect(terms.map((t) => t.term)).toEqual(["Money-weighted (XIRR)", "Time-weighted return"]);
+    expect(await loadGlossaryTerms([])).toEqual([]);
   });
 });
 

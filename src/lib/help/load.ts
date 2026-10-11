@@ -1,3 +1,4 @@
+import type { GlossaryEntry, GlossaryTermId } from "./glossary.ts";
 import { HELP_ROUTE_GROUPS, type HelpGroup, type HelpRoute } from "./routes.ts";
 import type { HelpEntry } from "./types.ts";
 
@@ -43,5 +44,27 @@ export async function loadHelpEntry(route: HelpRoute): Promise<HelpEntry | null>
     return entries.find((entry) => entry.route === route) ?? null;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Load the glossary definitions an entry names, in the entry's order.
+ *
+ * The glossary is its own chunk too, fetched only when the open entry lists
+ * terms, so the chrome never carries every definition.
+ *
+ * @param ids - The entry's `terms`.
+ * @returns The definitions, or an empty list when the chunk fails to load
+ *   (the panel then shows the entry without its terms section).
+ */
+export async function loadGlossaryTerms(
+  ids: readonly GlossaryTermId[],
+): Promise<readonly GlossaryEntry[]> {
+  if (ids.length === 0) return [];
+  try {
+    const { GLOSSARY } = await import("./glossary.ts");
+    return ids.map((id) => GLOSSARY[id]);
+  } catch {
+    return [];
   }
 }

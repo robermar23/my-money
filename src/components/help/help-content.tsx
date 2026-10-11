@@ -1,4 +1,8 @@
+import type { GlossaryEntry } from "@/lib/help/glossary.ts";
 import type { HelpBlock, HelpEntry, HelpText } from "@/lib/help/types.ts";
+import { allDestinations } from "@/lib/nav/resolve.ts";
+import type { Route } from "next";
+import Link from "next/link";
 
 /**
  * Renders one help entry's body (PLAN20 P20-05, ADR-059 §3).
@@ -87,12 +91,83 @@ function Block({ block }: { readonly block: HelpBlock }): React.JSX.Element {
 }
 
 /**
- * The summary and sections of one entry. The panel owns the `<h2>` title, so
- * section headings are `<h3>` and the outline stays in order.
+ * A nav destination's name as the menus show it: "Planning → Cash flow". A
+ * bare item label such as "Overview" is ambiguous on its own.
+ */
+const NAV_LABEL: ReadonlyMap<string, string> = new Map(
+  allDestinations().map((d) => [
+    d.href,
+    d.groupId === "utilities" || d.label === d.groupLabel
+      ? d.label
+      : `${d.groupLabel} → ${d.label}`,
+  ]),
+);
+
+/**
+ * The label for a related page. Every related route is a nav destination
+ * (copy.test.ts checks), so the fallback is never reached in practice.
+ *
+ * @param route - A related route.
+ * @returns Its menu label.
+ */
+export function relatedLabel(route: Route): string {
+  return NAV_LABEL.get(route) ?? route;
+}
+
+/** The words this page uses with a precise meaning. */
+function Terms({ terms }: { readonly terms: readonly GlossaryEntry[] }): React.JSX.Element {
+  return (
+    <section className="space-y-2">
+      <h3 className="font-semibold text-zinc-900 dark:text-zinc-50">Words on this page</h3>
+      <dl className="space-y-3">
+        {terms.map((t) => (
+          <div key={t.term}>
+            <dt className="font-medium text-zinc-900 dark:text-zinc-50">{t.term}</dt>
+            <dd className="mt-0.5">{t.means}</dd>
+            <dd className="mt-0.5">{t.tellsYou}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
+/** Links to the pages the reader is likely to want next. */
+function Related({ routes }: { readonly routes: readonly Route[] }): React.JSX.Element {
+  return (
+    <section className="space-y-2">
+      <h3 className="font-semibold text-zinc-900 dark:text-zinc-50">See also</h3>
+      <ul className="space-y-1">
+        {routes.map((route) => (
+          <li key={route}>
+            <Link
+              href={route}
+              className="underline underline-offset-2 hover:text-zinc-900 dark:hover:text-zinc-50"
+            >
+              {relatedLabel(route)}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * The summary, sections, terms and related pages of one entry. The panel owns
+ * the `<h2>` title, so section headings are `<h3>` and the outline stays in order.
  *
  * @param entry - The entry to render.
+ * @param terms - The glossary definitions `entry.terms` names, already loaded.
  */
-export function HelpContent({ entry }: { readonly entry: HelpEntry }): React.JSX.Element {
+export function HelpContent({
+  entry,
+  terms = [],
+}: {
+  readonly entry: HelpEntry;
+  readonly terms?: readonly GlossaryEntry[];
+}): React.JSX.Element {
+  const related = entry.relatedRoutes ?? [];
   return (
     <div className="space-y-5 text-sm text-zinc-600 leading-relaxed dark:text-zinc-300">
       <p className="text-base text-zinc-800 dark:text-zinc-100">{entry.summary}</p>
@@ -105,6 +180,8 @@ export function HelpContent({ entry }: { readonly entry: HelpEntry }): React.JSX
           ))}
         </section>
       ))}
+      {terms.length > 0 && <Terms terms={terms} />}
+      {related.length > 0 && <Related routes={related} />}
     </div>
   );
 }

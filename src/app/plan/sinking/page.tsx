@@ -1,3 +1,4 @@
+import { Term } from "@/components/help/term.tsx";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { listCategoriesWithGroups } from "@/lib/categories/queries.ts";
 import { loadSinkingFund } from "@/lib/sinking/loader.ts";
@@ -158,7 +159,9 @@ export default async function SinkingFundPage(): Promise<React.JSX.Element> {
                     Per month
                   </th>
                   <th scope="col" className="py-2 text-right font-medium">
-                    Required today
+                    <Term id="required-today" align="end">
+                      Required today
+                    </Term>
                   </th>
                 </tr>
               </thead>

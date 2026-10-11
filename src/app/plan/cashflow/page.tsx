@@ -1,3 +1,4 @@
+import { Term } from "@/components/help/term.tsx";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { loadCashFlow } from "@/lib/cashflow/loader.ts";
 import type { ShortfallClose } from "@/lib/cashflow/shortfall-close.ts";
@@ -231,7 +232,11 @@ function Headline({
   return (
     <section aria-labelledby="headline-heading" className="mt-8">
       <h2 id="headline-heading" className="font-medium text-sm text-zinc-500">
-        {safeToSpend.clampedAtZero ? "Projected shortfall" : "Safe to spend"}
+        {safeToSpend.clampedAtZero ? (
+          "Projected shortfall"
+        ) : (
+          <Term id="safe-to-spend">Safe to spend</Term>
+        )}
       </h2>
 
       {safeToSpend.clampedAtZero ? (

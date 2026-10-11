@@ -1,4 +1,5 @@
 import type { Route } from "next";
+import type { GlossaryTermId } from "./glossary.ts";
 import type { HelpRoute } from "./routes.ts";
 
 /**
@@ -61,10 +62,10 @@ export interface HelpSection {
 }
 
 /**
- * The identifier of a glossary term. A plain string until the glossary lands
- * (P20-09), which narrows it to the glossary's keys.
+ * The identifier of a glossary term: a key of `GLOSSARY` (P20-09), so an entry
+ * naming a term the glossary lacks does not compile.
  */
-export type GlossaryTermId = string;
+export type { GlossaryTermId };
 
 /**
  * Every `data-tour` anchor a tour may point at. Empty until the tours are
@@ -106,7 +107,10 @@ export interface HelpEntry {
   readonly sections: readonly HelpSection[];
   /** Glossary terms worth defining alongside this page. */
   readonly terms?: readonly GlossaryTermId[];
-  /** Other pages the reader is likely to want next. Typed routes, so a dead link does not compile. */
+  /**
+   * Other pages the reader is likely to want next. Typed routes, so a dead link
+   * does not compile; each must also be a nav destination, which supplies its label.
+   */
   readonly relatedRoutes?: readonly Route[];
   readonly tour?: TourDefinition;
 }

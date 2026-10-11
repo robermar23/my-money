@@ -1,7 +1,8 @@
 "use client";
 
 import { OPEN_HELP_EVENT, type OpenHelpDetail, isTypingTarget } from "@/lib/help/events.ts";
-import { loadHelpEntry } from "@/lib/help/load.ts";
+import type { GlossaryEntry } from "@/lib/help/glossary.ts";
+import { loadGlossaryTerms, loadHelpEntry } from "@/lib/help/load.ts";
 import { resolveHelpRoute } from "@/lib/help/resolve.ts";
 import type { HelpRoute } from "@/lib/help/routes.ts";
 import type { HelpEntry } from "@/lib/help/types.ts";
@@ -30,7 +31,11 @@ import { HelpContent } from "./help-content.tsx";
 /** What the panel body shows. */
 type Content =
   | { readonly kind: "loading" }
-  | { readonly kind: "ready"; readonly entry: HelpEntry }
+  | {
+      readonly kind: "ready";
+      readonly entry: HelpEntry;
+      readonly terms: readonly GlossaryEntry[];
+    }
   | { readonly kind: "none" };
 
 export function HelpPanel(): React.JSX.Element {
@@ -94,9 +99,11 @@ export function HelpPanel(): React.JSX.Element {
     }
     let current = true;
     setContent({ kind: "loading" });
-    void loadHelpEntry(route).then((entry) => {
-      if (current) setContent(entry ? { kind: "ready", entry } : { kind: "none" });
-    });
+    void (async () => {
+      const entry = await loadHelpEntry(route);
+      const terms = entry ? await loadGlossaryTerms(entry.terms ?? []) : [];
+      if (current) setContent(entry ? { kind: "ready", entry, terms } : { kind: "none" });
+    })();
     return () => {
       current = false;
     };
@@ -114,14 +121,17 @@ export function HelpPanel(): React.JSX.Element {
 
   return (
     // A click on the backdrop lands on the <dialog> itself; the body is a
-    // child, so clicks inside it never close the panel. Esc is native.
+    // child, so clicks inside it never close the panel. Esc is native. A
+    // "See also" link navigates away, so following one closes the panel too.
     // biome-ignore lint/a11y/useKeyWithClickEvents: the dialog handles Esc natively.
     <dialog
       ref={dialogRef}
       aria-labelledby={titleId}
       onClose={onClose}
       onClick={(e) => {
-        if (e.target === e.currentTarget) dialogRef.current?.close();
+        const target = e.target;
+        const onLink = target instanceof Element && target.closest("a") !== null;
+        if (target === e.currentTarget || onLink) dialogRef.current?.close();
       }}
       className="fixed inset-x-0 top-auto bottom-0 m-0 max-h-[85vh] w-full max-w-none rounded-t-xl border border-zinc-200 bg-white p-0 text-zinc-900 shadow-2xl backdrop:bg-black/40 sm:inset-y-0 sm:right-0 sm:left-auto sm:h-full sm:max-h-none sm:w-96 sm:rounded-none sm:border-y-0 sm:border-r-0 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-50"
     >
@@ -141,7 +151,9 @@ export function HelpPanel(): React.JSX.Element {
             </button>
           </div>
           <div className="overflow-y-auto px-5 py-4" aria-busy={content.kind === "loading"}>
-            {content.kind === "ready" && <HelpContent entry={content.entry} />}
+            {content.kind === "ready" && (
+              <HelpContent entry={content.entry} terms={content.terms} />
+            )}
             {content.kind === "loading" && <p className="text-sm text-zinc-400">Loading…</p>}
             {content.kind === "none" && (
               <p className="text-sm text-zinc-500 dark:text-zinc-400">No help for this page yet.</p>
