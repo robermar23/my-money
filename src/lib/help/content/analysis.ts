@@ -18,7 +18,7 @@ export const ANALYSIS_HELP: readonly HelpEntry[] = [
         blocks: [
           {
             kind: "paragraph",
-            text: "Everything covers the window you pick, across all accounts or one. Income and Expense come from categorized transactions; transfers between your own accounts count as neither. Net is income minus expense.",
+            text: "Everything covers the window you pick, across all accounts or one. Income and Expense come from categorized transactions; transfers between your own accounts count as neither. Net is income minus expense, and Income kept is net as a share of income: what was left after spending.",
           },
           {
             kind: "paragraph",
@@ -48,8 +48,8 @@ export const ANALYSIS_HELP: readonly HelpEntry[] = [
           },
           {
             kind: "callout",
-            tone: "warning",
-            text: "The Savings rate tile here is net divided by income for this window: what was left after spending. The dashboard's savings rate is a different figure, your retirement contributions against gross pay, so the two will not match.",
+            tone: "note",
+            text: "Income kept is not the dashboard's savings rate. That one measures your retirement contributions against gross pay, over a fixed 12 months.",
           },
         ],
       },

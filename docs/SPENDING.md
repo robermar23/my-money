@@ -28,7 +28,8 @@ sh scripts/prod.sh job backfill-categories       # production
 
 ## Spending analysis
 
-`/analysis` shows income, expense, net and savings-rate tiles; spending by
+`/analysis` shows income, expense, net and income-kept tiles (net as a share
+of income, which is not the [savings rate](INCOME.md#the-savings-rate)); spending by
 month, stacked by category, with a net line; a category breakdown; and a
 drill-down per category at `/analysis/category/<id>`. Date range and account
 filters live in the URL, so a view can be bookmarked.

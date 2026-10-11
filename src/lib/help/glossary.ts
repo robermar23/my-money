@@ -87,7 +87,7 @@ export const GLOSSARY = {
     means:
       "On the dashboard: your own payroll retirement contributions over the last 12 months, divided by your yearly gross pay. The employer match is shown beside it, not in it.",
     tellsYou:
-      "Raise it by changing your contribution in Settings → Income. The Analysis page has a tile with the same name that means something else: the share of income left after spending.",
+      "Raise it by changing your contribution in Settings → Income. It is the app's only savings rate; Analysis's Income kept tile is a different figure, the share of income left after spending.",
   },
   "safe-to-spend": {
     term: "Safe to spend",
