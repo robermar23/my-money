@@ -147,9 +147,12 @@ describe("no real financial data in the repository (ADR-056)", () => {
   it("catches a planted account number, image and denylisted string", () => {
     // The scans above pass on a clean tree whether or not they work. Run the
     // same predicates over planted input so a broken regex fails here.
-    const planted = 'name: "WEB XFER TO SAV 48201937465521"';
-    expect([...planted.matchAll(DIGIT_RUN)].map(([run]) => run)).toEqual(["48201937465521"]);
-    expect(isVisiblySynthetic("48201937465521")).toBe(false);
+    // The account number is assembled at runtime: written as one literal, the
+    // digit-run scan above would find it in this very file.
+    const account = ["4820193", "7465521"].join("");
+    const planted = `name: "WEB XFER TO SAV ${account}"`;
+    expect([...planted.matchAll(DIGIT_RUN)].map(([run]) => run)).toEqual([account]);
+    expect(isVisiblySynthetic(account)).toBe(false);
     expect(STATEMENT_OR_IMAGE.test("plans/features/register.png")).toBe(true);
     expect(FIXTURE_DIR.test("plans/features/register.png")).toBe(false);
     expect(FIXTURE_DIR.test("src/lib/importers/csv/__fixtures__/x.csv")).toBe(true);
