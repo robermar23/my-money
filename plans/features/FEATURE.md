@@ -748,7 +748,7 @@ first phase that adds **no capability**. Its subject is the project, not the hou
   by the owner's decision); **enum widening** (ADR-053 §3: one
   migration whenever a real household asks); **auto-migrate by default** (ADR-054 §4);
   **a second aggregator**; **a configurable benchmark**; **a statutory-limits settings UI**;
-  **an in-app tour or onboarding wizard**; **i18n**; and **a plugin system**.
+  **an in-app tour or onboarding wizard** (promoted to scope 2026-10-11, see below and ADR-058); **i18n**; and **a plugin system**.
 - **Two alerts deliberately not added** (ADR-052 §4): no `beancount_not_configured`, because the
   mirror is a longevity hedge over data Postgres still holds; and no `smtp_not_configured`, because
   `/alerts`-only is ADR-015's documented default, and alerting about a missing alert transport
@@ -768,3 +768,35 @@ first phase that adds **no capability**. Its subject is the project, not the hou
   rewrite and acceptance scan are done.
 
 Implemented under **ADR-050 → ADR-054** (IDEAS.md §11 Decision Log) via [PLAN19.md](PLAN19.md).
+
+### 2026-10-11 — In-app help: every page can explain itself, and walk you through itself (in scope)
+
+The owner, on 2026-10-11: *"What we don't have is 'help' or documentation in the app or a guided
+walkthrough for a user they can bring up for each page."* Twenty phases of surface are mapped only
+by the README and `docs/FEATURES.md`, both outside the app.
+
+This **reverses** the 2026-10-10 entry's *"an in-app tour or onboarding wizard"* (out of scope,
+PLAN19 P19-34, *"revisit only if a real second operator reports getting lost"*). It is lifted into
+scope on the same grounds as ADR-018, ADR-030, ADR-036, ADR-039 and ADR-043: **the owner
+explicitly asked**, and this file is where that is recorded.
+
+- **In scope (newly added):**
+  - **A help panel on every authenticated page**, opened by a `?` button in the nav, the `?` key,
+    or ⌘K: what the page shows, how to read it, and what you can do there.
+  - **A glossary** of the app's own vocabulary, with inline definitions where a word confuses.
+  - **Guided tours on twelve pages**, confirmed at the P20-00 gate: Dashboard, Accounts, account
+    detail, import with preview, Transactions, the review queue, Budgets, Plan, Cashflow, Sinking
+    funds, Investments with performance, and Settings → Connections. Offered, never auto-started.
+  - **A getting-started checklist** on the dashboard, derived from existing state and never stored.
+  - **One more critical Playwright flow**: open help and run a tour.
+- **Help stands on its own.** The owner decided at the gate that help never sends the reader to
+  `docs/*.md`, by link or by path. `docs/` stays the operator's layer and stays out of the image.
+- **The invariant: no figure moves.** Help is static text. It never reads the database and never
+  interpolates a balance, a name or a date from the household.
+- **Still out of scope:** third-party help or onboarding SaaS; an AI help assistant; tracking
+  whether a tour was finished; "what's new" pop-ups; video walkthroughs; tour state that follows
+  the login across devices (per-device by the owner's gate decision).
+- **Privacy stance:** net egress change **zero**, asserted by a privacy-egress suite over
+  `src/lib/help` and `src/components/help`.
+
+Implemented under **ADR-058 → ADR-060** (IDEAS.md §11 Decision Log) via [PLAN20.md](PLAN20.md).
