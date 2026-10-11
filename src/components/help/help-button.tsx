@@ -48,6 +48,7 @@ export function HelpButton({ variant, onOpen }: Props): React.JSX.Element {
       onClick={open}
       aria-label="Help for this page"
       aria-keyshortcuts="?"
+      data-help-button=""
       title="Help for this page (?)"
       className="flex h-6 w-6 items-center justify-center rounded-full border border-zinc-300 text-xs text-zinc-500 hover:text-zinc-900 dark:border-zinc-700 dark:hover:text-zinc-50"
     >

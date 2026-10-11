@@ -1,4 +1,5 @@
 import type { HelpRoute } from "./routes.ts";
+import type { TourDefinition } from "./types.ts";
 
 /**
  * Opening the help panel from anywhere (PLAN20 P20-06).
@@ -47,4 +48,24 @@ export function isTypingTarget(target: EventTarget | null): boolean {
   const el = target as { readonly tagName?: unknown; readonly isContentEditable?: unknown };
   if (el.isContentEditable === true) return true;
   return typeof el.tagName === "string" && TYPING_TAGS.has(el.tagName.toUpperCase());
+}
+
+/** Window event that starts a tour on the current page (PLAN20 P20-16). */
+export const START_TOUR_EVENT = "money:start-tour";
+
+/** What the start event carries. */
+export interface StartTourDetail {
+  readonly tour: TourDefinition;
+}
+
+/**
+ * Start a tour in the single mounted tour runner.
+ *
+ * The panel and the first-visit chip both start tours this way; the runner
+ * resolves the steps against the page as it is when the event arrives.
+ *
+ * @param tour - The page's tour.
+ */
+export function startTour(tour: TourDefinition): void {
+  window.dispatchEvent(new CustomEvent<StartTourDetail>(START_TOUR_EVENT, { detail: { tour } }));
 }
