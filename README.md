@@ -28,6 +28,10 @@ it: no telemetry, no analytics, no ads, no third-party AI.
   debt, retirement accounts), a 60-day cash-flow projection with a
   safe-to-spend figure, recurring-bill detection, and sinking funds for
   irregular costs.
+- **Help on every page.** Press `?` on any page for what it is for, how to read
+  it, and why it might look wrong, with a short guided tour on the busiest
+  pages and a getting-started checklist on the dashboard. It is written into
+  the app, so it works offline and never reads your data.
 - **Operations.** Encrypted nightly backups, a plain-text Beancount export,
   rule-based alerts, ⌘K search, and a Settings → Instance page that shows how
   the installation is configured.
@@ -127,6 +131,7 @@ Rollback and the Unraid specifics: [docs/DEPLOY.md §Updates](docs/DEPLOY.md#upd
 | Dashboard, net-worth changes, search | [DASHBOARD.md](docs/DASHBOARD.md), [ATTRIBUTION.md](docs/ATTRIBUTION.md), [SEARCH.md](docs/SEARCH.md) |
 | Alerts and the Beancount export | [ALERTS.md](docs/ALERTS.md), [BEANCOUNT.md](docs/BEANCOUNT.md) |
 | Security | [SECURITY.md](SECURITY.md), [THREAT_MODEL.md](docs/THREAT_MODEL.md) |
+| Writing in-app help for a page | [HELP.md](docs/HELP.md) |
 
 ## Development
 

@@ -2,13 +2,42 @@
 
 Every signed-in page has help: press **`?`**, click the **?** beside Search, or
 pick "Help: *this page*" in ⌘K. This document is for whoever writes or changes
-that help. The full authoring guide (adding a page, adding a tour and its
-anchors) lands with Phase 20's last batch (PLAN20 P20-33); the copy rules below
-apply now.
+that help: how to add it for a new page, the rules its words follow, how to add
+a tour, and what the tests check.
 
 Help is typed data, not Markdown: one module per nav group under
 [src/lib/help/content/](../src/lib/help/content/), and the shared definitions in
-[src/lib/help/glossary.ts](../src/lib/help/glossary.ts).
+[src/lib/help/glossary.ts](../src/lib/help/glossary.ts). It is bundled with the
+app, so it works offline and never reads your data (see
+[What help never does](#what-help-never-does)).
+
+## Adding help for a new page
+
+A new page needs a help entry, and the tests say so: `coverage.test.ts` fails
+until it has one.
+
+1. **List the route** in [routes.ts](../src/lib/help/routes.ts), in its nav
+   group's array, written the way the guard writes it: each dynamic segment
+   becomes `<id>` (`/accounts/<id>/import`). `/login` is the only page without
+   help, because it has no chrome to put a `?` in.
+2. **Write the entry** in that group's module under
+   [content/](../src/lib/help/content/): `route`, a `title` that matches the
+   page's own heading, a one-sentence `summary` (the question the page
+   answers), and `sections`. Use the usual headings: *How to read it*, *What
+   you can do here*, *When it looks wrong*, or *How to fill it in* for a form.
+   Body text is a list of blocks (`paragraph`, `steps`, `definition`,
+   `callout`) whose strings are rendered as text, never as HTML.
+3. **Name the words the page uses** in `terms`, from the
+   [glossary](../src/lib/help/glossary.ts). A term the glossary lacks does not
+   compile. Add a new glossary term only if the page prints those exact words.
+4. **Add `relatedRoutes`** for the pages a reader is likely to want next. Each
+   must be a nav destination, which supplies its label.
+5. **Update the module's header comment** to name the files and docs the entry
+   was written from (copy rule 7).
+6. Run `pnpm test src/lib/help`. The copy guard counts the words and checks the
+   rules below.
+
+An entry with no `tour` is complete. Most pages do not need one.
 
 ## Copy rules (PLAN20 P20-11)
 
@@ -40,6 +69,8 @@ Help is typed data, not Markdown: one module per nav group under
 | [load.test.ts](../src/lib/help/load.test.ts) | An entry filed in the wrong group's module |
 | [anchors.test.ts](../src/lib/help/anchors.test.ts) | A tour step whose `data-tour` anchor is in no page; a `data-tour` no tour uses, written twice, or computed (`data-tour={…}`); a tour with fewer than 3 or more than 6 steps; a step body over two sentences |
 | [checklist.test.ts](../src/lib/help/checklist.test.ts) | A getting-started "Take the tour" link to a page that has no tour; a dollar figure in an item |
+| [privacy-egress.test.ts](../src/lib/help/privacy-egress.test.ts) | Anything help runs importing `@/db`, a package beyond `react`, `react-dom`, `next/link` and `next/navigation`, or a network API; any HTML sink (`dangerouslySetInnerHTML`, `innerHTML`, `eval`); browser storage outside [local-store.ts](../src/lib/help/local-store.ts); a key outside `my-money:help:`; interpolation in the help copy |
+| [e2e/phase20-help.spec.ts](../e2e/phase20-help.spec.ts) | `?`, "Take the tour", every dashboard tour step, and "not offered again" after a reload, in a real browser |
 | The type checker | An entry naming a glossary term that does not exist, or a related link to a route that does not exist |
 
 ## `<Term>`: a definition on the page itself
@@ -53,21 +84,39 @@ labels: the two return tiles on Performance, *Safe to spend* on Cash flow, and
 
 ## Tours
 
-A page's tour is the `tour` field of its help entry. Each step names a
-`data-tour` anchor, which must be listed in `TOUR_ANCHORS`
-([types.ts](../src/lib/help/types.ts)) and written once, as a literal, on the
-element it highlights:
+A tour earns its place on a page that is dense, or whose main figure is easy to
+misread. A form or a list does not need one. A page's tour is the `tour` field
+of its help entry. To add one:
 
-```tsx
-<section data-tour="cashflow-chart">…</section>
-```
+1. **Choose three to six things to point at**, in the order a reader's eye
+   should go. Each step is a short title and a body of at most two sentences.
+2. **Name an anchor for each** in `TOUR_ANCHORS`
+   ([types.ts](../src/lib/help/types.ts)), prefixed with the tour's id
+   (`cashflow-chart`). A step naming an anchor not in that list does not
+   compile.
+3. **Put the anchor on the page**, once, as a literal attribute on the element
+   it highlights:
+
+   ```tsx
+   <section data-tour="cashflow-chart">…</section>
+   ```
+
+4. **Add the tour to the entry**: `{ id, version: 1, steps }`. The id is the
+   page's short name and becomes part of the device's storage key.
+5. **Walk it on demo data** (`make seed-demo`) at desktop and phone widths, in
+   both themes, and run `pnpm test src/lib/help`.
 
 A step whose anchor is not on the page (an empty list, a section hidden at
 phone width) is skipped. A tour with fewer than two steps left is not offered.
 Tours start only from a click: "Take the tour" in the panel, the "New here?"
 chip shown once per device, or a link ending `#tour` (the first-visit chip
-starts that page's tour on arrival and drops the fragment). Bump the tour's `version` to offer it again after
-the page changes. The full authoring guide lands with PLAN20 P20-33.
+starts that page's tour on arrival and drops the fragment). **Bump the tour's
+`version`** to offer it again on devices that have seen it, after the page
+changes enough that the old tour would mislead.
+
+The tour card is keyboard-first. It takes focus on each step and keeps `Tab`
+inside itself. `Esc` ends the tour, and the arrow keys move between steps.
+Under `prefers-reduced-motion` it does not animate its scrolling.
 
 Choosing an anchor, as learned writing the first fourteen tours:
 
@@ -105,3 +154,19 @@ backups. The items live in [checklist.ts](../src/lib/help/checklist.ts).
 - **No settings.** The review-queue target is a constant, `REVIEW_QUEUE_TARGET`.
 - An item links to the page where it is done, and to that page's tour when the
   page has one. Item copy follows the rules above.
+
+## What help never does
+
+- **It never reads your data.** Help is static text bundled with the app. No
+  help module imports the database, and none makes a request: the panel loads
+  its group's text as a script chunk from your own server. That is why help
+  states no figure of yours. It has none to state.
+- **It never writes HTML.** Every string is rendered as text, and emphasis is a
+  typed `{ strong }` span, not markup.
+- **It keeps one kind of state, on your device.** `localStorage` holds a mark
+  per tour (`my-money:help:tour:<id>:v<version>`, set to `seen` or `dismissed`)
+  and one for the checklist (`my-money:help:checklist`, set to `dismissed` or
+  `done`). Nothing is stored on the server, so a second browser offers the tours
+  again. Clearing site data resets them, and that is harmless.
+
+`privacy-egress.test.ts` enforces all three.
