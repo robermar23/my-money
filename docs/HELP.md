@@ -39,6 +39,7 @@ Help is typed data, not Markdown: one module per nav group under
 | [copy.test.ts](../src/lib/help/copy.test.ts) | A placeholder entry; fewer than 150 or more than 300 words; a `docs/` path, `.md` file or URL; a dollar figure; a related link that is not a nav destination; a glossary term that no page prints; a glossary term no entry uses |
 | [load.test.ts](../src/lib/help/load.test.ts) | An entry filed in the wrong group's module |
 | [anchors.test.ts](../src/lib/help/anchors.test.ts) | A tour step whose `data-tour` anchor is in no page; a `data-tour` no tour uses, written twice, or computed (`data-tour={…}`); a tour with fewer than 3 or more than 6 steps; a step body over two sentences |
+| [checklist.test.ts](../src/lib/help/checklist.test.ts) | A getting-started "Take the tour" link to a page that has no tour; a dollar figure in an item |
 | The type checker | An entry naming a glossary term that does not exist, or a related link to a route that does not exist |
 
 ## `<Term>`: a definition on the page itself
@@ -63,8 +64,9 @@ element it highlights:
 
 A step whose anchor is not on the page (an empty list, a section hidden at
 phone width) is skipped. A tour with fewer than two steps left is not offered.
-Tours start only from a click: "Take the tour" in the panel, or the "New here?"
-chip shown once per device. Bump the tour's `version` to offer it again after
+Tours start only from a click: "Take the tour" in the panel, the "New here?"
+chip shown once per device, or a link ending `#tour` (the first-visit chip
+starts that page's tour on arrival and drops the fragment). Bump the tour's `version` to offer it again after
 the page changes. The full authoring guide lands with PLAN20 P20-33.
 
 Choosing an anchor, as learned writing the first fourteen tours:
@@ -84,3 +86,22 @@ Choosing an anchor, as learned writing the first fourteen tours:
 - **Check it on demo data at both widths.** Some steps only exist for some data
   (a mortgage's terms, a connection needing a sign-in); make sure each variant
   still leaves at least two steps.
+
+## The getting-started checklist
+
+The dashboard shows five setup items: add an account, bring in transactions,
+get the review queue under a fixed number, make a rule of your own, switch on
+backups. The items live in [checklist.ts](../src/lib/help/checklist.ts).
+
+- **Derived, never stored.** Each item ticks itself when the thing is done. The
+  facts come from [checklist-facts.ts](../src/lib/dashboard/checklist-facts.ts):
+  the accounts the dashboard already read, three reads that stop at a few rows,
+  and the backup state the Instance page reads. A rule counts as "your own" when
+  its pattern is not one of the default set.
+- **Gone for good.** Dismissing it, or seeing it with everything done, stores
+  `my-money:help:checklist` on that device, and it never comes back, even if an
+  item later slips. On a brand-new install it sits under "Add your first
+  account" and cannot be dismissed.
+- **No settings.** The review-queue target is a constant, `REVIEW_QUEUE_TARGET`.
+- An item links to the page where it is done, and to that page's tour when the
+  page has one. Item copy follows the rules above.
