@@ -1,6 +1,6 @@
 "use client";
 
-import { START_TOUR_EVENT, startTour } from "@/lib/help/events.ts";
+import { START_TOUR_EVENT, TOUR_HASH, startTour } from "@/lib/help/events.ts";
 import { loadHelpEntry } from "@/lib/help/load.ts";
 import { resolveHelpRoute } from "@/lib/help/resolve.ts";
 import { runnableSteps } from "@/lib/help/tour-plan.ts";
@@ -21,7 +21,17 @@ import { isAnchorVisible } from "./tour-dom.ts";
  *
  * The page's help entry is loaded lazily, as the panel does, after the page has
  * painted, so the chip can check the tour's anchors against the real page.
+ *
+ * **A link can ask for the tour** (PLAN20 P20-30): arriving with `#tour` in the
+ * URL, as the getting-started checklist's "Take the tour" links do, starts the
+ * page's tour instead of offering it, whether or not it was seen before. The
+ * click on that link is the click a tour waits for. The fragment is removed so
+ * a reload does not start it again.
  */
+
+/** How long a `#tour` arrival waits for a streamed page to show its anchors. */
+const ASKED_TOUR_WAIT_MS = 3_000;
+const ASKED_TOUR_POLL_MS = 100;
 
 /** Resolve after the browser has laid out the page that just rendered. */
 function afterPaint(): Promise<void> {
@@ -38,6 +48,33 @@ async function offerFor(pathname: string): Promise<TourDefinition | null> {
   return runnableSteps(tour.steps, isAnchorVisible).length > 0 ? tour : null;
 }
 
+/** Whether the page was opened with `#tour`; removes the fragment if so. */
+function takeTourRequest(): boolean {
+  if (window.location.hash !== TOUR_HASH) return false;
+  const { pathname, search } = window.location;
+  window.history.replaceState(null, "", `${pathname}${search}`);
+  return true;
+}
+
+/**
+ * Start this page's tour once its anchors are on the page, giving a streamed
+ * page a few seconds to arrive. Gives up quietly if they never do.
+ */
+async function startAskedTour(pathname: string, isCurrent: () => boolean): Promise<void> {
+  const route = resolveHelpRoute(pathname);
+  const tour = route === null ? undefined : (await loadHelpEntry(route))?.tour;
+  if (!tour) return;
+  for (let waited = 0; waited <= ASKED_TOUR_WAIT_MS; waited += ASKED_TOUR_POLL_MS) {
+    await afterPaint();
+    if (!isCurrent()) return;
+    if (runnableSteps(tour.steps, isAnchorVisible).length > 0) {
+      startTour(tour);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, ASKED_TOUR_POLL_MS));
+  }
+}
+
 export function TourChip(): React.JSX.Element | null {
   const pathname = usePathname();
   const [tour, setTour] = useState<TourDefinition | null>(null);
@@ -45,6 +82,12 @@ export function TourChip(): React.JSX.Element | null {
   useEffect(() => {
     let current = true;
     setTour(null);
+    if (takeTourRequest()) {
+      void startAskedTour(pathname, () => current);
+      return () => {
+        current = false;
+      };
+    }
     void offerFor(pathname).then((offer) => {
       if (current) setTour(offer);
     });

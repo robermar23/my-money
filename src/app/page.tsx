@@ -3,6 +3,7 @@ import { AlertsCard } from "@/components/dashboard/alerts-card.tsx";
 import { AllocationCard } from "@/components/dashboard/allocation-card.tsx";
 import { CashFlowCard } from "@/components/dashboard/cashflow-card.tsx";
 import { FirstRunDashboard } from "@/components/dashboard/first-run.tsx";
+import { GettingStartedCard } from "@/components/dashboard/getting-started-card.tsx";
 import { DASHBOARD_GRID, SPAN_STANDARD, SPAN_WIDE } from "@/components/dashboard/grid.ts";
 import { IncomeCard } from "@/components/dashboard/income-card.tsx";
 import { MoversCard } from "@/components/dashboard/movers-card.tsx";
@@ -12,9 +13,11 @@ import { SavingsRateCard } from "@/components/dashboard/savings-rate-card.tsx";
 import { DashboardSkeleton } from "@/components/dashboard/skeleton.tsx";
 import { SpendCard } from "@/components/dashboard/spend-card.tsx";
 import { requireUser } from "@/lib/auth/require-user.ts";
+import { accountFacts, loadBookFacts } from "@/lib/dashboard/checklist-facts.ts";
 import type { RangeDelta } from "@/lib/dashboard/delta.ts";
 import { loadDashboard } from "@/lib/dashboard/loader.ts";
 import { parseDashboardRange } from "@/lib/dashboard/range.ts";
+import { gettingStarted } from "@/lib/help/checklist.ts";
 import { Money } from "@/lib/money/money.ts";
 import Link from "next/link";
 import { Suspense } from "react";
@@ -80,15 +83,23 @@ async function DashboardBody({
 }): Promise<React.JSX.Element> {
   const search = (await searchParams) ?? {};
   const range = parseDashboardRange(search.range);
-  const data = await loadDashboard(range);
+  // The checklist's facts (PLAN20 P20-30) are read beside the loader, not inside
+  // it: they are about the book's setup, not figures the cards show.
+  const [data, bookFacts] = await Promise.all([loadDashboard(range), loadBookFacts()]);
+  const checklist = gettingStarted({
+    ...bookFacts,
+    ...accountFacts(data.hasAnyAccount ? data.netWorth.accounts : []),
+  });
 
   // Brand-new install: one instruction beats seven empty cards (P13-16).
-  if (!data.hasAnyAccount) return <FirstRunDashboard />;
+  if (!data.hasAnyAccount) return <FirstRunDashboard checklist={checklist} />;
 
   const { netWorth } = data;
 
   return (
     <>
+      <GettingStartedCard items={checklist} />
+
       {/* Net-worth hero (full width) */}
       <div
         data-tour="dashboard-net-worth"

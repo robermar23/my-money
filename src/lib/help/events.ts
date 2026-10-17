@@ -50,6 +50,13 @@ export function isTypingTarget(target: EventTarget | null): boolean {
   return typeof el.tagName === "string" && TYPING_TAGS.has(el.tagName.toUpperCase());
 }
 
+/**
+ * The URL fragment that asks for a page's tour (PLAN20 P20-30). A link to
+ * `/analysis/review#tour` opens the page with its tour running; the first-visit
+ * chip, mounted on every page, acts on it and then removes it.
+ */
+export const TOUR_HASH = "#tour";
+
 /** Window event that starts a tour on the current page (PLAN20 P20-16). */
 export const START_TOUR_EVENT = "money:start-tour";
 

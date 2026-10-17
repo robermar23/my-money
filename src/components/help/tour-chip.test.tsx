@@ -123,4 +123,40 @@ describe("TourChip", () => {
     await renderChip();
     expect(chipButton()).toBeUndefined();
   });
+
+  // PLAN20 P20-30: the checklist's "Take the tour" links arrive with #tour.
+  describe("arriving with #tour", () => {
+    afterEach(() => window.history.replaceState(null, "", "/"));
+
+    it("starts the tour, even one already seen, and drops the fragment", async () => {
+      localStorage.setItem("my-money:help:tour:cashflow:v1", "seen");
+      window.history.replaceState(null, "", "/plan/cashflow?x=1#tour");
+      const started: StartTourDetail[] = [];
+      const onStart = (e: Event): void => {
+        started.push((e as CustomEvent<StartTourDetail>).detail);
+      };
+      window.addEventListener(START_TOUR_EVENT, onStart);
+      await renderChip();
+      window.removeEventListener(START_TOUR_EVENT, onStart);
+
+      expect(started).toEqual([{ tour: TOUR }]);
+      expect(window.location.hash).toBe("");
+      expect(window.location.search).toBe("?x=1");
+      expect(chipButton()).toBeUndefined();
+    });
+
+    it("waits for anchors that stream in after the page paints", async () => {
+      for (const el of document.querySelectorAll("[data-tour]")) el.remove();
+      window.history.replaceState(null, "", "/plan/cashflow#tour");
+      const started = vi.fn();
+      window.addEventListener(START_TOUR_EVENT, started);
+      await renderChip();
+      expect(started).not.toHaveBeenCalled();
+      addAnchor("chart");
+      addAnchor("table");
+      await act(async () => new Promise((resolve) => setTimeout(resolve, 250)));
+      window.removeEventListener(START_TOUR_EVENT, started);
+      expect(started).toHaveBeenCalledTimes(1);
+    });
+  });
 });
