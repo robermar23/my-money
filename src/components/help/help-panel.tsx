@@ -172,8 +172,9 @@ export function HelpPanel(): React.JSX.Element {
             <button
               type="button"
               onClick={() => dialogRef.current?.close()}
-              aria-label="Close help"
-              className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-zinc-400 ring-1 ring-zinc-200 ring-inset hover:text-zinc-700 dark:ring-zinc-700 dark:hover:text-zinc-200"
+              aria-label="Close help (Esc)"
+              aria-keyshortcuts="Escape"
+              className="flex min-h-6 min-w-6 shrink-0 items-center justify-center rounded px-1.5 text-[10px] text-zinc-600 ring-1 ring-zinc-300 ring-inset hover:text-zinc-900 dark:text-zinc-400 dark:ring-zinc-700 dark:hover:text-zinc-200"
             >
               Esc
             </button>

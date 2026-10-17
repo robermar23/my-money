@@ -292,7 +292,7 @@ function TourStepView({ run, onStep, onEnd }: StepViewProps): React.JSX.Element 
           <button
             type="button"
             onClick={onEnd}
-            className="text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-50"
+            className="py-1 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
           >
             Skip tour
           </button>

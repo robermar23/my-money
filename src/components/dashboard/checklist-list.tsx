@@ -28,7 +28,11 @@ export function ChecklistList({
             {item.done ? "✓" : null}
           </span>
           <div className="min-w-0 text-sm">
-            <p className={item.done ? "text-zinc-500 line-through" : "font-medium"}>
+            <p
+              className={
+                item.done ? "text-zinc-500 line-through dark:text-zinc-400" : "font-medium"
+              }
+            >
               {item.done || item.href === null ? (
                 item.title
               ) : (
@@ -39,7 +43,7 @@ export function ChecklistList({
               <span className="sr-only">{item.done ? " (done)" : " (to do)"}</span>
             </p>
             {item.done ? null : (
-              <p className="mt-0.5 text-zinc-500">
+              <p className="mt-0.5 text-zinc-500 dark:text-zinc-400">
                 {item.detail}
                 {item.tourHref === null ? null : (
                   <>

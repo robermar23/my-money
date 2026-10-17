@@ -137,7 +137,7 @@ function Related({ routes }: { readonly routes: readonly Route[] }): React.JSX.E
   return (
     <section className="space-y-2">
       <h3 className="font-semibold text-zinc-900 dark:text-zinc-50">See also</h3>
-      <ul className="space-y-1">
+      <ul className="space-y-2">
         {routes.map((route) => (
           <li key={route}>
             <Link

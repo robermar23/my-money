@@ -120,7 +120,7 @@ export function TourChip(): React.JSX.Element | null {
           markDismissed(tour);
           setTour(null);
         }}
-        className="px-2 py-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+        className="px-2 py-1 text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
       >
         <span aria-hidden="true">×</span>
       </button>

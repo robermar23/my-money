@@ -177,7 +177,7 @@ describe("HelpPanel", () => {
     await act(async () => button.click());
     expect(isOpen()).toBe(true);
 
-    const close = q<HTMLButtonElement>('button[aria-label="Close help"]');
+    const close = q<HTMLButtonElement>('button[aria-label="Close help (Esc)"]');
     await act(async () => close?.click());
 
     expect(isOpen()).toBe(false);

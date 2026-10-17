@@ -41,7 +41,7 @@ export function GettingStartedCard({ items }: Props): React.JSX.Element | null {
           <h2 id="getting-started-heading" className="font-medium text-sm">
             Getting started
           </h2>
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-zinc-500 dark:text-zinc-400">
             {done} of {items.length} done. This goes away once they all are.
           </p>
         </div>
@@ -52,7 +52,7 @@ export function GettingStartedCard({ items }: Props): React.JSX.Element | null {
             closeChecklist("dismissed");
             setOpen(false);
           }}
-          className="-mt-1 -mr-1 flex h-8 w-8 items-center justify-center rounded text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
+          className="-mt-1 -mr-1 flex h-8 w-8 items-center justify-center rounded text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200"
         >
           <span aria-hidden="true">×</span>
         </button>
