@@ -34,6 +34,26 @@ interface Run {
 /** Space between the anchor and the edge of the spotlight's hole. */
 const SPOTLIGHT_PAD = 6;
 
+/** An anchor taller than this share of the screen is scrolled to its top, not its middle. */
+const TALL_SHARE = 0.6;
+
+/**
+ * Whether the docked card (below `sm:`) goes to the top of the screen.
+ *
+ * It docks to the bottom unless that would cover the anchor and the page cannot
+ * scroll any further to lift it clear, which is where the last anchors on a page
+ * sit. Asking "is the page at its end?" rather than "is the anchor low?" keeps
+ * the card from jumping sides while the page is still scrolling to the anchor.
+ */
+function dockAtTop(box: Box | null, cardHeight: number): boolean {
+  if (box === null) return false;
+  const viewport = window.innerHeight;
+  const atEnd = window.scrollY + viewport >= document.documentElement.scrollHeight - SPOTLIGHT_PAD;
+  const coversAnchor = box.top + box.height + SPOTLIGHT_PAD > viewport - cardHeight;
+  const fitsAbove = box.top - SPOTLIGHT_PAD >= cardHeight;
+  return atEnd && coversAnchor && fitsAbove;
+}
+
 /** The anchor's box now, or `null` when it has left the page. */
 function measure(step: TourStep): Box | null {
   const rect = findAnchor(step.anchor)?.getBoundingClientRect();
@@ -112,16 +132,28 @@ function TourStepView({ run, onStep, onEnd }: StepViewProps): React.JSX.Element 
     [index, steps.length, onStep, onEnd],
   );
 
-  // Bring the anchor into view and the card into focus, once per step.
+  // Bring the anchor into view, once per step. One taller than most of the
+  // screen is scrolled to its top, so its heading shows rather than its middle.
   useEffect(() => {
-    findAnchor(step.anchor)?.scrollIntoView?.({
-      block: "center",
+    const anchor = findAnchor(step.anchor);
+    const tall = (anchor?.getBoundingClientRect().height ?? 0) > window.innerHeight * TALL_SHARE;
+    anchor?.scrollIntoView?.({
+      block: tall ? "start" : "center",
       inline: "nearest",
       behavior: prefersReducedMotion() ? "auto" : "smooth",
     });
     setBox(measure(step));
-    cardRef.current?.focus({ preventScroll: true });
   }, [step]);
+
+  // Focus the card once per step, but only once it is shown: until it is
+  // placed it is `visibility: hidden`, and a hidden element cannot take focus.
+  const focusedRef = useRef<TourStep | null>(null);
+  const shown = docked || placement !== null;
+  useEffect(() => {
+    if (!shown || focusedRef.current === step) return;
+    focusedRef.current = step;
+    cardRef.current?.focus({ preventScroll: true });
+  }, [shown, step]);
 
   // Follow the anchor through scrolling and resizing, at most once a frame.
   useEffect(() => {
@@ -204,6 +236,7 @@ function TourStepView({ run, onStep, onEnd }: StepViewProps): React.JSX.Element 
     width: box.width + SPOTLIGHT_PAD * 2,
     height: box.height + SPOTLIGHT_PAD * 2,
   };
+  const top = docked && dockAtTop(box, cardRef.current?.offsetHeight ?? 0);
   const position: React.CSSProperties = docked
     ? {}
     : placement
@@ -241,9 +274,11 @@ function TourStepView({ run, onStep, onEnd }: StepViewProps): React.JSX.Element 
         onKeyDown={onCardKeyDown}
         style={position}
         className={`fixed z-50 m-0 border-zinc-200 bg-white p-4 text-zinc-900 shadow-2xl outline-none dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-50 ${
-          docked
-            ? "inset-x-0 top-auto bottom-0 w-full max-w-none rounded-t-xl border-t"
-            : "right-auto bottom-auto w-80 rounded-lg border"
+          top
+            ? "inset-x-0 top-0 bottom-auto w-full max-w-none rounded-b-xl border-b"
+            : docked
+              ? "inset-x-0 top-auto bottom-0 w-full max-w-none rounded-t-xl border-t"
+              : "right-auto bottom-auto w-80 rounded-lg border"
         }`}
       >
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
