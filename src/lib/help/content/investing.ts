@@ -61,6 +61,37 @@ export const INVESTING_HELP: readonly HelpEntry[] = [
     ],
     terms: ["allocation", "cost-basis"],
     relatedRoutes: ["/investments/performance", "/investments/forecast"],
+    tour: {
+      id: "investments",
+      version: 1,
+      steps: [
+        {
+          anchor: "investments-total",
+          title: "The total",
+          body: "What everything here is worth today, beside what you paid for it. The gain or loss counts only holdings whose cost is known.",
+        },
+        {
+          anchor: "investments-refresh",
+          title: "Refresh prices",
+          body: "Prices update every night on their own. This fetches them now.",
+        },
+        {
+          anchor: "investments-allocation",
+          title: "Allocation",
+          body: "How the portfolio splits by asset class, sector, region or account. Top holdings shows how much rests on a few positions.",
+        },
+        {
+          anchor: "investments-cost-basis",
+          title: "Cost basis",
+          body: "What you paid for each holding, so a dash means gain or loss is unknown, not zero. A † marks a cost tracked from payroll contributions.",
+        },
+        {
+          anchor: "investments-income",
+          title: "Dividend & interest income",
+          body: "What your holdings paid out, by month, quarter or year.",
+        },
+      ],
+    },
   },
   {
     route: "/investments/performance",
@@ -116,6 +147,37 @@ export const INVESTING_HELP: readonly HelpEntry[] = [
     ],
     terms: ["time-weighted-return", "xirr", "cost-basis"],
     relatedRoutes: ["/investments", "/analysis/networth"],
+    tour: {
+      id: "performance",
+      version: 1,
+      steps: [
+        {
+          anchor: "performance-range",
+          title: "Range and account",
+          body: "Pick the period, and one account if you like. Every figure below follows it.",
+        },
+        {
+          anchor: "performance-tiles",
+          title: "Two kinds of return",
+          body: "Time-weighted return is how the investments did, with your deposits and withdrawals taken out. XIRR is how your own money did, so it also reflects when you added it.",
+        },
+        {
+          anchor: "performance-value",
+          title: "Value & cost basis over time",
+          body: "What the portfolio was worth against what you had paid in. The space between the lines is your gain or loss.",
+        },
+        {
+          anchor: "performance-benchmark",
+          title: "Return vs. benchmark",
+          body: "Your time-weighted return beside the S&P 500, both starting at 100. Above its line means you did better over this range.",
+        },
+        {
+          anchor: "performance-contributions",
+          title: "Contributions vs. market growth",
+          body: "Splits the change in value into money you added and what the market did with it.",
+        },
+      ],
+    },
   },
   {
     route: "/investments/forecast",

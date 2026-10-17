@@ -62,8 +62,8 @@ export function addAnchor(anchor: string, hidden = false): HTMLElement {
 }
 
 /**
- * A tour over fixture anchors. No real tour exists until Batch 5, so the
- * anchor type is empty and the fixtures cast.
+ * A tour over fixture anchors. They are not real page anchors, so they are
+ * not in `TOUR_ANCHORS` and the fixtures cast.
  *
  * @param id - The tour's id.
  * @param anchors - One step per anchor, in order.

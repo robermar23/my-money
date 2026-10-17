@@ -136,7 +136,10 @@ function Readiness({
   if (readiness.missing.length === 0) return null;
 
   return (
-    <section className="mt-6 rounded-lg border border-amber-300 bg-amber-50/50 p-4 dark:border-amber-900 dark:bg-amber-950/20">
+    <section
+      data-tour="plan-readiness"
+      className="mt-6 rounded-lg border border-amber-300 bg-amber-50/50 p-4 dark:border-amber-900 dark:bg-amber-950/20"
+    >
       <h2 className="font-medium text-sm">What would sharpen this</h2>
       <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
         Every figure below is only as good as what it read. These are the inputs it could not find.

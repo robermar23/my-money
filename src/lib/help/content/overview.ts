@@ -65,6 +65,32 @@ export const OVERVIEW_HELP: readonly HelpEntry[] = [
     ],
     terms: ["net-worth", "savings-rate", "safe-to-spend"],
     relatedRoutes: ["/analysis/networth", "/alerts"],
+    tour: {
+      id: "dashboard",
+      version: 1,
+      steps: [
+        {
+          anchor: "dashboard-net-worth",
+          title: "Net worth",
+          body: "Everything you own minus everything you owe, on the date shown. The arrow is how far it moved over the range picked below.",
+        },
+        {
+          anchor: "dashboard-history",
+          title: "History",
+          body: "Pick a range to redraw this chart and the Performance card. Nothing else on the page changes with it.",
+        },
+        {
+          anchor: "dashboard-cards",
+          title: "The cards",
+          body: "Each card answers one question and links to the page that owns its number. Your plan and Safe to spend are the two that say what to do next.",
+        },
+        {
+          anchor: "dashboard-accounts",
+          title: "Your accounts",
+          body: "Every open account and its latest balance. Click a name to open it, or Manage to add or close one.",
+        },
+      ],
+    },
   },
   {
     route: "/alerts",

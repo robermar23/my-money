@@ -90,7 +90,10 @@ async function DashboardBody({
   return (
     <>
       {/* Net-worth hero (full width) */}
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+      <div
+        data-tour="dashboard-net-worth"
+        className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between"
+      >
         <div>
           <h1 className="font-semibold text-2xl tracking-tight">Net worth</h1>
           <p className="mt-1 text-sm text-zinc-500">
@@ -108,7 +111,10 @@ async function DashboardBody({
       </div>
 
       {/* Shared range control — drives the hero history and the performance card */}
-      <section className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+      <section
+        data-tour="dashboard-history"
+        className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-medium text-sm">History</h2>
           <RangeToggle active={data.range} />
@@ -124,7 +130,7 @@ async function DashboardBody({
         numeric cards run three-up — spending and income (cash flow), then
         alerts and movers (things to look at).
       */}
-      <div className={`mt-6 ${DASHBOARD_GRID}`}>
+      <div data-tour="dashboard-cards" className={`mt-6 ${DASHBOARD_GRID}`}>
         <AllocationCard data={data.allocation} className={SPAN_WIDE} />
         <PerformanceCard
           data={data.performance}
@@ -148,7 +154,7 @@ async function DashboardBody({
       </div>
 
       {/* Accounts table — still useful, de-emphasized below the cards */}
-      <section className="mt-8">
+      <section data-tour="dashboard-accounts" className="mt-8">
         <div className="flex items-center justify-between">
           <h2 className="font-medium text-sm text-zinc-500">Accounts</h2>
           <div className="flex flex-wrap justify-end gap-x-4 gap-y-1 text-sm">

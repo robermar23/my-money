@@ -25,7 +25,7 @@ export default async function ImportUploadPage(props: PageProps): Promise<React.
         ← {account.name}
       </Link>
       <h1 className="mt-2 font-semibold text-2xl tracking-tight">Import transactions</h1>
-      <p className="mt-1 text-sm text-zinc-500">
+      <p data-tour="import-intro" className="mt-1 text-sm text-zinc-500">
         Upload an OFX/QFX or CSV export. The next page lets you preview the parsed transactions
         before anything is written to your account.
       </p>

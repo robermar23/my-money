@@ -110,6 +110,7 @@ export default async function AccountsPage(props: AccountsPageProps): Promise<Re
           )}
           <Link
             href="/accounts/new"
+            data-tour="accounts-add"
             className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
             Add account
@@ -118,7 +119,7 @@ export default async function AccountsPage(props: AccountsPageProps): Promise<Re
       </div>
 
       {all.length > 0 && (
-        <div className="mt-6">
+        <div data-tour="accounts-filter" className="mt-6">
           <SearchInput
             placeholder="Filter accounts by name or institution…"
             label="Filter accounts"
@@ -148,10 +149,14 @@ export default async function AccountsPage(props: AccountsPageProps): Promise<Re
           <table className="w-full min-w-[34rem] text-sm">
             <thead className="border-zinc-200 border-b text-left text-xs text-zinc-500 uppercase dark:border-zinc-800">
               <tr>
-                <th className="py-2">Name</th>
+                <th data-tour="accounts-name" className="py-2">
+                  Name
+                </th>
                 <th className="py-2">Institution</th>
                 <th className="py-2">Type</th>
-                <th className="py-2 text-right">Latest balance</th>
+                <th data-tour="accounts-latest-balance" className="py-2 text-right">
+                  Latest balance
+                </th>
                 <th className="py-2 text-right" />
               </tr>
             </thead>

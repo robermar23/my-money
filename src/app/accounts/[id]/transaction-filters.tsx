@@ -105,7 +105,7 @@ export function TransactionFilters({ categories, accounts }: Props): React.JSX.E
       onSubmit={apply}
       className="flex flex-wrap items-end gap-x-3 gap-y-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800"
     >
-      <label className="flex flex-col gap-1">
+      <label data-tour="transactions-search" className="flex flex-col gap-1">
         <span className="text-xs text-zinc-500">Payee / memo</span>
         <input
           type="search"
@@ -158,7 +158,7 @@ export function TransactionFilters({ categories, accounts }: Props): React.JSX.E
         />
       </label>
 
-      <label className="flex flex-col gap-1">
+      <label data-tour="transactions-category-filter" className="flex flex-col gap-1">
         <span className="text-xs text-zinc-500">Category</span>
         <select
           value={categoryId}
@@ -197,7 +197,7 @@ export function TransactionFilters({ categories, accounts }: Props): React.JSX.E
         </label>
       )}
 
-      <div className="flex items-center gap-3">
+      <div data-tour="transactions-apply" className="flex items-center gap-3">
         <button
           type="submit"
           disabled={badDateRange}

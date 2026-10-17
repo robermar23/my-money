@@ -61,6 +61,32 @@ export const ACCOUNTS_HELP: readonly HelpEntry[] = [
     ],
     terms: ["net-worth", "snapshot"],
     relatedRoutes: ["/settings/connections", "/alerts"],
+    tour: {
+      id: "accounts",
+      version: 1,
+      steps: [
+        {
+          anchor: "accounts-add",
+          title: "Add an account",
+          body: "Start here for anything you want counted: a bank, a card, a brokerage, a loan, a home. Accounts linked under Connections appear here on their own.",
+        },
+        {
+          anchor: "accounts-filter",
+          title: "Find one",
+          body: "Type part of a name or institution to narrow the list. Closed accounts stay hidden until you choose Show closed.",
+        },
+        {
+          anchor: "accounts-name",
+          title: "Open an account",
+          body: "Each name opens that account's own page, with its balance history, transactions and details.",
+        },
+        {
+          anchor: "accounts-latest-balance",
+          title: "Is it up to date?",
+          body: "Each balance shows the day it was recorded. An old date means nothing new has arrived since, so check Connections or record a balance on the account.",
+        },
+      ],
+    },
   },
   {
     route: "/accounts/new",
@@ -178,6 +204,42 @@ export const ACCOUNTS_HELP: readonly HelpEntry[] = [
     ],
     terms: ["snapshot", "reconciliation-drift", "account-subtype", "cost-basis-lot"],
     relatedRoutes: ["/transactions", "/accounts"],
+    tour: {
+      id: "account",
+      version: 1,
+      steps: [
+        {
+          anchor: "account-latest",
+          title: "Latest",
+          body: "The account's value now, from its newest balance or its holdings. A mortgage's is worked out from its terms instead.",
+        },
+        {
+          anchor: "account-record-balance",
+          title: "Record a balance",
+          body: "Enter the end-of-day figure from a statement or the bank's site. Each one becomes a point in this account's history.",
+        },
+        {
+          anchor: "account-holdings",
+          title: "Holdings",
+          body: "Add or update what the account holds: the symbol, how many, and what you paid. Their value follows nightly prices, so it moves on its own.",
+        },
+        {
+          anchor: "account-mortgage",
+          title: "Mortgage parameters",
+          body: "Enter the loan's terms once. The balance is then worked out from the payment schedule, with nothing to enter each month.",
+        },
+        {
+          anchor: "account-transactions",
+          title: "Transactions",
+          body: "Import a statement file here, and click any category below to change it. Tick “and make a rule for this payee” to categorize its future transactions too.",
+        },
+        {
+          anchor: "account-snapshots",
+          title: "Snapshot history",
+          body: "One balance a day, the record your net worth is built from. An old last date here is why a figure looks stale.",
+        },
+      ],
+    },
   },
   {
     route: "/accounts/<id>/import",
@@ -227,6 +289,27 @@ export const ACCOUNTS_HELP: readonly HelpEntry[] = [
       },
     ],
     terms: ["duplicate"],
+    tour: {
+      id: "import",
+      version: 1,
+      steps: [
+        {
+          anchor: "import-intro",
+          title: "Nothing is saved yet",
+          body: "Uploading only reads the file. The next page shows what it found, and nothing is written until you confirm there.",
+        },
+        {
+          anchor: "import-file",
+          title: "Choose the file",
+          body: "Download a QFX, OFX or CSV export from your bank and pick it here. A CSV also asks which format it is in.",
+        },
+        {
+          anchor: "import-upload",
+          title: "Upload & preview",
+          body: "Re-importing the same file is safe: transactions already here are skipped.",
+        },
+      ],
+    },
   },
   {
     route: "/accounts/<id>/import/<id>",
@@ -332,6 +415,27 @@ export const ACCOUNTS_HELP: readonly HelpEntry[] = [
       },
     ],
     terms: ["reconciliation-drift", "duplicate", "rule"],
+    tour: {
+      id: "import-preview",
+      version: 1,
+      steps: [
+        {
+          anchor: "preview-reconciliation",
+          title: "Does it add up?",
+          body: "The file's ending balance is checked against your last recorded balance plus these new transactions. A mismatch usually means a statement in between is missing.",
+        },
+        {
+          anchor: "preview-counts",
+          title: "New, duplicates, invalid",
+          body: "New rows will be added, and duplicates are already here, so they are skipped. Invalid rows could not be read and are listed below.",
+        },
+        {
+          anchor: "preview-confirm",
+          title: "Confirm or cancel",
+          body: "Confirm writes the new transactions and the statement's ending balance. Cancel leaves the account exactly as it was.",
+        },
+      ],
+    },
   },
   {
     route: "/transactions",
@@ -381,5 +485,31 @@ export const ACCOUNTS_HELP: readonly HelpEntry[] = [
     ],
     terms: ["uncategorized"],
     relatedRoutes: ["/analysis/review", "/accounts"],
+    tour: {
+      id: "transactions",
+      version: 1,
+      steps: [
+        {
+          anchor: "transactions-search",
+          title: "Search",
+          body: "Type part of a payee or memo; two characters is enough.",
+        },
+        {
+          anchor: "transactions-category-filter",
+          title: "What still needs a category",
+          body: "Choose Uncategorized to list them. The review queue fixes them a payee at a time.",
+        },
+        {
+          anchor: "transactions-apply",
+          title: "Apply filters",
+          body: "Filters take effect when you apply them. They live in the page address, so a filtered view can be bookmarked.",
+        },
+        {
+          anchor: "transactions-account-column",
+          title: "Changing a category",
+          body: "Categories are not changed on this page. Click an account's name to change them there.",
+        },
+      ],
+    },
   },
 ];

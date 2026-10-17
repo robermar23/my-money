@@ -228,11 +228,11 @@ export default async function InvestmentsPage(
           <p className="mt-1 text-sm text-zinc-500">
             Positions, cost basis, and gain/loss across your brokerage, IRA, and crypto accounts.
           </p>
-          <div className="mt-2 flex items-center gap-4">
+          <div data-tour="investments-refresh" className="mt-2 flex items-center gap-4">
             <RefreshPricesButton />
           </div>
         </div>
-        <div className="text-right">
+        <div data-tour="investments-total" className="text-right">
           <div className="font-mono text-3xl tabular-nums">{totalValue.format()}</div>
           <div className="mt-0.5 text-sm text-zinc-500">
             Cost basis {portfolio.totalCostBasis ? portfolio.totalCostBasis.format() : "—"}
@@ -261,7 +261,10 @@ export default async function InvestmentsPage(
         </p>
       ) : (
         <>
-          <section className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+          <section
+            data-tour="investments-allocation"
+            className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
+          >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="font-medium text-sm">Allocation</h2>
               <div className="flex flex-wrap gap-1 text-sm">
@@ -364,7 +367,9 @@ export default async function InvestmentsPage(
                         <th className="py-2 pr-2 text-right">Quantity</th>
                         <th className="py-2 pr-2 text-right">Price</th>
                         <th className="py-2 pr-2 text-right">Value</th>
-                        <th className="py-2 pr-2 text-right">Cost basis</th>
+                        <th data-tour="investments-cost-basis" className="py-2 pr-2 text-right">
+                          Cost basis
+                        </th>
                         <th className="py-2 text-right">Gain/Loss</th>
                       </tr>
                     </thead>
@@ -457,7 +462,10 @@ export default async function InvestmentsPage(
             ))}
 
           <section className="mt-10">
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div
+              data-tour="investments-income"
+              className="flex flex-wrap items-center justify-between gap-2"
+            >
               <h2 className="font-medium">Dividend & interest income</h2>
               <div className="flex gap-1 text-sm">
                 {PERIODS.map((p) => (

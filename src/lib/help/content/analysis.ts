@@ -206,6 +206,32 @@ export const ANALYSIS_HELP: readonly HelpEntry[] = [
     ],
     terms: ["uncategorized", "kind"],
     relatedRoutes: ["/analysis/review", "/plan/sinking"],
+    tour: {
+      id: "budgets",
+      version: 1,
+      steps: [
+        {
+          anchor: "budgets-month",
+          title: "The month",
+          body: "Step between months, and compare what you spent with what you budgeted. The projection is where this month ends at its current pace.",
+        },
+        {
+          anchor: "budgets-suggestions",
+          title: "Suggested budgets",
+          body: "Open this for a target per category, from the median of your recent complete months. Nothing is saved until you press Apply.",
+        },
+        {
+          anchor: "budgets-row",
+          title: "One category",
+          body: "The bar fills as you spend and turns red past the budget. The thin mark is where the month is projected to end.",
+        },
+        {
+          anchor: "budgets-target",
+          title: "Set a budget",
+          body: "Type a monthly amount and save it. The ✕ beside it clears the budget.",
+        },
+      ],
+    },
   },
   {
     route: "/analysis/review",
@@ -259,5 +285,31 @@ export const ANALYSIS_HELP: readonly HelpEntry[] = [
     ],
     terms: ["review-queue", "rule", "uncategorized"],
     relatedRoutes: ["/settings/categories", "/analysis"],
+    tour: {
+      id: "review",
+      version: 1,
+      steps: [
+        {
+          anchor: "review-summary",
+          title: "The queue",
+          body: "Everything without a category, grouped by payee so one choice covers them all.",
+        },
+        {
+          anchor: "review-row",
+          title: "One payee",
+          body: "How many transactions this payee has, and their total. Pick the category they belong in.",
+        },
+        {
+          anchor: "review-make-rule",
+          title: "Make rule",
+          body: "Left ticked, this payee's future transactions get the same category without asking.",
+        },
+        {
+          anchor: "review-categorize",
+          title: "Categorize all",
+          body: "Applies the category to every transaction in the row, and the row leaves the queue.",
+        },
+      ],
+    },
   },
 ];

@@ -45,7 +45,10 @@ export function InputsUsed({ inputs, label = "Based on" }: Props): React.JSX.Ele
 
   return (
     <details className="mt-3 text-xs">
-      <summary className="cursor-pointer text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-50">
+      <summary
+        data-tour="inputs-used"
+        className="cursor-pointer text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-50"
+      >
         {label} {inputs.length} {inputs.length === 1 ? "input" : "inputs"}
       </summary>
       <ul className="mt-2 space-y-1.5 border-zinc-200 border-l pl-3 dark:border-zinc-800">

@@ -55,6 +55,37 @@ export const PLANNING_HELP: readonly HelpEntry[] = [
     ],
     terms: ["rung", "emergency-fund", "necessity"],
     relatedRoutes: ["/settings/household", "/settings/categories", "/plan/cashflow"],
+    tour: {
+      id: "plan",
+      version: 1,
+      steps: [
+        {
+          anchor: "plan-readiness",
+          title: "What would sharpen this",
+          body: "Inputs the guidance could not find, each linked to where you add it. The list empties as you fill them in.",
+        },
+        {
+          anchor: "plan-waterfall",
+          title: "Where your next dollar goes",
+          body: "A fixed order of priorities, worked from the top. Each rung is marked Done, Working on this or Comes later, from your own figures.",
+        },
+        {
+          anchor: "inputs-used",
+          title: "Based on",
+          body: "Open this under any item to see the exact figures it read and where each came from. If an answer looks wrong, one of these is why.",
+        },
+        {
+          anchor: "plan-recommendation",
+          title: "What to look at",
+          body: "Each item names its rule of thumb and the figures behind it, most urgent first.",
+        },
+        {
+          anchor: "plan-hide",
+          title: "Hide",
+          body: "Set an item aside for 30 or 90 days, or dismiss it for good. Hidden items are listed at the bottom, where Show again brings one back.",
+        },
+      ],
+    },
   },
   {
     route: "/plan/cashflow",
@@ -111,6 +142,37 @@ export const PLANNING_HELP: readonly HelpEntry[] = [
     ],
     terms: ["safe-to-spend", "lowest-projected-balance", "cash-cushion", "account-subtype"],
     relatedRoutes: ["/plan/cashflow/review", "/settings/household", "/plan/sinking"],
+    tour: {
+      id: "cashflow",
+      version: 1,
+      steps: [
+        {
+          anchor: "cashflow-notice",
+          title: "Something is missing",
+          body: "A gap the projection had to work around, with a link to the screen that fills it.",
+        },
+        {
+          anchor: "cashflow-headline",
+          title: "Safe to spend",
+          body: "What you could spend on top of your usual spending before the window ends, and still keep your cushion. The lowest projected balance is the day to watch.",
+        },
+        {
+          anchor: "cashflow-chart",
+          title: "Day by day",
+          body: "Your projected balance each day, with everyday spending spread evenly across them. Hover over or tap a day to see the bills and pay that land on it.",
+        },
+        {
+          anchor: "cashflow-upcoming",
+          title: "What is coming",
+          body: "The bills dated inside the window, week by week. Manage recurring bills is where you confirm or correct them.",
+        },
+        {
+          anchor: "inputs-used",
+          title: "Computed from",
+          body: "Open this to see every input the projection read. Each links to the screen that fixes it.",
+        },
+      ],
+    },
   },
   {
     route: "/plan/cashflow/review",
@@ -216,5 +278,36 @@ export const PLANNING_HELP: readonly HelpEntry[] = [
     ],
     terms: ["sinking-fund", "required-today", "emergency-fund"],
     relatedRoutes: ["/plan/cashflow/review", "/settings/categories"],
+    tour: {
+      id: "sinking",
+      version: 1,
+      steps: [
+        {
+          anchor: "sinking-headline",
+          title: "What to hold",
+          body: "What your known costs say you should already have set aside, beside the savings you hold above your emergency fund.",
+        },
+        {
+          anchor: "sinking-verdict",
+          title: "Short, spare or level",
+          body: "The difference between the two, as one figure. Short means setting aside more each month until the gap closes.",
+        },
+        {
+          anchor: "inputs-used",
+          title: "This figure is based on",
+          body: "Open this to see the inputs behind the figure and where each came from.",
+        },
+        {
+          anchor: "sinking-costs",
+          title: "The costs behind the figure",
+          body: "Per month is what to set aside for each cost from now until it is due. Required today is how much of it should already be put by.",
+        },
+        {
+          anchor: "sinking-recorded",
+          title: "Costs you have recorded",
+          body: "Add the large, irregular costs you know are coming, such as insurance or a car service. Non-monthly bills from your calendar are counted already.",
+        },
+      ],
+    },
   },
 ];

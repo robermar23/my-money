@@ -63,7 +63,10 @@ export function WaterfallLadder({ rungs, currency }: Props): React.JSX.Element {
 
   return (
     <section className="mt-8">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <div
+        data-tour="plan-waterfall"
+        className="flex flex-wrap items-baseline justify-between gap-2"
+      >
         <h2 className="font-medium">Where your next dollar goes</h2>
         <span className="text-sm text-zinc-500">
           {done} of {rungs.length} rungs complete

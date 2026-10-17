@@ -106,7 +106,7 @@ export default async function SinkingFundPage(): Promise<React.JSX.Element> {
 
       {status === "ok" && (
         <>
-          <p className="mt-3 max-w-2xl text-lg">
+          <p data-tour="sinking-headline" className="mt-3 max-w-2xl text-lg">
             {sinkingHeadline(requirement, availability, currency)}
           </p>
           <Verdict requirement={requirement} availability={availability} currency={currency} />
@@ -141,7 +141,7 @@ export default async function SinkingFundPage(): Promise<React.JSX.Element> {
           </h2>
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="text-left text-xs text-zinc-500">
+              <thead data-tour="sinking-costs" className="text-left text-xs text-zinc-500">
                 <tr className="border-zinc-200 border-b dark:border-zinc-800">
                   <th scope="col" className="py-2 pr-3 font-medium">
                     Cost
@@ -215,7 +215,7 @@ export default async function SinkingFundPage(): Promise<React.JSX.Element> {
       )}
 
       <section aria-labelledby="manager-heading" className="mt-12">
-        <h2 id="manager-heading" className="font-medium text-lg">
+        <h2 id="manager-heading" data-tour="sinking-recorded" className="font-medium text-lg">
           Costs you have recorded
         </h2>
         <PlannedExpenseManager
@@ -248,7 +248,10 @@ function Verdict({
   const verdict = sinkingVerdict(requirement, availability, currency);
 
   return (
-    <div className="mt-4 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+    <div
+      data-tour="sinking-verdict"
+      className="mt-4 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
+    >
       <p className="text-xs text-zinc-500">
         {verdict.position === "gap"
           ? "Short by"

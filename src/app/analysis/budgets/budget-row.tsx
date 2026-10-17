@@ -46,7 +46,10 @@ export function BudgetRow({ line, currency }: Props): React.JSX.Element {
   const projectedOver = line.hasBudget && projectedNum > Number(line.target);
 
   return (
-    <div className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1 py-2">
+    <div
+      data-tour="budgets-row"
+      className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-1 py-2"
+    >
       <div className="min-w-0">
         <div className="truncate text-sm">{line.name}</div>
         <div className="relative mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
@@ -88,7 +91,7 @@ export function BudgetRow({ line, currency }: Props): React.JSX.Element {
       </div>
 
       <div className="flex items-center gap-1.5">
-        <form action={formAction} className="flex items-center gap-1.5">
+        <form data-tour="budgets-target" action={formAction} className="flex items-center gap-1.5">
           <input type="hidden" name="categoryId" value={line.categoryId} />
           <span className="text-xs text-zinc-400">$</span>
           <input

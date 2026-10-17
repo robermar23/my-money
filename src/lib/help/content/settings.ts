@@ -107,6 +107,32 @@ export const SETTINGS_HELP: readonly HelpEntry[] = [
     ],
     terms: ["connection"],
     relatedRoutes: ["/accounts", "/settings/instance", "/alerts"],
+    tour: {
+      id: "connections",
+      version: 1,
+      steps: [
+        {
+          anchor: "connections-connect",
+          title: "Connect",
+          body: "Connect new institution links a bank or card; investment institutions have their own button. Each connection keeps its accounts up to date from then on.",
+        },
+        {
+          anchor: "connections-status",
+          title: "Status",
+          body: "Active means syncing normally. Reconnect needed means the bank wants you to sign in again, and its accounts stop updating until you do.",
+        },
+        {
+          anchor: "connections-last-synced",
+          title: "Last synced",
+          body: "When this connection last brought in data. A date more than a day or two old means something has stopped.",
+        },
+        {
+          anchor: "connections-actions",
+          title: "Fix it here",
+          body: "Reconnect appears when a sign-in is needed, and Force sync pulls now. Disconnect ends the link and keeps everything already recorded.",
+        },
+      ],
+    },
   },
   {
     route: "/settings/connections/<id>/map",

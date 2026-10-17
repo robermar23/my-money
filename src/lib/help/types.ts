@@ -68,12 +68,72 @@ export interface HelpSection {
 export type { GlossaryTermId };
 
 /**
- * Every `data-tour` anchor a tour may point at. Empty until the tours are
- * written (Batch 5). Each tour adds its anchors here, so a step that names an
- * anchor not in this list does not compile, and the anchor guard (P20-17)
+ * Every `data-tour` anchor a tour may point at, grouped by tour (PLAN20 Batch
+ * 5). A new tour adds its anchors here, so a step that names an anchor not in
+ * this list does not compile, and the anchor guard (P20-17)
  * checks each one against the page markup.
  */
-export const TOUR_ANCHORS = [] as const;
+export const TOUR_ANCHORS = [
+  "dashboard-net-worth",
+  "dashboard-history",
+  "dashboard-cards",
+  "dashboard-accounts",
+  "accounts-add",
+  "accounts-filter",
+  "accounts-name",
+  "accounts-latest-balance",
+  "account-latest",
+  "account-record-balance",
+  "account-holdings",
+  "account-mortgage",
+  "account-transactions",
+  "account-snapshots",
+  "import-intro",
+  "import-file",
+  "import-upload",
+  "preview-reconciliation",
+  "preview-counts",
+  "preview-confirm",
+  "transactions-search",
+  "transactions-category-filter",
+  "transactions-apply",
+  "transactions-account-column",
+  "review-summary",
+  "review-row",
+  "review-make-rule",
+  "review-categorize",
+  "budgets-month",
+  "budgets-suggestions",
+  "budgets-row",
+  "budgets-target",
+  "plan-readiness",
+  "plan-waterfall",
+  "inputs-used",
+  "plan-recommendation",
+  "plan-hide",
+  "cashflow-notice",
+  "cashflow-headline",
+  "cashflow-chart",
+  "cashflow-upcoming",
+  "sinking-headline",
+  "sinking-verdict",
+  "sinking-costs",
+  "sinking-recorded",
+  "investments-total",
+  "investments-refresh",
+  "investments-allocation",
+  "investments-cost-basis",
+  "investments-income",
+  "performance-range",
+  "performance-tiles",
+  "performance-value",
+  "performance-benchmark",
+  "performance-contributions",
+  "connections-connect",
+  "connections-status",
+  "connections-last-synced",
+  "connections-actions",
+] as const;
 
 /** A `data-tour` attribute value that some tour step may target. */
 export type TourAnchor = (typeof TOUR_ANCHORS)[number];
