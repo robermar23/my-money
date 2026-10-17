@@ -66,3 +66,21 @@ phone width) is skipped. A tour with fewer than two steps left is not offered.
 Tours start only from a click: "Take the tour" in the panel, or the "New here?"
 chip shown once per device. Bump the tour's `version` to offer it again after
 the page changes. The full authoring guide lands with PLAN20 P20-33.
+
+Choosing an anchor, as learned writing the first fourteen tours:
+
+- **Attributes only.** Add `data-tour` to an element that already exists; never
+  wrap something to make room for one.
+- **One source location.** A component with several `return` branches cannot
+  carry an anchor, because it would be written more than once. Anchor its
+  parent in the page instead, as the dashboard does with its card grid.
+- **Small beats whole.** Anchor a section's heading row rather than a long table
+  or list. An anchor taller than most of the screen is scrolled to its top, and
+  the card then has to sit over it.
+- **Rows repeat; that is fine.** An anchor inside a mapped row is written once in
+  source and appears on every row; the tour highlights the first.
+- **Shared anchors.** One anchor can serve several tours: `inputs-used` sits on
+  the "Based on" disclosure that Plan, Cash flow and Sinking funds all render.
+- **Check it on demo data at both widths.** Some steps only exist for some data
+  (a mortgage's terms, a connection needing a sign-in); make sure each variant
+  still leaves at least two steps.
