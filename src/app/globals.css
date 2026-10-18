@@ -73,8 +73,29 @@
   }
 }
 
+/* `dark:` follows the device unless the user picked a theme, which the layout
+ * puts on <html> as `data-theme` (src/lib/theme/theme.ts). */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) {
+      @slot;
+    }
+  }
+}
+
 :root {
   color-scheme: light dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
 }
 
 /* Deliberately NO height / min-height on html or body here.

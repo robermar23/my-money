@@ -9,12 +9,14 @@ import {
   type NavItem,
 } from "@/lib/nav/manifest.ts";
 import { isCurrent, resolveActive } from "@/lib/nav/resolve.ts";
+import type { Theme } from "@/lib/theme/theme.ts";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useId, useState } from "react";
 import { OPEN_COMMAND_PALETTE_EVENT } from "./command-palette.tsx";
 import { HelpButton } from "./help/help-button.tsx";
 import { NavGroupMenu } from "./nav-group-menu.tsx";
+import { ThemePicker } from "./theme-picker.tsx";
 
 /**
  * The top bar (NAV-06/07, ADR-035).
@@ -45,6 +47,8 @@ export type BadgeCounts = Partial<Record<BadgeSlot, number>>;
 
 interface Props {
   readonly badges: BadgeCounts;
+  /** The stored colour theme, for the picker's starting choice. */
+  readonly theme: Theme;
 }
 
 /**
@@ -175,7 +179,7 @@ function PanelLink({
   );
 }
 
-export function NavBar({ badges }: Props): React.JSX.Element {
+export function NavBar({ badges, theme }: Props): React.JSX.Element {
   const pathname = usePathname();
   const [openGroup, setOpenGroup] = useState<NavGroupId | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -302,6 +306,7 @@ export function NavBar({ badges }: Props): React.JSX.Element {
           onOpenChange={(next) => setOpenGroup(next ? "utilities" : null)}
         >
           <div className="text-sm">
+            <ThemePicker initial={theme} />
             <SignOut />
           </div>
         </NavGroupMenu>
@@ -448,6 +453,7 @@ export function NavBar({ badges }: Props): React.JSX.Element {
             ))}
 
             <div className="border-zinc-100 border-t py-1 dark:border-zinc-900">
+              <ThemePicker initial={theme} />
               <SignOut />
             </div>
           </div>

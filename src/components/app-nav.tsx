@@ -1,5 +1,6 @@
 import { openAlertCount } from "@/lib/alerts/queries.ts";
 import type { BadgeSlot } from "@/lib/nav/manifest.ts";
+import { readTheme } from "@/lib/theme/server.ts";
 import Link from "next/link";
 import { CommandPalette } from "./command-palette.tsx";
 import { HelpPanel } from "./help/help-panel.tsx";
@@ -20,7 +21,7 @@ import { NavBar } from "./nav-bar.tsx";
  * `relative` anchors the mobile dropdown panel (`top-full`).
  */
 export async function AppNav(): Promise<React.JSX.Element> {
-  const alertCount = await openAlertCount();
+  const [alertCount, theme] = await Promise.all([openAlertCount(), readTheme()]);
   const badges: Partial<Record<BadgeSlot, number>> = { alerts: alertCount };
 
   return (
@@ -32,7 +33,7 @@ export async function AppNav(): Promise<React.JSX.Element> {
         <Link href="/" className="font-semibold tracking-tight">
           my-money
         </Link>
-        <NavBar badges={badges} />
+        <NavBar badges={badges} theme={theme} />
       </nav>
       {/* Mounted once at the chrome level so ⌘K works on every authenticated page. */}
       <CommandPalette />
