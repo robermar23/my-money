@@ -1,3 +1,4 @@
+import { Term } from "@/components/help/term.tsx";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { loadCashFlow } from "@/lib/cashflow/loader.ts";
 import type { ShortfallClose } from "@/lib/cashflow/shortfall-close.ts";
@@ -138,7 +139,7 @@ export default async function CashFlowPage(): Promise<React.JSX.Element> {
             />
           )}
 
-          <section aria-labelledby="projection-heading" className="mt-8">
+          <section data-tour="cashflow-chart" aria-labelledby="projection-heading" className="mt-8">
             <h2 id="projection-heading" className="font-medium">
               Day by day
             </h2>
@@ -177,6 +178,7 @@ function Notice({ notice }: { readonly notice: CashFlowNotice }): React.JSX.Elem
   const blocking = notice.tone === "blocking";
   return (
     <section
+      data-tour="cashflow-notice"
       className={`mt-6 rounded-lg border p-4 ${
         blocking
           ? "border-zinc-200 border-dashed dark:border-zinc-800"
@@ -229,9 +231,13 @@ function Headline({
   const hasFloor = !floor.isZero();
 
   return (
-    <section aria-labelledby="headline-heading" className="mt-8">
+    <section data-tour="cashflow-headline" aria-labelledby="headline-heading" className="mt-8">
       <h2 id="headline-heading" className="font-medium text-sm text-zinc-500">
-        {safeToSpend.clampedAtZero ? "Projected shortfall" : "Safe to spend"}
+        {safeToSpend.clampedAtZero ? (
+          "Projected shortfall"
+        ) : (
+          <Term id="safe-to-spend">Safe to spend</Term>
+        )}
       </h2>
 
       {safeToSpend.clampedAtZero ? (
@@ -425,7 +431,10 @@ function Upcoming({
 }) {
   return (
     <section aria-labelledby="upcoming-heading" className="mt-10">
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <div
+        data-tour="cashflow-upcoming"
+        className="flex flex-wrap items-baseline justify-between gap-2"
+      >
         <h2 id="upcoming-heading" className="font-medium">
           What is coming
         </h2>

@@ -462,10 +462,12 @@ describe("P18-33 — the rows are not indexed, and the route is", () => {
       "security",
       "watchlist",
       "transaction",
+      "help",
     ];
-    // Exhaustive by construction: this stops typechecking the day a seventh
-    // member is added, which is the point at which somebody has to decide
-    // whether it is this one.
+    // Exhaustive by construction: this stops typechecking the day a new member
+    // is added, which is the point at which somebody has to decide whether it
+    // is this one. The seventh, `help` (PLAN20 P20-07), was decided: it is
+    // static help text, matched in the browser, and indexes no rows.
     const exhaustive: Record<SearchResultKind, true> = {
       page: true,
       account: true,
@@ -473,6 +475,7 @@ describe("P18-33 — the rows are not indexed, and the route is", () => {
       security: true,
       watchlist: true,
       transaction: true,
+      help: true,
     };
     expect(Object.keys(exhaustive).sort()).toEqual([...kinds].sort());
 

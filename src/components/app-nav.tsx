@@ -2,6 +2,9 @@ import { openAlertCount } from "@/lib/alerts/queries.ts";
 import type { BadgeSlot } from "@/lib/nav/manifest.ts";
 import Link from "next/link";
 import { CommandPalette } from "./command-palette.tsx";
+import { HelpPanel } from "./help/help-panel.tsx";
+import { TourChip } from "./help/tour-chip.tsx";
+import { TourRunner } from "./help/tour.tsx";
 import { NavBar } from "./nav-bar.tsx";
 
 /**
@@ -33,6 +36,11 @@ export async function AppNav(): Promise<React.JSX.Element> {
       </nav>
       {/* Mounted once at the chrome level so ⌘K works on every authenticated page. */}
       <CommandPalette />
+      {/* Likewise the help panel: `?` works on every page with no page edited (ADR-058). */}
+      <HelpPanel />
+      {/* Tours start only from a click: the panel's button or this first-visit chip (ADR-060 §4). */}
+      <TourChip />
+      <TourRunner />
     </header>
   );
 }

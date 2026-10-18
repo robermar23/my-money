@@ -112,7 +112,10 @@ export function SuggestionsPanel({ preview, currency }: Props): React.JSX.Elemen
   const selectedCount = selected.size;
 
   return (
-    <details className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+    <details
+      data-tour="budgets-suggestions"
+      className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
+    >
       <summary className="cursor-pointer font-medium text-sm">
         Suggest budgets from your spending ({preview.rows.length})
       </summary>

@@ -92,6 +92,9 @@ pnpm test    # Vitest, against the test database above
   deduplication, Plaid webhook verification, snapshot computation, and the pure
   rules engines. Do not add a test just to have one, and do not test the
   framework or Drizzle itself.
+- **A new page needs a help entry; CI will tell you.** Every page except
+  `/login` explains itself behind `?`, and a page without an entry fails
+  `pnpm test`. [docs/HELP.md](docs/HELP.md) says how to write one.
 - Playwright (`pnpm test:e2e`) covers a handful of critical flows. Run it when
   you touch one of them, and **not against a database you want to keep**: it
   empties the users, accounts and transactions of whatever `DATABASE_URL`

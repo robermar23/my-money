@@ -48,7 +48,7 @@ export function TransactionsSection({
 
   return (
     <section className="mt-8">
-      <div className="flex items-baseline justify-between">
+      <div data-tour="account-transactions" className="flex items-baseline justify-between">
         <h2 className="font-medium">
           Transactions <span className="text-xs text-zinc-500">({totalCount})</span>
         </h2>

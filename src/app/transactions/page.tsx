@@ -121,7 +121,9 @@ export default async function TransactionsPage(
               <tr>
                 <th className="py-1.5">Date</th>
                 <th className="py-1.5">Payee</th>
-                <th className="py-1.5">Account</th>
+                <th data-tour="transactions-account-column" className="py-1.5">
+                  Account
+                </th>
                 <th className="py-1.5 text-right">Amount</th>
               </tr>
             </thead>

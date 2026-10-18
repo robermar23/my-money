@@ -313,7 +313,7 @@ export default async function AccountDetailPage(
             <p className="mt-1 max-w-prose text-sm text-zinc-500">{account.description}</p>
           )}
         </div>
-        <div className="text-right">
+        <div data-tour="account-latest" className="text-right">
           <div className="text-xs text-zinc-500 uppercase">Latest</div>
           <div className="font-mono text-xl">
             {computedLoanBalance
@@ -403,7 +403,10 @@ export default async function AccountDetailPage(
 
       {/* Conditional entry forms by account type */}
       {showBalanceForm && (
-        <section className="mt-8 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+        <section
+          data-tour="account-record-balance"
+          className="mt-8 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
+        >
           <h2 className="font-medium">
             {account.type === "credit_card" ? "Record amount owed" : "Record balance"}
           </h2>
@@ -419,7 +422,10 @@ export default async function AccountDetailPage(
       )}
 
       {showHoldingsForm && (
-        <section className="mt-8 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+        <section
+          data-tour="account-holdings"
+          className="mt-8 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
+        >
           <h2 className="font-medium">Add or update holding</h2>
           <p className="mt-1 text-sm text-zinc-500">
             For iTrust gold use symbol <code>XAU</code>, asset class <code>physical_metal</code>,
@@ -621,7 +627,10 @@ export default async function AccountDetailPage(
       )}
 
       {showMortgageForm && (
-        <section className="mt-8 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+        <section
+          data-tour="account-mortgage"
+          className="mt-8 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
+        >
           <h2 className="font-medium">Mortgage parameters</h2>
           <p className="mt-1 text-sm text-zinc-500">
             Once set, the current balance is computed from the amortization schedule. No monthly
@@ -820,7 +829,9 @@ export default async function AccountDetailPage(
       {/* Snapshot history */}
       {snapshots.length > 0 && (
         <section className="mt-8">
-          <h2 className="font-medium">Snapshot history</h2>
+          <h2 data-tour="account-snapshots" className="font-medium">
+            Snapshot history
+          </h2>
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[20rem] text-sm">
               <thead className="text-left text-xs text-zinc-500 uppercase">

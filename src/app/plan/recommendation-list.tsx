@@ -107,6 +107,7 @@ function RecommendationCard({
 
   return (
     <li
+      data-tour="plan-recommendation"
       className={`rounded-lg border p-4 ${
         satisfied
           ? "border-zinc-200 dark:border-zinc-800"
@@ -184,6 +185,7 @@ function RecommendationCard({
         <div className="relative shrink-0">
           <button
             type="button"
+            data-tour="plan-hide"
             disabled={pending}
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}

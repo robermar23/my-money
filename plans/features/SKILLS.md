@@ -265,6 +265,15 @@ and make the result useful to a family." Four tracks, each with its entry skill:
 
 ## Maintenance
 
+- **Making these skills loadable in Claude Code.** The catalog lives at `%APPDATA%\Antigravity\skills\skills\<name>\SKILL.md`, which Claude Code does not read. The picks named in Tier 1 → Tier 3 and §Anytime are copied into the project's **`.claude/skills/`** (git-ignored, Docker-ignored, excluded from `tsc`; the skills carry mixed third-party licenses and must not be published with the repo). Re-sync after editing this file (Git Bash, from the repo root):
+
+  ```bash
+  CAT="$APPDATA/Antigravity/skills/skills"; mkdir -p .claude/skills
+  awk '/^## Skipped/{exit} {print}' plans/features/SKILLS.md | grep -oE '`[a-z0-9][a-z0-9-]+`' | tr -d '`' | sort -u |
+    while read -r s; do [ -f "$CAT/$s/SKILL.md" ] && cp -r "$CAT/$s" .claude/skills/; done
+  ```
+
+  Backticked names that are not skills (`advice`, `plan`, …) are skipped by the `SKILL.md` test.
 - When a Tier-2 or Tier-3 skill gets invoked for real, note it in the relevant PLAN.md task so future sessions know "this skill was the reference."
 - When a "Skipped" skill is reconsidered, promote it explicitly — don't silently invoke it. The skip reason is a guardrail. The §Name traps table especially: those were checked, not overlooked.
 - If a new skill appears in the catalog that fits a Tier-1 slot better than the current pick, replace it via a brief note in IDEAS.md and update this doc.

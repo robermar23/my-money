@@ -34,7 +34,7 @@ export default async function ReviewPage(): Promise<React.JSX.Element> {
         ← Categories
       </Link>
       <h1 className="mt-2 font-semibold text-2xl tracking-tight">Review uncategorized</h1>
-      <p className="mt-1 text-sm text-zinc-500">
+      <p data-tour="review-summary" className="mt-1 text-sm text-zinc-500">
         {totalTxns} uncategorized transaction{totalTxns === 1 ? "" : "s"} across {groups.length}{" "}
         payee{groups.length === 1 ? "" : "s"}. Pick a category per payee and categorize them all at
         once.

@@ -74,6 +74,7 @@ export default async function PreviewPage(props: PageProps): Promise<React.JSX.E
 
       {/* Reconciliation banner */}
       <section
+        data-tour="preview-reconciliation"
         className={`mt-6 rounded-lg border p-4 ${
           recon.status === "ok"
             ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950"
@@ -149,7 +150,7 @@ export default async function PreviewPage(props: PageProps): Promise<React.JSX.E
       )}
 
       {/* Counts */}
-      <div className="mt-6 grid grid-cols-3 gap-3">
+      <div data-tour="preview-counts" className="mt-6 grid grid-cols-3 gap-3">
         <CountCard label="New" value={preview.newTransactions.length} tone="positive" />
         <CountCard label="Duplicates (skipped)" value={preview.duplicates.length} tone="neutral" />
         <CountCard label="Invalid" value={preview.invalid.length} tone="negative" />
@@ -200,7 +201,10 @@ export default async function PreviewPage(props: PageProps): Promise<React.JSX.E
       )}
 
       {/* Confirm */}
-      <div className="mt-10 flex items-center justify-between border-zinc-200 border-t pt-6 dark:border-zinc-800">
+      <div
+        data-tour="preview-confirm"
+        className="mt-10 flex items-center justify-between border-zinc-200 border-t pt-6 dark:border-zinc-800"
+      >
         <Link
           href={`/accounts/${accountId}/import`}
           className="text-sm text-zinc-500 hover:underline"

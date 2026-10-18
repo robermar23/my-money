@@ -3,6 +3,7 @@ import { AlertsCard } from "@/components/dashboard/alerts-card.tsx";
 import { AllocationCard } from "@/components/dashboard/allocation-card.tsx";
 import { CashFlowCard } from "@/components/dashboard/cashflow-card.tsx";
 import { FirstRunDashboard } from "@/components/dashboard/first-run.tsx";
+import { GettingStartedCard } from "@/components/dashboard/getting-started-card.tsx";
 import { DASHBOARD_GRID, SPAN_STANDARD, SPAN_WIDE } from "@/components/dashboard/grid.ts";
 import { IncomeCard } from "@/components/dashboard/income-card.tsx";
 import { MoversCard } from "@/components/dashboard/movers-card.tsx";
@@ -12,9 +13,11 @@ import { SavingsRateCard } from "@/components/dashboard/savings-rate-card.tsx";
 import { DashboardSkeleton } from "@/components/dashboard/skeleton.tsx";
 import { SpendCard } from "@/components/dashboard/spend-card.tsx";
 import { requireUser } from "@/lib/auth/require-user.ts";
+import { accountFacts, loadBookFacts } from "@/lib/dashboard/checklist-facts.ts";
 import type { RangeDelta } from "@/lib/dashboard/delta.ts";
 import { loadDashboard } from "@/lib/dashboard/loader.ts";
 import { parseDashboardRange } from "@/lib/dashboard/range.ts";
+import { gettingStarted } from "@/lib/help/checklist.ts";
 import { Money } from "@/lib/money/money.ts";
 import Link from "next/link";
 import { Suspense } from "react";
@@ -80,17 +83,28 @@ async function DashboardBody({
 }): Promise<React.JSX.Element> {
   const search = (await searchParams) ?? {};
   const range = parseDashboardRange(search.range);
-  const data = await loadDashboard(range);
+  // The checklist's facts (PLAN20 P20-30) are read beside the loader, not inside
+  // it: they are about the book's setup, not figures the cards show.
+  const [data, bookFacts] = await Promise.all([loadDashboard(range), loadBookFacts()]);
+  const checklist = gettingStarted({
+    ...bookFacts,
+    ...accountFacts(data.hasAnyAccount ? data.netWorth.accounts : []),
+  });
 
   // Brand-new install: one instruction beats seven empty cards (P13-16).
-  if (!data.hasAnyAccount) return <FirstRunDashboard />;
+  if (!data.hasAnyAccount) return <FirstRunDashboard checklist={checklist} />;
 
   const { netWorth } = data;
 
   return (
     <>
+      <GettingStartedCard items={checklist} />
+
       {/* Net-worth hero (full width) */}
-      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+      <div
+        data-tour="dashboard-net-worth"
+        className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between"
+      >
         <div>
           <h1 className="font-semibold text-2xl tracking-tight">Net worth</h1>
           <p className="mt-1 text-sm text-zinc-500">
@@ -108,7 +122,10 @@ async function DashboardBody({
       </div>
 
       {/* Shared range control — drives the hero history and the performance card */}
-      <section className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800">
+      <section
+        data-tour="dashboard-history"
+        className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
+      >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="font-medium text-sm">History</h2>
           <RangeToggle active={data.range} />
@@ -124,7 +141,7 @@ async function DashboardBody({
         numeric cards run three-up — spending and income (cash flow), then
         alerts and movers (things to look at).
       */}
-      <div className={`mt-6 ${DASHBOARD_GRID}`}>
+      <div data-tour="dashboard-cards" className={`mt-6 ${DASHBOARD_GRID}`}>
         <AllocationCard data={data.allocation} className={SPAN_WIDE} />
         <PerformanceCard
           data={data.performance}
@@ -148,7 +165,7 @@ async function DashboardBody({
       </div>
 
       {/* Accounts table — still useful, de-emphasized below the cards */}
-      <section className="mt-8">
+      <section data-tour="dashboard-accounts" className="mt-8">
         <div className="flex items-center justify-between">
           <h2 className="font-medium text-sm text-zinc-500">Accounts</h2>
           <div className="flex flex-wrap justify-end gap-x-4 gap-y-1 text-sm">

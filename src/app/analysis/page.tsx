@@ -142,9 +142,13 @@ export default async function AnalysisPage(props: PageProps): Promise<React.JSX.
   const forecast = forecastMonthlySpend(months);
   const series = monthSeries(months, expenseRows, forecast);
 
-  // Savings rate = net / income. Display-only ratio; guarded against /0.
+  // Income kept = net / income: what was left of the window's income after
+  // spending. Display-only ratio; guarded against /0. Deliberately NOT called
+  // a savings rate: the app's one savings rate is the dashboard's
+  // contributions ÷ gross (docs/INCOME.md), and two figures under one name
+  // read as a bug (PLAN20 Open Items).
   const incomeNum = Number(summary.income);
-  const savingsRate = incomeNum > 0 ? (Number(summary.net) / incomeNum) * 100 : null;
+  const incomeKept = incomeNum > 0 ? (Number(summary.net) / incomeNum) * 100 : null;
 
   const groupHref = (g: string): string => {
     const sp = new URLSearchParams();
@@ -191,10 +195,7 @@ export default async function AnalysisPage(props: PageProps): Promise<React.JSX.
           value={fmt0(summary.net)}
           tone={Money.fromString(summary.net, CURRENCY).isNegative() ? "text-red-600" : ""}
         />
-        <Tile
-          label="Savings rate"
-          value={savingsRate === null ? "—" : `${savingsRate.toFixed(0)}%`}
-        />
+        <Tile label="Income kept" value={incomeKept === null ? "—" : `${incomeKept.toFixed(0)}%`} />
       </div>
 
       {/* P17-23 — the pointer to the net-worth decomposition. Streamed: a full

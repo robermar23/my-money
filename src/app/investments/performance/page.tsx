@@ -1,3 +1,4 @@
+import { Term } from "@/components/help/term.tsx";
 import { listAccounts } from "@/lib/accounts/queries.ts";
 import { resolveRange } from "@/lib/analytics/range.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
@@ -126,7 +127,7 @@ export default async function PerformancePage(props: PageProps): Promise<React.J
       <h1 className="font-semibold text-2xl tracking-tight">Investment performance</h1>
       <p className="mt-1 text-sm text-zinc-500">{range.label}</p>
 
-      <div className="mt-4">
+      <div data-tour="performance-range" className="mt-4">
         <AnalysisControls
           activeKey={range.key}
           accounts={investmentAccounts.map((a) => ({ id: a.id, name: a.name }))}
@@ -137,9 +138,17 @@ export default async function PerformancePage(props: PageProps): Promise<React.J
       </div>
 
       {/* Summary tiles */}
-      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Tile label="Time-weighted return" value={pct(portfolioTwr)} tone={tone(portfolioTwr)} />
-        <Tile label="Money-weighted (XIRR)" value={pct(mwr)} tone={tone(mwr)} />
+      <div data-tour="performance-tiles" className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <Tile
+          label={<Term id="time-weighted-return">Time-weighted return</Term>}
+          value={pct(portfolioTwr)}
+          tone={tone(portfolioTwr)}
+        />
+        <Tile
+          label={<Term id="xirr">Money-weighted (XIRR)</Term>}
+          value={pct(mwr)}
+          tone={tone(mwr)}
+        />
         <Tile
           label="Gain / loss"
           value={lastGain?.gain ? Money.fromString(lastGain.gain, CURRENCY).format() : "—"}
@@ -157,7 +166,7 @@ export default async function PerformancePage(props: PageProps): Promise<React.J
 
       {hasHistory && (
         <>
-          <section className="mt-8">
+          <section data-tour="performance-value" className="mt-8">
             <h2 className="font-medium">Value & cost basis over time</h2>
             <div className="mt-3">
               <ValueOverTimeChart points={valuePoints} currency={CURRENCY} />
@@ -165,7 +174,7 @@ export default async function PerformancePage(props: PageProps): Promise<React.J
           </section>
 
           <section className="mt-8 grid gap-8 lg:grid-cols-2">
-            <div>
+            <div data-tour="performance-benchmark">
               <h2 className="font-medium">Return vs. benchmark</h2>
               <p className="mt-0.5 text-xs text-zinc-400">
                 Both indexed to 100 at the range start (time-weighted, flow-neutralized).
@@ -174,7 +183,7 @@ export default async function PerformancePage(props: PageProps): Promise<React.J
                 <ReturnVsBenchmarkChart points={benchmarkPoints} />
               </div>
             </div>
-            <div>
+            <div data-tour="performance-contributions">
               <h2 className="font-medium">Contributions vs. market growth</h2>
               <p className="mt-0.5 text-xs text-zinc-400">
                 Did the portfolio grow, or did you just add money?
@@ -218,7 +227,7 @@ function Tile({
   value,
   tone = "",
 }: {
-  readonly label: string;
+  readonly label: React.ReactNode;
   readonly value: string;
   readonly tone?: string;
 }): React.JSX.Element {

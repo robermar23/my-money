@@ -75,7 +75,7 @@ export function UploadForm({ accountId, accountType }: Props): React.JSX.Element
 
   return (
     <form action={action} className="space-y-4" encType="multipart/form-data">
-      <div>
+      <div data-tour="import-file">
         <label htmlFor="file" className="block font-medium text-xs">
           QFX, OFX, or CSV file
         </label>
@@ -149,6 +149,7 @@ export function UploadForm({ accountId, accountType }: Props): React.JSX.Element
 
       <button
         type="submit"
+        data-tour="import-upload"
         disabled={pending}
         className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
       >

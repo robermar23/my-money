@@ -74,7 +74,7 @@ export default async function BudgetsPage(props: PageProps): Promise<React.JSX.E
         transactions (transfers excluded).
       </p>
 
-      <div className="mt-4 flex items-center justify-between">
+      <div data-tour="budgets-month" className="mt-4 flex items-center justify-between">
         <BudgetMonthNav month={month} />
         <div className="text-right text-sm">
           <span className="text-zinc-500">Total </span>

@@ -1,9 +1,12 @@
 "use client";
 
+import { openHelp } from "@/lib/help/events.ts";
+import type { HelpRoute } from "@/lib/help/routes.ts";
+import type { searchHelp } from "@/lib/help/search.ts";
 import type { SearchResult, SearchResultKind } from "@/lib/search/global.ts";
 import { searchPages } from "@/lib/search/pages.ts";
 import { MIN_SEARCH_TERM_LENGTH } from "@/lib/search/term.ts";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 /**
@@ -48,6 +51,7 @@ const DEBOUNCE_MS = 250;
 /** Human-facing group headers, in the order {@link globalSearch} returns them. */
 const GROUP_LABELS: Record<SearchResultKind, string> = {
   page: "Pages",
+  help: "Help",
   account: "Accounts",
   category: "Categories",
   security: "Securities",
@@ -57,6 +61,7 @@ const GROUP_LABELS: Record<SearchResultKind, string> = {
 
 const GROUP_ORDER: readonly SearchResultKind[] = [
   "page",
+  "help",
   "account",
   "category",
   "security",
@@ -98,7 +103,11 @@ interface SearchApiResponse {
 
 export function CommandPalette(): React.JSX.Element | null {
   const router = useRouter();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  // The help matcher imports every page's help, so it loads on first open
+  // rather than riding in the chrome's bundle (PLAN20 P20-07).
+  const [helpSearch, setHelpSearch] = useState<typeof searchHelp | null>(null);
   const [query, setQuery] = useState("");
   const [records, setRecords] = useState<readonly SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -134,6 +143,21 @@ export function CommandPalette(): React.JSX.Element | null {
       window.removeEventListener(OPEN_COMMAND_PALETTE_EVENT, onOpenEvent);
     };
   }, []);
+
+  useEffect(() => {
+    if (!open || helpSearch !== null) return;
+    let current = true;
+    void import("@/lib/help/search.ts")
+      .then((mod) => {
+        if (current) setHelpSearch(() => mod.searchHelp);
+      })
+      .catch(() => {
+        // No Help group is better than a broken palette.
+      });
+    return () => {
+      current = false;
+    };
+  }, [open, helpSearch]);
 
   // Focus the input when the palette opens; lock body scroll while open.
   useEffect(() => {
@@ -192,8 +216,18 @@ export function CommandPalette(): React.JSX.Element | null {
   // Pages are matched in-process from the nav manifest, so they are available
   // on the keystroke — no debounce, no request. Records arrive afterwards and
   // append below them.
+  // Help is local too, and comes straight after Pages: "Help: <this page>"
+  // first, then entries matching the query. The flat order must match
+  // GROUP_ORDER so keyboard order matches what is drawn.
   const pages = useMemo(() => searchPages(query), [query]);
-  const results = useMemo<readonly SearchResult[]>(() => [...pages, ...records], [pages, records]);
+  const help = useMemo(
+    () => (helpSearch ? helpSearch(query, pathname) : []),
+    [helpSearch, query, pathname],
+  );
+  const results = useMemo<readonly SearchResult[]>(
+    () => [...pages, ...help, ...records],
+    [pages, help, records],
+  );
 
   // Keep the highlight on the first result as the list changes underneath it
   // (pages paint first, records land ~250 ms later and extend the same list).
@@ -204,10 +238,20 @@ export function CommandPalette(): React.JSX.Element | null {
   const select = useCallback(
     (result: SearchResult): void => {
       close();
+      if (result.kind === "help") {
+        // Go to the page (unless it has an `<id>`, when href is where we
+        // already are), then open the panel on that page's help. A help
+        // result's id is its route pattern, set by searchHelp.
+        if (result.href !== pathname) {
+          router.push(result.href as Parameters<typeof router.push>[0]);
+        }
+        openHelp(result.id as HelpRoute);
+        return;
+      }
       // hrefs are app-internal jump targets built server-side in globalSearch.
       router.push(result.href as Parameters<typeof router.push>[0]);
     },
-    [close, router],
+    [close, router, pathname],
   );
 
   const onInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {

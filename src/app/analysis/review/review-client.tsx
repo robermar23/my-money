@@ -78,7 +78,7 @@ function ReviewRow({
   }
 
   return (
-    <li className="flex flex-wrap items-center gap-3 py-3">
+    <li data-tour="review-row" className="flex flex-wrap items-center gap-3 py-3">
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium text-sm">{group.sampleName}</div>
         <div className="text-xs text-zinc-500">
@@ -86,12 +86,13 @@ function ReviewRow({
         </div>
       </div>
       <CategoryPicker categories={categories} value={categoryId} onChange={setCategoryId} />
-      <label className="flex items-center gap-1 text-xs text-zinc-500">
+      <label data-tour="review-make-rule" className="flex items-center gap-1 text-xs text-zinc-500">
         <input type="checkbox" checked={makeRule} onChange={(e) => setMakeRule(e.target.checked)} />
         make rule
       </label>
       <button
         type="button"
+        data-tour="review-categorize"
         disabled={pending}
         onClick={categorize}
         className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"

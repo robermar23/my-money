@@ -24,8 +24,46 @@ never tagged, and their dates are when each phase finished.
 
 **Migrations:** `0027_jazzy_matthew_murdock` (unchanged).
 
+Nothing yet.
+
+## [0.20.0] - 2026-10-17
+
+Phase 20, *in-app help*: every page explains itself, without sending you to a
+document. No figure moved and nothing new leaves the server.
+[PLAN20.md](plans/features/PLAN20.md), ADR-058 → ADR-060.
+
+**Migrations:** `0027_jazzy_matthew_murdock` (unchanged). Help keeps no state
+in the database.
+
+### Added
+
+- **Help on every signed-in page** (33 pages). Press `?`, click the **?**
+  beside Search, or choose "Help: *this page*" in ⌘K. Each entry says what the
+  page is for, how to read it, what you can do there, and why it might look
+  wrong. ⌘K also searches the help text.
+- **"Words on this page"**: a glossary of 31 terms, in the pages' own words,
+  each saying what the term means and what it tells you to do. Four headline
+  labels open their definition in place: the two returns on Performance,
+  *Safe to spend* on Cash flow, and *Required today* on Sinking funds.
+- **Guided tours on 14 pages**, three to six steps each, offered once per
+  device by a "New here?" chip and always available from the help panel. They
+  work by keyboard, skip a step whose section is not on screen, and respect
+  reduced motion.
+- **A getting-started checklist** on the dashboard: add an account, bring in
+  transactions, work the review queue down, make a rule of your own, switch on
+  backups. Each item ticks itself, links to where it is done, and links to that
+  page's tour. Dismiss it, or finish it, and it is gone for good on that
+  device.
+- [docs/HELP.md](docs/HELP.md): how to write help for a new page, the copy
+  rules, and how to add a tour. A new page without a help entry fails
+  `pnpm test`.
+
 ### Security
 
+- Help never reads the database and makes no request. The only state it keeps
+  is a per-device `localStorage` mark under `my-money:help:`, saying which
+  tours were taken and whether the checklist was put away. A new test fails
+  the build if any of that changes, or if help code writes HTML.
 - The Docker image no longer contains test files or test fixtures
   (`.dockerignore`). Images up to and including 0.19.0 shipped them.
 - Test fixtures that had been taken from a real bank register are replaced with

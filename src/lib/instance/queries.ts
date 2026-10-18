@@ -115,6 +115,24 @@ async function loadWorker(now: Date): Promise<WorkerState> {
   };
 }
 
+/**
+ * Whether nightly backups are switched on, for the dashboard's getting-started
+ * checklist (PLAN20 P20-30). The same two sources `/settings/instance` reads:
+ * this process's own configuration, and otherwise the worker's last heartbeat
+ * report (in the shipped compose file only the worker sees the backup
+ * variables). Never throws.
+ *
+ * @param now - The current time (injectable for tests).
+ * @returns `true` or `false`, or `null` when the worker's report is missing or
+ *   Redis cannot be read.
+ */
+export async function backupsConfigured(now: Date = new Date()): Promise<boolean | null> {
+  if (instanceConfigState().backups.enabled) return true;
+  const worker = await guarded("worker heartbeat", () => loadWorker(now));
+  if ("kind" in worker) return null;
+  return worker.config?.backups.enabled ?? null;
+}
+
 export interface BackupState {
   /** When the newest successful backup finished, or null if none is on record. */
   readonly lastSuccessAt: Date | null;

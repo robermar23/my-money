@@ -4,6 +4,10 @@ One line per surface: the question it answers, where it lives, and the document
 that explains it. If you know a page exists, **⌘K / Ctrl-K** takes you there;
 this page is for finding out what exists in the first place.
 
+**On any page, press `?`** (or click the **?** beside Search) for help with that
+page: what it is for, how to read it, and why it might look wrong. Several
+pages also have a short guided tour.
+
 Everything below runs on your server and reads only your own database. Nothing
 is sent anywhere, except the bank sync (Plaid) and price lookups, and only if
 you turn them on. The app is built for US households and US dollars

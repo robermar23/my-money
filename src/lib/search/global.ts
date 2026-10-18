@@ -36,6 +36,10 @@ import { sanitizeSearchTerm } from "./term.ts";
  * prepended ahead of the record groups so every destination stays one keystroke
  * away no matter how deep the nav puts it (ADR-035 rule 5, NAV-11). The kind
  * lives in this union so the palette renders every group through one shape.
+ *
+ * `help` is the same kind of exception (PLAN20 P20-07): a page's static help
+ * entry, matched in the palette by `src/lib/help/search.ts`. It carries no
+ * household data, and nothing here queries for it.
  */
 export type SearchResultKind =
   | "page"
@@ -43,7 +47,8 @@ export type SearchResultKind =
   | "category"
   | "security"
   | "watchlist"
-  | "transaction";
+  | "transaction"
+  | "help";
 
 /**
  * One palette result — a jump target, discriminated by {@link SearchResultKind}.

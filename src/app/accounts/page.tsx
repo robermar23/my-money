@@ -32,14 +32,36 @@ const ASSET_CATEGORY_LABEL: Record<string, string> = {
   other: "Other",
 };
 
-async function getLatestBalanceString(accountId: string): Promise<string | null> {
+/** An account's newest recorded balance and the day it was recorded for. */
+interface LatestBalance {
+  readonly balance: string;
+  /** ISO `YYYY-MM-DD`. */
+  readonly date: string;
+}
+
+async function getLatestBalance(accountId: string): Promise<LatestBalance | null> {
   const [snap] = await db
-    .select({ balance: accountSnapshots.balance })
+    .select({ balance: accountSnapshots.balance, date: accountSnapshots.date })
     .from(accountSnapshots)
     .where(eq(accountSnapshots.accountId, accountId))
     .orderBy(desc(accountSnapshots.date))
     .limit(1);
-  return snap?.balance ?? null;
+  return snap ?? null;
+}
+
+/**
+ * `"2026-10-09"` → `"Oct 9, 2026"`, in UTC so a stored date never shifts a day.
+ *
+ * @param isoDate - A snapshot date.
+ * @returns The date as the balance's "as of" line shows it.
+ */
+function asOfLabel(isoDate: string): string {
+  return new Date(`${isoDate}T00:00:00Z`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 export default async function AccountsPage(props: AccountsPageProps): Promise<React.JSX.Element> {
@@ -64,7 +86,7 @@ export default async function AccountsPage(props: AccountsPageProps): Promise<Re
   const enriched = await Promise.all(
     visible.map(async (a) => ({
       account: a,
-      latestBalance: await getLatestBalanceString(a.id),
+      latest: await getLatestBalance(a.id),
     })),
   );
 
@@ -88,6 +110,7 @@ export default async function AccountsPage(props: AccountsPageProps): Promise<Re
           )}
           <Link
             href="/accounts/new"
+            data-tour="accounts-add"
             className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
             Add account
@@ -96,7 +119,7 @@ export default async function AccountsPage(props: AccountsPageProps): Promise<Re
       </div>
 
       {all.length > 0 && (
-        <div className="mt-6">
+        <div data-tour="accounts-filter" className="mt-6">
           <SearchInput
             placeholder="Filter accounts by name or institution…"
             label="Filter accounts"
@@ -126,15 +149,19 @@ export default async function AccountsPage(props: AccountsPageProps): Promise<Re
           <table className="w-full min-w-[34rem] text-sm">
             <thead className="border-zinc-200 border-b text-left text-xs text-zinc-500 uppercase dark:border-zinc-800">
               <tr>
-                <th className="py-2">Name</th>
+                <th data-tour="accounts-name" className="py-2">
+                  Name
+                </th>
                 <th className="py-2">Institution</th>
                 <th className="py-2">Type</th>
-                <th className="py-2 text-right">Latest balance</th>
+                <th data-tour="accounts-latest-balance" className="py-2 text-right">
+                  Latest balance
+                </th>
                 <th className="py-2 text-right" />
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-900">
-              {enriched.map(({ account, latestBalance }) => {
+              {enriched.map(({ account, latest }) => {
                 const closed = account.closedAt !== null;
                 return (
                   <tr key={account.id} className={closed ? "text-zinc-400 dark:text-zinc-600" : ""}>
@@ -160,9 +187,17 @@ export default async function AccountsPage(props: AccountsPageProps): Promise<Re
                       {TYPE_LABEL[account.type] ?? account.type}
                     </td>
                     <td className="py-3 text-right font-mono">
-                      {latestBalance
-                        ? Money.fromString(latestBalance, account.currency).format()
-                        : "—"}
+                      {latest ? (
+                        <>
+                          {Money.fromString(latest.balance, account.currency).format()}
+                          {/* P20 Open Items: "is each one up to date?" needs a date. */}
+                          <div className="font-sans text-xs text-zinc-500">
+                            as of {asOfLabel(latest.date)}
+                          </div>
+                        </>
+                      ) : (
+                        "—"
+                      )}
                     </td>
                     <td className="py-3 text-right">
                       {closed && <ReopenAccountButton accountId={account.id} />}

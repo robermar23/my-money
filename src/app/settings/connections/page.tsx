@@ -142,7 +142,7 @@ export default async function ConnectionsPage(): Promise<React.JSX.Element> {
             doesn't cover.
           </p>
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-2">
+        <div data-tour="connections-connect" className="flex shrink-0 flex-col items-end gap-2">
           <LinkButton />
           {/* P5-10 — separate CTA requesting the `investments` product (Fidelity). */}
           <LinkButton products={["investments"]} label="Connect investment institution" />
@@ -166,7 +166,7 @@ export default async function ConnectionsPage(): Promise<React.JSX.Element> {
               <li key={item.id} className="py-4">
                 <div className="flex items-start justify-between">
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div data-tour="connections-status" className="flex items-center gap-2">
                       <h3 className="font-medium">{item.institutionName}</h3>
                       {statusBadge(item.status)}
                     </div>
@@ -198,7 +198,7 @@ export default async function ConnectionsPage(): Promise<React.JSX.Element> {
                         .
                       </p>
                     )}
-                    <p className="mt-2 text-xs text-zinc-500">
+                    <p data-tour="connections-last-synced" className="mt-2 text-xs text-zinc-500">
                       Last synced:{" "}
                       {item.lastSyncedAt ? new Date(item.lastSyncedAt).toLocaleString() : "never"}
                       {" · "}
@@ -206,7 +206,10 @@ export default async function ConnectionsPage(): Promise<React.JSX.Element> {
                       {item.lastWebhookAt ? new Date(item.lastWebhookAt).toLocaleString() : "never"}
                     </p>
                   </div>
-                  <div className="ml-4 flex shrink-0 flex-col items-end gap-2">
+                  <div
+                    data-tour="connections-actions"
+                    className="ml-4 flex shrink-0 flex-col items-end gap-2"
+                  >
                     {/* P4-28 — Force sync is the most common manual action. */}
                     <ForceSyncButton plaidItemPk={item.id} disabled={forceSyncDisabled} />
                     {/* P4-25 — amber Reconnect button when the Item needs reauth. */}
