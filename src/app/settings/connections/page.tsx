@@ -170,7 +170,7 @@ export default async function ConnectionsPage(): Promise<React.JSX.Element> {
                       <h3 className="font-medium">{item.institutionName}</h3>
                       {statusBadge(item.status)}
                     </div>
-                    <p className="mt-1 font-mono text-xs text-zinc-500">{item.plaidItemId}</p>
+                    <p className="mt-1 font-code text-xs text-zinc-500">{item.plaidItemId}</p>
                     {item.errorCode && (
                       <p className="mt-1 text-red-600 text-xs dark:text-red-400">
                         {item.errorCode}

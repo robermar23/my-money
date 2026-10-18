@@ -147,7 +147,7 @@ function MapAccountsError({
       <h1 className="mt-2 font-semibold text-2xl tracking-tight">Map {institutionName} accounts</h1>
       <div className="mt-6 rounded-lg border border-amber-300 bg-amber-50 p-4 text-amber-900 text-sm dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
         <p className="font-medium">Couldn't load accounts from Plaid.</p>
-        {code && <p className="mt-1 font-mono text-xs">{code}</p>}
+        {code && <p className="mt-1 font-code text-xs">{code}</p>}
         <p className="mt-1">{message}</p>
         {isNotReady ? (
           <p className="mt-3">

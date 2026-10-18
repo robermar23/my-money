@@ -131,7 +131,7 @@ export function UploadForm({ accountId, accountType }: Props): React.JSX.Element
                 setMappingJson(e.target.value);
                 setPresetKey("custom");
               }}
-              className={`${fieldClass} font-mono text-xs`}
+              className={`${fieldClass} font-code text-xs`}
             />
             <p className="mt-1 text-xs text-zinc-500">
               For headerless CSVs (like M&amp;T) set <code>hasHeader: false</code> and reference

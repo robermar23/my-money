@@ -33,8 +33,8 @@ function AlertCard({ alert }: { readonly alert: Alert }): React.JSX.Element {
           <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-sm text-zinc-600 dark:text-zinc-400">
             {formatDetail(alert.detail).map(([k, v]) => (
               <div key={k} className="contents">
-                <dt className="font-mono text-xs">{k}</dt>
-                <dd className="font-mono text-xs">{v}</dd>
+                <dt className="font-code text-xs">{k}</dt>
+                <dd className="font-code text-xs">{v}</dd>
               </div>
             ))}
           </dl>

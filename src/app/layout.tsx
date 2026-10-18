@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AppNav } from "@/components/app-nav.tsx";
 import { getSession } from "@/lib/auth/session.ts";
+import { inter, sourceSerif } from "./fonts.ts";
 
 export const metadata: Metadata = {
   title: "my-money",
@@ -29,7 +30,7 @@ export default async function RootLayout({
   const showNav = Boolean(session.userId);
 
   return (
-    <html lang="en">
+    <html lang="en" className={`${inter.variable} ${sourceSerif.variable}`}>
       <body className="min-h-screen bg-white text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-50">
         {showNav && <AppNav />}
         <div className={showNav ? "pt-2" : ""}>{children}</div>

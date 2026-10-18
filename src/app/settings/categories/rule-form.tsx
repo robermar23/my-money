@@ -28,7 +28,7 @@ export function NewRuleForm({ categories }: Props): React.JSX.Element {
           id="pattern"
           name="pattern"
           required
-          className={`${fieldClass} font-mono`}
+          className={`${fieldClass} font-code`}
           placeholder="STARBUCKS|DUNKIN"
         />
       </div>
@@ -36,7 +36,7 @@ export function NewRuleForm({ categories }: Props): React.JSX.Element {
         <label htmlFor="flags" className="block font-medium text-xs">
           Flags
         </label>
-        <input id="flags" name="flags" defaultValue="i" className={`${fieldClass} font-mono`} />
+        <input id="flags" name="flags" defaultValue="i" className={`${fieldClass} font-code`} />
       </div>
       <div className="col-span-2">
         <label htmlFor="field" className="block font-medium text-xs">

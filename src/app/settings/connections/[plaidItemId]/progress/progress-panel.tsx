@@ -95,8 +95,8 @@ export function ProgressPanel({ plaidItemPk }: Props): React.JSX.Element {
       {waitingForWorker && (
         <p className="mt-4 rounded bg-amber-50 px-3 py-2 text-amber-900 text-xs dark:bg-amber-950 dark:text-amber-200">
           The BullMQ worker hasn't picked up the initial-sync job yet. Make sure{" "}
-          <code className="font-mono">pnpm worker</code> is running in a separate terminal. The
-          accounts you mapped already exist — visit{" "}
+          <code>pnpm worker</code> is running in a separate terminal. The accounts you mapped
+          already exist — visit{" "}
           <a href="/accounts" className="underline">
             /accounts
           </a>{" "}

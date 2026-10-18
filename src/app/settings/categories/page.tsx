@@ -127,8 +127,8 @@ export default async function CategoriesSettingsPage(
             {rules.map((r) => (
               <tr key={r.id}>
                 <td className="py-1.5 font-mono">{r.priority}</td>
-                <td className="py-1.5 font-mono">{r.pattern}</td>
-                <td className="py-1.5 font-mono">{r.flags}</td>
+                <td className="py-1.5 font-code">{r.pattern}</td>
+                <td className="py-1.5 font-code">{r.flags}</td>
                 <td className="py-1.5 text-zinc-600 dark:text-zinc-400">{r.field}</td>
                 <td className="py-1.5">{r.category}</td>
                 <td className="py-1.5 text-xs">

@@ -41,7 +41,8 @@ stage copies `node_modules` whole, so those files travel with the packages.
 | Unlicense | 1 | 1 |
 | 0BSD | 1 | 1 |
 | MIT AND ISC | 1 | 1 |
-| **Total** | **294** | **138** |
+| OFL-1.1 | 2 | 2 |
+| **Total** | **296** | **140** |
 
 ## Named explicitly: copyleft and attribution-requiring dependencies
 
@@ -60,6 +61,12 @@ the answer is "fine", so that nobody has to re-derive it.
 - **`caniuse-lite` (CC-BY-4.0).** Browser-support data used by the build
   toolchain and Next.js. **Attribution-requiring.** The attribution travels
   with the package's own license file.
+- **`@fontsource-variable/inter`, `@fontsource-variable/source-serif-4` (OFL-1.1).**
+  The interface and heading typefaces, added 2026-10-18. **Font license.** The
+  font files are bundled into the app and served to the browser, which the SIL
+  Open Font License allows for software that is not sold as the font itself.
+  The license text ships inside each package. OFL-1.1 places no obligation on
+  the AGPL code that uses the fonts.
 - **`postgres` (Unlicense).** The Postgres driver. **Public domain.** Listed
   only because it is unusual, not because it carries any obligation.
 - **BlueOak-1.0.0 (`chownr`, `jackspeak`, `minimatch`, `minipass`,
