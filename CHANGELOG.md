@@ -26,6 +26,46 @@ never tagged, and their dates are when each phase finished.
 
 Nothing yet.
 
+## [0.20.1] - 2026-10-18
+
+How the app looks and feels: typefaces, buttons that say what a click does, a
+theme choice, and the right cursor. No figure moved, nothing new leaves the
+server, and the database is untouched.
+
+**Migrations:** `0027_jazzy_matthew_murdock` (unchanged).
+
+### Added
+
+- **A System / Light / Dark theme picker** in the account menu. System
+  follows your device, as before. The choice is kept in a cookie on this
+  device, so pages open in the right theme without a flash.
+
+### Changed
+
+- **New typefaces:** Inter for the interface and figures, and Source Serif 4
+  for page and section headings. Both ship inside the app, so neither the
+  build nor your browser fetches a font from anyone. Amounts keep
+  equal-width digits, so columns still line up.
+- **Buttons are ranked by what a click does.**
+  - Buttons that write to your records (Save balance, Record, Confirm import,
+    Add lot, Mark paid) are solid navy, slightly raised, and press down when
+    clicked.
+  - Filters, navigation and cancel are outlined.
+  - Small per-row actions are plain text.
+  - Deleting and disconnecting are red.
+- **The amount is on the button.** The balance and valuation forms read "Save
+  balance · $18,430.10" as you type, once the amount is one the app would
+  accept.
+- **Buttons show their progress.** While an action runs, the button shows a
+  spinner and keeps its size. After a successful save it shows ✓ Saved for a
+  moment.
+
+### Fixed
+
+- **Clickable controls show the hand cursor again**, as links always did:
+  buttons, menu toggles, search results, collapsible sections, dropdowns,
+  checkboxes and radio buttons. Disabled controls show not-allowed.
+
 ## [0.20.0] - 2026-10-17
 
 Phase 20, *in-app help*: every page explains itself, without sending you to a
