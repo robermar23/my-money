@@ -201,17 +201,21 @@ ADR-053 §2; [docs/GUIDANCE.md](docs/GUIDANCE.md#what-happens-every-january)).
 A release is a version, a tag that matches it, and a CHANGELOG entry that says
 which migration it needs (ADR-054). In order:
 
-1. In [CHANGELOG.md](CHANGELOG.md), replace `Unreleased` on the top entry with
-   the date. Its `Migrations:` line must name the newest file in `drizzle/`;
-   a test fails the build if it does not, and if the top entry's version and
-   `package.json`'s disagree.
+1. On a `chore/release-x.y.z` branch, set `version` in `package.json`, and in
+   [CHANGELOG.md](CHANGELOG.md) turn `## [Unreleased]` into
+   `## [x.y.z] - <date>` with its entries. Its `Migrations:` line must name the
+   newest file in `drizzle/`; a test fails the build if it does not, and if the
+   top versioned entry and `package.json` disagree. Above it, open a fresh
+   `## [Unreleased]` block with the same `Migrations:` line.
 2. Merge to `master`, then tag the merge commit and push the tag:
    `git tag -a v0.19.0 -m "my-money 0.19.0"`.
 3. From that commit, `make image-release`. It refuses to run anywhere except
    on the commit tagged `v<package.json version>`, and pushes the image as
    `:<version>`, `:<git sha>` and `:latest`.
-4. Start the next one: bump `version` in `package.json` and open a new
-   `## [x.y.z] - Unreleased` entry at the top of the changelog.
+4. Pin the server to it: `MONEY_IMAGE_TAG=x.y.z` in `.env`, then the upgrade
+   in [docs/DEPLOY.md §Updates](docs/DEPLOY.md#updates). The next version
+   number is chosen when it is released: a minor bump for a finished phase, a
+   patch bump otherwise.
 
 ## License
 
