@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AppNav } from "@/components/app-nav.tsx";
 import { getSession } from "@/lib/auth/session.ts";
+import { readTheme } from "@/lib/theme/server.ts";
 import { inter, sourceSerif } from "./fonts.ts";
 
 export const metadata: Metadata = {
@@ -28,9 +29,15 @@ export default async function RootLayout({
   // right back to /login anyway).
   const session = await getSession();
   const showNav = Boolean(session.userId);
+  // A picked theme goes on <html> server-side so the first paint is already right.
+  const theme = await readTheme();
 
   return (
-    <html lang="en" className={`${inter.variable} ${sourceSerif.variable}`}>
+    <html
+      lang="en"
+      className={`${inter.variable} ${sourceSerif.variable}`}
+      data-theme={theme === "system" ? undefined : theme}
+    >
       <body className="min-h-screen bg-white text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-50">
         {showNav && <AppNav />}
         <div className={showNav ? "pt-2" : ""}>{children}</div>
