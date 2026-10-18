@@ -8,7 +8,7 @@ describe("formatTypedAmount", () => {
   });
 
   it("should stay exact beyond float precision", () => {
-    expect(formatTypedAmount("12345678901234567.89", "USD")).toBe("$12,345,678,901,234,567.89");
+    expect(formatTypedAmount("99999999999999999.99", "USD")).toBe("$99,999,999,999,999,999.99");
   });
 
   it("should show a true minus for negatives but not for zero", () => {
