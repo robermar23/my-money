@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { useActionState } from "react";
 import { type ChangePasswordState, changePasswordAction } from "./actions.ts";
 
@@ -63,13 +64,15 @@ export function PasswordForm(): React.JSX.Element {
           Password changed. Every other browser has been signed out.
         </p>
       ) : null}
-      <button
+      <Button
         type="submit"
-        disabled={pending}
-        className="rounded-md border border-zinc-300 px-3 py-1 text-xs hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
+        variant="secondary"
+        size="xs"
+        pending={pending}
+        pendingLabel="Changing…"
       >
-        {pending ? "Changing…" : "Change password"}
-      </button>
+        Change password
+      </Button>
     </form>
   );
 }

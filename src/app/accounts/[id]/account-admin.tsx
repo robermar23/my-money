@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActionState, useState, useTransition } from "react";
@@ -171,24 +172,15 @@ export function AccountAdmin({
             </p>
           )}
           <div className="col-span-full">
-            <button
-              type="submit"
-              disabled={editPending}
-              className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-            >
-              {editPending ? "Saving…" : "Save changes"}
-            </button>
+            <Button type="submit" variant="commit" pending={editPending} pendingLabel="Saving…">
+              Save changes
+            </Button>
           </div>
         </form>
       </details>
 
       {/* Close / Reopen */}
-      <button
-        type="button"
-        onClick={onToggleClose}
-        disabled={toggling}
-        className="rounded-md border border-zinc-300 px-3 py-1.5 font-medium text-sm hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-      >
+      <Button type="button" onClick={onToggleClose} disabled={toggling} variant="secondary">
         {toggling
           ? closed
             ? "Reopening…"
@@ -196,7 +188,7 @@ export function AccountAdmin({
           : closed
             ? "Reopen account"
             : "Close account"}
-      </button>
+      </Button>
 
       {/* Delete */}
       <details className="w-full rounded-lg border border-red-200 p-3 dark:border-red-900">
@@ -227,14 +219,16 @@ export function AccountAdmin({
                 aria-label="Type the account name to confirm deletion"
                 className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm shadow-sm focus:border-red-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900"
               />
-              <button
+              <Button
                 type="button"
                 onClick={onDelete}
-                disabled={deleting || confirmText !== name}
-                className="rounded-md bg-red-600 px-3 py-1.5 font-medium text-sm text-white hover:bg-red-700 disabled:opacity-50"
+                disabled={confirmText !== name}
+                variant="danger"
+                pending={deleting}
+                pendingLabel="Deleting…"
               >
-                {deleting ? "Deleting…" : "Delete permanently"}
-              </button>
+                Delete permanently
+              </Button>
             </div>
             {deleteError && (
               <p className="mt-2 text-red-600 text-xs dark:text-red-400">{deleteError}</p>

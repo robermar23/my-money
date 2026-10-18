@@ -1,6 +1,7 @@
 "use client";
 
 import { type CategoryOption, CategoryPicker } from "@/components/category-picker.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { OBLIGATION_CADENCES } from "@/lib/schedule/cadence.ts";
 import {
   OBLIGATION_AMOUNT_MODE_OPTIONS,
@@ -72,15 +73,15 @@ export function ObligationManager({ obligations, accounts, categories }: Props):
             ? "No confirmed bills yet. Until there is at least one, the projection can only use a flat spending rate."
             : `${active.length} bill${active.length === 1 ? "" : "s"} on the calendar.`}
         </p>
-        <button
+        <Button
           type="button"
           onClick={() => setAdding((open) => !open)}
           aria-expanded={adding}
           aria-controls="add-obligation-form"
-          className="rounded-md border border-zinc-300 px-3 py-1.5 font-medium text-sm dark:border-zinc-700"
+          variant="secondary"
         >
           {adding ? "Cancel" : "Add a bill"}
-        </button>
+        </Button>
       </div>
 
       {adding && (
@@ -179,22 +180,12 @@ function ObligationRow({
           {obligation.source === "detected" ? " · found in your history" : ""}
         </span>
         <span className="ml-auto flex gap-2">
-          <button
-            type="button"
-            onClick={onEdit}
-            aria-expanded={editing}
-            className="rounded-md px-2 py-1 text-sm text-zinc-500 underline"
-          >
+          <Button type="button" onClick={onEdit} aria-expanded={editing} variant="quiet">
             {editing ? "Close" : "Edit"}
-          </button>
-          <button
-            type="button"
-            onClick={toggleActive}
-            disabled={pending}
-            className="rounded-md border border-zinc-300 px-2 py-1 text-sm disabled:opacity-50 dark:border-zinc-700"
-          >
+          </Button>
+          <Button type="button" onClick={toggleActive} disabled={pending} variant="secondary">
             {obligation.active ? "Stop" : "Resume"}
-          </button>
+          </Button>
         </span>
       </div>
 
@@ -410,20 +401,12 @@ function ObligationForm({
       )}
 
       <div className="mt-4 flex gap-2">
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
-        >
-          {pending ? "Saving…" : obligation ? "Save changes" : "Add bill"}
-        </button>
-        <button
-          type="button"
-          onClick={onDone}
-          className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700"
-        >
+        <Button type="submit" variant="commit" pending={pending} pendingLabel="Saving…">
+          {obligation ? "Save changes" : "Add bill"}
+        </Button>
+        <Button type="button" onClick={onDone} variant="secondary">
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

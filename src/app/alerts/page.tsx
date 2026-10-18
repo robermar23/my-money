@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button.tsx";
 import type { Alert } from "@/db/schema/index.ts";
 import { listOpenAlerts, listResolvedAlerts } from "@/lib/alerts/queries.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
@@ -45,12 +46,9 @@ function AlertCard({ alert }: { readonly alert: Alert }): React.JSX.Element {
         </div>
         {open && (
           <form action={dismissAlertAction.bind(null, alert.id)}>
-            <button
-              type="submit"
-              className="rounded-md border border-zinc-300 px-3 py-1 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
-            >
+            <Button type="submit" variant="secondary">
               Dismiss
-            </button>
+            </Button>
           </form>
         )}
       </div>

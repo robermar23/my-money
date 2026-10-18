@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import type { BudgetLine } from "@/lib/budgets/queries.ts";
 import { useActionState, useTransition } from "react";
 import { type BudgetActionResult, deleteBudgetAction, setBudgetAction } from "./actions.ts";
@@ -103,13 +104,16 @@ export function BudgetRow({ line, currency }: Props): React.JSX.Element {
             aria-label={`Monthly budget for ${line.name}`}
             className="w-24 rounded-md border border-zinc-300 px-2 py-1 text-right text-sm tabular-nums dark:border-zinc-700 dark:bg-zinc-900"
           />
-          <button
+          <Button
             type="submit"
-            disabled={pending}
-            className="rounded-md border border-zinc-300 px-2 py-1 text-xs disabled:opacity-40 dark:border-zinc-700"
+            variant="commit"
+            size="xs"
+            pending={pending}
+            pendingLabel="…"
+            succeeded={!state.error}
           >
-            {pending ? "…" : "Save"}
-          </button>
+            Save
+          </Button>
         </form>
         {line.hasBudget && (
           <button

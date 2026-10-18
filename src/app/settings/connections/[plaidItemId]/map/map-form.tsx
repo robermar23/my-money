@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { useState, useTransition } from "react";
 import { mapAccountsAction } from "../../map-actions.ts";
 
@@ -165,13 +166,16 @@ export function MapAccountsForm({ plaidItemPk, rows }: Props): React.JSX.Element
         </p>
       )}
 
-      <button
+      <Button
         type="submit"
-        disabled={pending}
-        className="w-full rounded-md bg-zinc-900 px-4 py-2 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+        variant="commit"
+        size="md"
+        className="w-full"
+        pending={pending}
+        pendingLabel="Mapping…"
       >
-        {pending ? "Mapping…" : "Confirm mapping and start initial sync"}
-      </button>
+        Confirm mapping and start initial sync
+      </Button>
     </form>
   );
 }

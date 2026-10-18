@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { EMPLOYEE_BASIS_OPTIONS, MATCH_BASIS_OPTIONS } from "@/lib/schemas/income.ts";
 import { useEffect, useState, useTransition } from "react";
 import { type ContributionPreview, previewContributionAction } from "./actions.ts";
@@ -266,21 +267,17 @@ export function RuleForm({
       <PreviewPanel preview={preview} error={previewError} />
 
       <div className="mt-4 flex gap-2">
-        <button
+        <Button
           type="button"
           onClick={submit}
           disabled={disabled || accountId === ""}
-          className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
+          variant="commit"
         >
           {rule ? "Save rule" : "Add rule"}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700"
-        >
+        </Button>
+        <Button type="button" onClick={onCancel} variant="secondary">
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );

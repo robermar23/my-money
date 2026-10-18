@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button.tsx";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import type { InstanceConfigState } from "@/lib/instance/config-state.ts";
 import { type InstanceState, type Loaded, loadInstanceState } from "@/lib/instance/queries.ts";
@@ -408,12 +409,9 @@ function DrillRow({ drill }: { readonly drill: Loaded<DrillStatus> }): React.JSX
           Follow <code>docs/RESTORE.md</code>, then record it here. This date is what you tell the
           app: it does not check that the restore worked.
           <form action={recordRestoreDrillAction} className="mt-2">
-            <button
-              type="submit"
-              className="rounded-md border border-zinc-300 px-3 py-1 text-xs hover:bg-zinc-50 dark:border-zinc-700 dark:hover:bg-zinc-900"
-            >
+            <Button type="submit" variant="secondary" size="xs">
               I completed a restore drill today
-            </button>
+            </Button>
           </form>
         </>
       }

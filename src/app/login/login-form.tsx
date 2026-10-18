@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { useActionState } from "react";
 import { type LoginResult, loginOrBootstrap } from "./actions.ts";
 
@@ -34,13 +35,16 @@ export function LoginForm({ isFirstRun }: Props): React.JSX.Element {
           {state.error}
         </p>
       )}
-      <button
+      <Button
         type="submit"
-        disabled={pending}
-        className="w-full rounded-md bg-zinc-900 px-4 py-2 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+        variant="commit"
+        size="md"
+        className="w-full"
+        pending={pending}
+        pendingLabel="..."
       >
-        {pending ? "..." : isFirstRun ? "Set password" : "Sign in"}
-      </button>
+        {isFirstRun ? "Set password" : "Sign in"}
+      </Button>
     </form>
   );
 }

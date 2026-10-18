@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { deleteHoldingAction } from "./actions.ts";
@@ -35,14 +36,16 @@ export function DeleteHoldingButton({
 
   return (
     <>
-      <button
+      <Button
         type="button"
         onClick={onDelete}
-        disabled={pending}
-        className="text-red-600 text-xs hover:underline disabled:opacity-50 dark:text-red-400"
+        variant="danger-quiet"
+        size="xs"
+        pending={pending}
+        pendingLabel="Deleting…"
       >
-        {pending ? "Deleting…" : "Delete"}
-      </button>
+        Delete
+      </Button>
       {error && <span className="ml-1 text-red-600 text-xs dark:text-red-400">{error}</span>}
     </>
   );

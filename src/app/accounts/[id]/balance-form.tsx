@@ -1,5 +1,7 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
+import { useTypedAmount } from "@/components/ui/use-typed-amount.tsx";
 import { useActionState } from "react";
 import { type ActionResult, recordBalanceAction } from "./actions.ts";
 
@@ -20,6 +22,8 @@ interface Props {
    * bundle to answer one boolean.
    */
   readonly owed: boolean;
+  /** The account currency, for the amount named on the save button. */
+  readonly currency: string;
 }
 
 /**
@@ -34,13 +38,18 @@ interface Props {
  * drop the relabel from a diff as polish: the label is what makes the negation
  * legible, and the two come from the same predicate so they cannot drift.
  */
-export function BalanceForm({ accountId, owed }: Props): React.JSX.Element {
+export function BalanceForm({ accountId, owed, currency }: Props): React.JSX.Element {
   const bound = recordBalanceAction.bind(null, accountId);
   const [state, action, pending] = useActionState(bound, initial);
+  const amount = useTypedAmount(currency);
   const today = new Date().toISOString().slice(0, 10);
 
   return (
-    <form action={action} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+    <form
+      action={action}
+      onReset={amount.onReset}
+      className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+    >
       <div>
         <label htmlFor="balance-date" className="block font-medium text-xs">
           Date
@@ -61,6 +70,7 @@ export function BalanceForm({ accountId, owed }: Props): React.JSX.Element {
         <input
           id="balance-amount"
           name="balance"
+          onChange={amount.onChange}
           type="text"
           inputMode="decimal"
           required
@@ -86,13 +96,15 @@ export function BalanceForm({ accountId, owed }: Props): React.JSX.Element {
         </p>
       )}
       <div className="col-span-full">
-        <button
+        <Button
           type="submit"
-          disabled={pending}
-          className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          variant="commit"
+          pending={pending}
+          pendingLabel="Saving…"
+          succeeded={state.ok === true}
         >
-          {pending ? "Saving…" : "Save balance"}
-        </button>
+          Save balance{amount.suffix}
+        </Button>
       </div>
     </form>
   );

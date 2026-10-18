@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button.tsx";
 import { db } from "@/db/client.ts";
 import { importBatches } from "@/db/schema/index.ts";
 import { getAccount } from "@/lib/accounts/queries.ts";
@@ -77,12 +78,9 @@ export default async function ImportProgressPage(props: PageProps): Promise<Reac
             }}
             className="mt-4"
           >
-            <button
-              type="submit"
-              className="rounded-md border border-red-400 px-3 py-1.5 text-red-800 text-xs hover:bg-red-100 dark:border-red-700 dark:text-red-200 dark:hover:bg-red-900"
-            >
+            <Button type="submit" variant="danger" size="xs">
               Delete batch &amp; try again
-            </button>
+            </Button>
           </form>
         </section>
       )}

@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { useActionState } from "react";
 import type { WatchlistActionResult } from "../actions.ts";
 
@@ -68,13 +69,17 @@ export function AddTargetForm({ action }: Props): React.JSX.Element {
           className={`mt-1 ${fieldClass}`}
         />
       </div>
-      <button
+      <Button
         type="submit"
-        disabled={pending}
-        className="rounded-md bg-zinc-900 px-4 py-2 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+        variant="commit"
+        size="md"
+        pending={pending}
+        pendingLabel="Adding…"
+        succeeded={!state.error}
+        successLabel="Added"
       >
-        {pending ? "Adding…" : "Add target"}
-      </button>
+        Add target
+      </Button>
       {state.error && (
         <p className="w-full rounded-md bg-red-50 px-3 py-2 text-red-700 text-sm dark:bg-red-950 dark:text-red-300">
           {state.error}

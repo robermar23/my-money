@@ -416,7 +416,11 @@ export default async function AccountDetailPage(
               : "Enter the end-of-day balance from your statement or online portal."}
           </p>
           <div className="mt-4">
-            <BalanceForm accountId={account.id} owed={isLiabilityAccount(account.type)} />
+            <BalanceForm
+              accountId={account.id}
+              owed={isLiabilityAccount(account.type)}
+              currency={account.currency}
+            />
           </div>
         </section>
       )}
@@ -650,7 +654,7 @@ export default async function AccountDetailPage(
             etc.).
           </p>
           <div className="mt-4">
-            <PropertyForm accountId={account.id} />
+            <PropertyForm accountId={account.id} currency={account.currency} />
           </div>
         </section>
       )}
@@ -705,7 +709,7 @@ export default async function AccountDetailPage(
               contributes to your net worth over time.
             </p>
             <div className="mt-4">
-              <AssetValueForm accountId={account.id} />
+              <AssetValueForm accountId={account.id} currency={account.currency} />
             </div>
             {snapshots.length >= 2 && (
               <div className="mt-6">

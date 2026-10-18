@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button.tsx";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { valueHolding } from "@/lib/holdings/value.ts";
 import {
@@ -272,12 +273,9 @@ export default async function ForecastPage(props: PageProps): Promise<React.JSX.
               className="w-36 rounded-md border border-zinc-300 bg-transparent px-2 py-1 dark:border-zinc-700"
             />
           </label>
-          <button
-            type="submit"
-            className="rounded-md bg-zinc-900 px-3 py-1.5 text-white dark:bg-zinc-50 dark:text-zinc-900"
-          >
+          <Button type="submit" variant="secondary">
             Project goal
-          </button>
+          </Button>
         </form>
 
         {goalTarget && (

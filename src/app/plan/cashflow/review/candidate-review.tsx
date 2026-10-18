@@ -1,6 +1,7 @@
 "use client";
 
 import { type CategoryOption, CategoryPicker } from "@/components/category-picker.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { OBLIGATION_CADENCES } from "@/lib/schedule/cadence.ts";
 import { useRouter } from "next/navigation";
 import { useId, useState, useTransition } from "react";
@@ -87,16 +88,13 @@ export function CandidateReview({ candidates, categories }: Props): React.JSX.El
           added until you confirm it.
         </p>
         {highConfidence.length > 0 && (
-          <button
+          <Button
             type="button"
             onClick={confirmAllHighConfidence}
-            disabled={bulkPending}
-            className="rounded-md border border-zinc-300 px-3 py-1.5 font-medium text-sm disabled:opacity-50 dark:border-zinc-700"
-          >
-            {bulkPending
-              ? "Confirming…"
-              : `Confirm ${highConfidence.length} strong match${highConfidence.length === 1 ? "" : "es"}`}
-          </button>
+            variant="commit"
+            pending={bulkPending}
+            pendingLabel="Confirming…"
+          >{`Confirm ${highConfidence.length} strong match${highConfidence.length === 1 ? "" : "es"}`}</Button>
         )}
       </div>
       {bulkError && (
@@ -222,9 +220,8 @@ function CandidateRow({
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
+        <Button
           type="button"
-          disabled={pending}
           onClick={() =>
             run(() =>
               confirmCandidateAction(
@@ -233,35 +230,37 @@ function CandidateRow({
               ),
             )
           }
-          className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
+          variant="commit"
+          pending={pending}
+          pendingLabel="Saving…"
         >
-          {pending ? "Saving…" : "Confirm"}
-        </button>
-        <button
+          Confirm
+        </Button>
+        <Button
           type="button"
           disabled={pending}
           onClick={() => run(() => dismissCandidateAction({}, dismissFormData(candidate, "")))}
-          className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-zinc-700"
+          variant="secondary"
         >
           Not a bill
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           disabled={pending}
           onClick={() => run(() => dismissCandidateAction({}, dismissFormData(candidate, "90")))}
-          className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-zinc-700"
+          variant="secondary"
         >
           Ask me in 90 days
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           onClick={() => setShowEvidence((open) => !open)}
           aria-expanded={showEvidence}
           aria-controls={evidenceId}
-          className="rounded-md px-2 py-1.5 text-sm text-zinc-500 underline"
+          variant="quiet"
         >
           {showEvidence ? "Hide the charges" : "Show the charges"}
-        </button>
+        </Button>
       </div>
 
       {error && (

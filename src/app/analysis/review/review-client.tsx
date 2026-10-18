@@ -1,6 +1,7 @@
 "use client";
 
 import { type CategoryOption, CategoryPicker } from "@/components/category-picker.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import type { UncategorizedPayeeGroup } from "@/lib/transactions/queries.ts";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -90,15 +91,14 @@ function ReviewRow({
         <input type="checkbox" checked={makeRule} onChange={(e) => setMakeRule(e.target.checked)} />
         make rule
       </label>
-      <button
+      <Button
         type="button"
         data-tour="review-categorize"
-        disabled={pending}
         onClick={categorize}
-        className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
-      >
-        {pending ? "Saving…" : `Categorize all ${group.count}`}
-      </button>
+        variant="commit"
+        pending={pending}
+        pendingLabel="Saving…"
+      >{`Categorize all ${group.count}`}</Button>
       {error && <span className="w-full text-red-600 text-xs dark:text-red-400">{error}</span>}
     </li>
   );

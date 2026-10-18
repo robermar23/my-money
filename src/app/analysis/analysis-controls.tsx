@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { RANGE_PRESETS, type RangeKey } from "@/lib/analytics/range.ts";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
@@ -105,14 +106,14 @@ export function AnalysisControls({
             className="rounded-md border border-zinc-300 px-2 py-1 text-sm dark:border-zinc-700 dark:bg-zinc-900"
           />
         </label>
-        <button
+        <Button
           type="button"
           disabled={!customFrom || !customTo || customFrom > customTo}
           onClick={() => push({ range: "custom", from: customFrom, to: customTo })}
-          className="rounded-md border border-zinc-300 px-2.5 py-1 text-sm disabled:opacity-40 dark:border-zinc-700"
+          variant="secondary"
         >
           Apply
-        </button>
+        </Button>
       </div>
     </div>
   );

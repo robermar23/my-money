@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import {
   DEFAULT_HIGH_INTEREST_THRESHOLD_APR,
   DEFAULT_RESERVE_MONTHS,
@@ -215,13 +216,15 @@ function ProfileForm({ profile }: { readonly profile: ProfileView | null }): Rea
           </p>
         )}
         <div className="col-span-full">
-          <button
+          <Button
             type="submit"
-            disabled={pending}
-            className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            variant="commit"
+            pending={pending}
+            pendingLabel="Saving…"
+            succeeded={state.ok === true}
           >
-            {pending ? "Saving…" : "Save preferences"}
-          </button>
+            Save preferences
+          </Button>
         </div>
       </form>
     </section>
@@ -306,13 +309,9 @@ function MembersSection({
           <input type="checkbox" name="isDependent" />
           Depends on this income
         </label>
-        <button
-          type="submit"
-          disabled={addPending}
-          className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-zinc-700"
-        >
-          {addPending ? "Adding…" : "Add person"}
-        </button>
+        <Button type="submit" variant="secondary" pending={addPending} pendingLabel="Adding…">
+          Add person
+        </Button>
         {addState.error && (
           <p className="w-full text-red-600 text-xs dark:text-red-400">{addState.error}</p>
         )}
@@ -368,21 +367,12 @@ function MemberRow({
           Depends on this income
         </label>
         <div className="ml-auto flex gap-1.5">
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={save}
-            className="rounded bg-zinc-900 px-2 py-0.5 text-white text-xs disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
-          >
+          <Button type="button" disabled={disabled} onClick={save} variant="commit" size="xs">
             Save
-          </button>
-          <button
-            type="button"
-            onClick={() => setEditing(false)}
-            className="rounded border border-zinc-300 px-2 py-0.5 text-xs dark:border-zinc-700"
-          >
+          </Button>
+          <Button type="button" onClick={() => setEditing(false)} variant="secondary" size="xs">
             Cancel
-          </button>
+          </Button>
         </div>
       </li>
     );
@@ -396,21 +386,18 @@ function MemberRow({
         {member.isDependent && " · dependent"}
       </span>
       <div className="ml-auto flex gap-1.5">
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          className="rounded border border-zinc-300 px-2 py-0.5 text-xs dark:border-zinc-700"
-        >
+        <Button type="button" onClick={() => setEditing(true)} variant="secondary" size="xs">
           Edit
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           disabled={disabled}
           onClick={() => onRun(() => deleteHouseholdMemberAction(member.id))}
-          className="rounded border border-red-300 px-2 py-0.5 text-red-700 text-xs disabled:opacity-50 dark:border-red-800 dark:text-red-300"
+          variant="danger-quiet"
+          size="xs"
         >
           Remove
-        </button>
+        </Button>
       </div>
     </li>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { type CategoryOption, CategoryPicker } from "@/components/category-picker.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { useState, useTransition } from "react";
 import { setTransactionCategoryAction } from "./actions.ts";
 
@@ -57,13 +58,9 @@ export function CategoryCell({
           autoFocus
           disabled={pending}
         />
-        <button
-          type="button"
-          onClick={() => setEditing(false)}
-          className="rounded border border-zinc-300 px-1.5 py-0.5 text-xs dark:border-zinc-700"
-        >
+        <Button type="button" onClick={() => setEditing(false)} variant="secondary" size="xs">
           ✕
-        </button>
+        </Button>
       </div>
       <label className="flex items-center gap-1 text-[11px] text-zinc-500">
         <input type="checkbox" checked={makeRule} onChange={(e) => setMakeRule(e.target.checked)} />

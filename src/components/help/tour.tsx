@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { START_TOUR_EVENT, type StartTourDetail, isTypingTarget } from "@/lib/help/events.ts";
 import { type Box, type Placement, placeCard } from "@/lib/help/tour-place.ts";
 import { runnableSteps } from "@/lib/help/tour-plan.ts";
@@ -297,21 +298,12 @@ function TourStepView({ run, onStep, onEnd }: StepViewProps): React.JSX.Element 
             Skip tour
           </button>
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={back}
-              disabled={index === 0}
-              className="rounded-md border border-zinc-300 px-3 py-1 disabled:opacity-40 dark:border-zinc-700"
-            >
+            <Button type="button" onClick={back} disabled={index === 0} variant="secondary">
               Back
-            </button>
-            <button
-              type="button"
-              onClick={next}
-              className="rounded-md bg-zinc-900 px-3 py-1 text-white dark:bg-zinc-50 dark:text-zinc-900"
-            >
+            </Button>
+            <Button type="button" onClick={next} variant="secondary">
               {last ? "Done" : "Next"}
-            </button>
+            </Button>
           </div>
         </div>
       </dialog>

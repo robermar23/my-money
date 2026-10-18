@@ -16,6 +16,23 @@
   --default-mono-font-family: var(--font-code);
 }
 
+/* Ink navy: the color of a button that writes to the financial record
+ * (src/components/ui/button-styles.ts). Kept apart from the gain/loss green and
+ * red so a Save never reads as "up". */
+@theme {
+  --color-ink-50: #f2f5fa;
+  --color-ink-100: #e1e8f3;
+  --color-ink-200: #c5d3e8;
+  --color-ink-300: #9db4d6;
+  --color-ink-400: #6f8fc0;
+  --color-ink-500: #4d6fa8;
+  --color-ink-600: #3a578c;
+  --color-ink-700: #2f4672;
+  --color-ink-800: #24375a;
+  --color-ink-900: #1b2a45;
+  --color-ink-950: #111b2e;
+}
+
 /* Small uppercase eyebrow labels that happen to be headings stay in Inter. */
 @layer base {
   h1:not(.uppercase),

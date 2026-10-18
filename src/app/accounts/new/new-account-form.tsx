@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { useActionState, useState } from "react";
 import { type CreateAccountResult, createAccountAction, createAssetAction } from "./actions.ts";
 
@@ -26,9 +27,6 @@ const ASSET_CATEGORY_OPTIONS = [
 
 const fieldClass =
   "mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900";
-
-const submitClass =
-  "w-full rounded-md bg-zinc-900 px-4 py-2 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200";
 
 /**
  * Account-creation form. A `personal_asset` selection (ADR-023) swaps the
@@ -197,9 +195,16 @@ export function NewAccountForm(): React.JSX.Element {
           add one later.
         </p>
         {errorBox}
-        <button type="submit" disabled={pending} className={submitClass}>
-          {pending ? "Creating…" : "Create asset"}
-        </button>
+        <Button
+          type="submit"
+          variant="commit"
+          size="md"
+          className="w-full"
+          pending={pending}
+          pendingLabel="Creating…"
+        >
+          Create asset
+        </Button>
       </form>
     );
   }
@@ -225,9 +230,16 @@ export function NewAccountForm(): React.JSX.Element {
       {typePicker}
       {currencyField}
       {errorBox}
-      <button type="submit" disabled={pending} className={submitClass}>
-        {pending ? "Creating…" : "Create account"}
-      </button>
+      <Button
+        type="submit"
+        variant="commit"
+        size="md"
+        className="w-full"
+        pending={pending}
+        pendingLabel="Creating…"
+      >
+        Create account
+      </Button>
     </form>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { useRouter } from "next/navigation";
 import { useCallback, useState, useTransition } from "react";
 import { usePlaidLink } from "react-plaid-link";
@@ -116,16 +117,20 @@ export function LinkButton({
   };
 
   const buttonText = label ?? (mode === "update" ? "Reconnect" : "Connect new institution");
-  const buttonClass =
-    variant === "amber"
-      ? "rounded-md bg-amber-500 px-3 py-1.5 font-medium text-sm text-white hover:bg-amber-600 disabled:opacity-50"
-      : "rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200";
+  const amberClass =
+    "rounded-md bg-amber-500 px-3 py-1.5 font-medium text-sm text-white hover:bg-amber-600 disabled:opacity-50";
 
   return (
     <div>
-      <button type="button" onClick={handleClick} disabled={pending} className={buttonClass}>
-        {pending ? "Opening…" : buttonText}
-      </button>
+      {variant === "amber" ? (
+        <button type="button" onClick={handleClick} disabled={pending} className={amberClass}>
+          {pending ? "Opening…" : buttonText}
+        </button>
+      ) : (
+        <Button variant="commit" onClick={handleClick} pending={pending} pendingLabel="Opening…">
+          {buttonText}
+        </Button>
+      )}
       {error && <p className="mt-2 text-red-600 text-xs dark:text-red-400">{error}</p>}
     </div>
   );

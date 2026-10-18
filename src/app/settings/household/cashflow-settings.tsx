@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { DEFAULT_CASH_FLOOR, DEFAULT_PROJECTION_HORIZON_DAYS } from "@/lib/cashflow/constants.ts";
 import { HORIZON_DAYS_MAX, HORIZON_DAYS_MIN } from "@/lib/schemas/cashflow.ts";
 import Link from "next/link";
@@ -113,13 +114,15 @@ export function CashFlowSettings({
           </p>
         )}
         <div className="col-span-full">
-          <button
+          <Button
             type="submit"
-            disabled={pending}
-            className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            variant="commit"
+            pending={pending}
+            pendingLabel="Saving…"
+            succeeded={state.ok === true}
           >
-            {pending ? "Saving…" : "Save projection settings"}
-          </button>
+            Save projection settings
+          </Button>
         </div>
       </form>
     </section>

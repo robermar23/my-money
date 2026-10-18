@@ -1,6 +1,7 @@
 "use client";
 
 import { type CategoryOption, CategoryPicker } from "@/components/category-picker.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { useRouter } from "next/navigation";
 import { useId, useState, useTransition } from "react";
 import { confirmLiabilityCandidateAction, dismissLiabilityCandidateAction } from "./actions.ts";
@@ -231,40 +232,42 @@ function LiabilityRow({
       )}
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <button
+        <Button
           type="button"
-          disabled={pending || noAccounts}
+          disabled={noAccounts}
           onClick={() => run(() => confirmLiabilityCandidateAction({}, confirmForm()))}
-          className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
+          variant="commit"
+          pending={pending}
+          pendingLabel="Saving…"
         >
-          {pending ? "Saving…" : "Add to calendar"}
-        </button>
-        <button
+          Add to calendar
+        </Button>
+        <Button
           type="button"
           disabled={pending}
           onClick={() => run(() => dismissLiabilityCandidateAction({}, dismissForm("")))}
-          className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-zinc-700"
+          variant="secondary"
         >
           I do not pay this from here
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           disabled={pending}
           onClick={() => run(() => dismissLiabilityCandidateAction({}, dismissForm("90")))}
-          className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-zinc-700"
+          variant="secondary"
         >
           Ask me in 90 days
-        </button>
+        </Button>
         {candidate.evidence.length > 0 && (
-          <button
+          <Button
             type="button"
             onClick={() => setShowEvidence((open) => !open)}
             aria-expanded={showEvidence}
             aria-controls={evidenceId}
-            className="rounded-md px-2 py-1.5 text-sm text-zinc-500 underline"
+            variant="quiet"
           >
             {showEvidence ? "Hide the payments" : "Show the payments"}
-          </button>
+          </Button>
         )}
       </div>
 

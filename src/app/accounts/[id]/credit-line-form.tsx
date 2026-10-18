@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { useActionState } from "react";
 import { type ActionResult, saveCreditLineTermsAction } from "./actions.ts";
 
@@ -168,13 +169,15 @@ export function CreditLineForm({ accountId, existing }: Props): React.JSX.Elemen
           </p>
         )}
         <div className="col-span-full">
-          <button
+          <Button
             type="submit"
-            disabled={pending}
-            className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            variant="commit"
+            pending={pending}
+            pendingLabel="Saving…"
+            succeeded={state.ok === true}
           >
-            {pending ? "Saving…" : existing ? "Update terms" : "Save terms"}
-          </button>
+            {existing ? "Update terms" : "Save terms"}
+          </Button>
         </div>
       </form>
     </>

@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { useState } from "react";
 import { useActionState } from "react";
 import { type ImportUploadResult, uploadImportAction } from "./actions.ts";
@@ -147,14 +148,15 @@ export function UploadForm({ accountId, accountType }: Props): React.JSX.Element
         </p>
       )}
 
-      <button
+      <Button
         type="submit"
         data-tour="import-upload"
-        disabled={pending}
-        className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+        variant="commit"
+        pending={pending}
+        pendingLabel="Uploading…"
       >
-        {pending ? "Uploading…" : "Upload & preview"}
-      </button>
+        Upload & preview
+      </Button>
     </form>
   );
 }

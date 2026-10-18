@@ -1,6 +1,7 @@
 "use client";
 
 import { createCategoryAction } from "@/app/settings/categories/category-actions.ts";
+import { Button } from "@/components/ui/button.tsx";
 import { CATEGORY_KINDS } from "@/lib/schemas/category.ts";
 import { useId, useMemo, useState, useTransition } from "react";
 
@@ -149,24 +150,26 @@ export function CategoryPicker({
               </option>
             ))}
           </select>
-          <button
+          <Button
             type="button"
             disabled={pending}
             onClick={submitCreate}
-            className="rounded bg-zinc-900 px-1.5 py-0.5 text-white text-xs disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
+            variant="commit"
+            size="xs"
           >
             add
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             onClick={() => {
               setCreating(false);
               setError(null);
             }}
-            className="rounded border border-zinc-300 px-1.5 py-0.5 text-xs dark:border-zinc-700"
+            variant="secondary"
+            size="xs"
           >
             ✕
-          </button>
+          </Button>
         </div>
         {error && <span className="text-red-600 text-xs dark:text-red-400">{error}</span>}
       </div>

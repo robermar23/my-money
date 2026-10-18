@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { useState, useTransition } from "react";
 import { forceSyncAction } from "./actions.ts";
 
@@ -37,14 +38,16 @@ export function ForceSyncButton({ plaidItemPk, disabled }: Props): React.JSX.Ele
 
   return (
     <div className="flex flex-col items-end">
-      <button
+      <Button
         type="button"
         onClick={handle}
-        disabled={pending || disabled}
-        className="rounded-md border border-zinc-300 px-3 py-1.5 font-medium text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        disabled={disabled}
+        variant="secondary"
+        pending={pending}
+        pendingLabel="Queuing…"
       >
-        {pending ? "Queuing…" : queued ? "Queued ✓" : "Force sync"}
-      </button>
+        {queued ? "Queued ✓" : "Force sync"}
+      </Button>
       {error && <p className="mt-1 text-red-600 text-xs dark:text-red-400">{error}</p>}
     </div>
   );

@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { restoreRecommendationAction } from "./actions.ts";
@@ -87,14 +88,16 @@ export function DismissedList({ items }: Props): React.JSX.Element | null {
                   : " — until you undo it"}
               </div>
             </div>
-            <button
+            <Button
               type="button"
               disabled={pending}
               onClick={() => restore(item.ruleId, item.subjectKey)}
-              className="shrink-0 rounded-md border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              variant="secondary"
+              size="xs"
+              className="shrink-0"
             >
               Show again
-            </button>
+            </Button>
           </li>
         ))}
       </ul>

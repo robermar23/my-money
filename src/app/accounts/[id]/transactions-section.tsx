@@ -1,4 +1,5 @@
 import type { CategoryOption } from "@/components/category-picker.tsx";
+import { buttonClass } from "@/components/ui/button-styles.ts";
 import type { Transaction } from "@/db/schema/index.ts";
 import { Money } from "@/lib/money/money.ts";
 import Link from "next/link";
@@ -54,7 +55,7 @@ export function TransactionsSection({
         </h2>
         <Link
           href={`/accounts/${accountId}/import`}
-          className="rounded-md border border-zinc-300 px-3 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
+          className={buttonClass({ variant: "secondary", size: "xs" })}
         >
           Import file
         </Link>

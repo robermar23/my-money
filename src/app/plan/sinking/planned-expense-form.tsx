@@ -1,6 +1,7 @@
 "use client";
 
 import { type CategoryOption, CategoryPicker } from "@/components/category-picker.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import type { CostCollision } from "@/lib/sinking/types.ts";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -107,15 +108,15 @@ export function PlannedExpenseManager({
             ? "Nothing recorded yet. A cost you know is coming — a premium, a tax bill, a car service, a dental bill — is what this figure is computed from."
             : `${open.length} cost${open.length === 1 ? "" : "s"} recorded.`}
         </p>
-        <button
+        <Button
           type="button"
           onClick={() => setAdding((isOpen) => !isOpen)}
           aria-expanded={adding}
           aria-controls="add-planned-expense-form"
-          className="rounded-md border border-zinc-300 px-3 py-1.5 font-medium text-sm dark:border-zinc-700"
+          variant="secondary"
         >
           {adding ? "Cancel" : "Add a cost"}
-        </button>
+        </Button>
       </div>
 
       {adding && (
@@ -196,22 +197,24 @@ export function CostRowActions({ id }: { readonly id: string }): React.JSX.Eleme
 
   return (
     <span className="flex flex-wrap items-center gap-2">
-      <button
+      <Button
         type="button"
         onClick={() => run(markPlannedExpensePaidAction)}
         disabled={pending}
-        className="rounded-md border border-zinc-300 px-2 py-0.5 text-xs disabled:opacity-50 dark:border-zinc-700"
+        variant="commit"
+        size="xs"
       >
         Mark paid
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
         onClick={() => run(cancelPlannedExpenseAction)}
         disabled={pending}
-        className="rounded-md px-2 py-0.5 text-xs text-zinc-500 underline disabled:opacity-50"
+        variant="quiet"
+        size="xs"
       >
         Cancel it
-      </button>
+      </Button>
       {error && (
         <span role="alert" className="text-red-600 text-xs dark:text-red-400">
           {error}
@@ -251,14 +254,9 @@ function PlannedExpenseRow({
           </span>
         )}
         <span className="ml-auto flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onEdit}
-            aria-expanded={editing}
-            className="rounded-md px-2 py-1 text-sm text-zinc-500 underline"
-          >
+          <Button type="button" onClick={onEdit} aria-expanded={editing} variant="quiet">
             {editing ? "Close" : "Edit"}
-          </button>
+          </Button>
           <CostRowActions id={expense.id} />
         </span>
       </div>
@@ -447,25 +445,20 @@ export function PlannedExpenseForm({
             different costs, record it anyway — nothing has been saved yet.
           </p>
           <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              onClick={recordAnyway}
-              disabled={pending}
-              className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
-            >
+            <Button type="button" onClick={recordAnyway} disabled={pending} variant="commit">
               Record it anyway
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
               onClick={() => {
                 setCollisions([]);
                 heldRef.current = null;
                 onDone();
               }}
-              className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700"
+              variant="secondary"
             >
               Never mind
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -477,20 +470,12 @@ export function PlannedExpenseForm({
       )}
 
       <div className="mt-4 flex gap-2">
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
-        >
-          {pending ? "Saving…" : expense ? "Save changes" : "Record it"}
-        </button>
-        <button
-          type="button"
-          onClick={onDone}
-          className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700"
-        >
+        <Button type="submit" variant="commit" pending={pending} pendingLabel="Saving…">
+          {expense ? "Save changes" : "Record it"}
+        </Button>
+        <Button type="button" onClick={onDone} variant="secondary">
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );
