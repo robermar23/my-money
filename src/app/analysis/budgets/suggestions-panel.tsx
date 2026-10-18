@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import type {
   BudgetSuggestionPreview,
   BudgetSuggestionsResult,
@@ -116,7 +117,7 @@ export function SuggestionsPanel({ preview, currency }: Props): React.JSX.Elemen
       data-tour="budgets-suggestions"
       className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
     >
-      <summary className="cursor-pointer font-medium text-sm">
+      <summary className="font-medium text-sm">
         Suggest budgets from your spending ({preview.rows.length})
       </summary>
 
@@ -180,16 +181,14 @@ export function SuggestionsPanel({ preview, currency }: Props): React.JSX.Elemen
         })}
       </ul>
 
-      <button
+      <Button
         type="button"
         onClick={apply}
-        disabled={pending}
-        className="mt-3 rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900"
-      >
-        {pending
-          ? "Applying…"
-          : `Apply ${selectedCount} ${selectedCount === 1 ? "budget" : "budgets"}`}
-      </button>
+        variant="commit"
+        className="mt-3"
+        pending={pending}
+        pendingLabel="Applying…"
+      >{`Apply ${selectedCount} ${selectedCount === 1 ? "budget" : "budgets"}`}</Button>
     </details>
   );
 }

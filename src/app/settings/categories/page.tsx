@@ -1,4 +1,5 @@
 import { SearchInput } from "@/components/search-input.tsx";
+import { buttonClass } from "@/components/ui/button-styles.ts";
 import { db } from "@/db/client.ts";
 import { categoryRules } from "@/db/schema/index.ts";
 import { essentialMonthlyBaseline } from "@/lib/advice/essential-expenses.ts";
@@ -66,7 +67,7 @@ export default async function CategoriesSettingsPage(
 
   return (
     <main className="mx-auto max-w-5xl p-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <Link href="/" className="text-sm text-zinc-500 hover:underline">
             ← Dashboard
@@ -78,11 +79,8 @@ export default async function CategoriesSettingsPage(
             across re-runs.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Link
-            href="/analysis/review"
-            className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
-          >
+        <div className="flex flex-wrap items-center gap-2">
+          <Link href="/analysis/review" className={buttonClass({ variant: "secondary" })}>
             Review uncategorized →
           </Link>
           <RecategorizeAllButton />
@@ -127,8 +125,8 @@ export default async function CategoriesSettingsPage(
             {rules.map((r) => (
               <tr key={r.id}>
                 <td className="py-1.5 font-mono">{r.priority}</td>
-                <td className="py-1.5 font-mono">{r.pattern}</td>
-                <td className="py-1.5 font-mono">{r.flags}</td>
+                <td className="py-1.5 font-code">{r.pattern}</td>
+                <td className="py-1.5 font-code">{r.flags}</td>
                 <td className="py-1.5 text-zinc-600 dark:text-zinc-400">{r.field}</td>
                 <td className="py-1.5">{r.category}</td>
                 <td className="py-1.5 text-xs">

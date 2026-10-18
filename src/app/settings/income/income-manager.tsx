@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { INCOME_CADENCE_OPTIONS } from "@/lib/schemas/income.ts";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
@@ -131,15 +132,11 @@ export function IncomeManager({ sources, accounts, holdings }: Props): React.JSX
         </div>
       ) : (
         <div className="mt-6 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setAddingSource(true)}
-            className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white dark:bg-zinc-50 dark:text-zinc-900"
-          >
+          <Button type="button" onClick={() => setAddingSource(true)} variant="commit">
             Add income source
-          </button>
+          </Button>
           {sources.length > 0 && (
-            <button
+            <Button
               type="button"
               disabled={pending}
               onClick={() =>
@@ -147,10 +144,10 @@ export function IncomeManager({ sources, accounts, holdings }: Props): React.JSX
                   setQueued("Backfill queued. Contributions appear once the worker finishes."),
                 )
               }
-              className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-zinc-700"
+              variant="secondary"
             >
               Backfill history
-            </button>
+            </Button>
           )}
         </div>
       )}
@@ -214,29 +211,27 @@ function SourceCard({
           {source.notes && <p className="mt-1 text-sm text-zinc-500">{source.notes}</p>}
         </div>
         <div className="flex flex-wrap gap-1.5">
-          <button
-            type="button"
-            onClick={() => setEditing((v) => !v)}
-            className="rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700"
-          >
+          <Button type="button" onClick={() => setEditing((v) => !v)} variant="secondary" size="xs">
             {editing ? "Close" : "Edit"}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             disabled={pending}
             onClick={() => onRun(() => setIncomeSourceActiveAction(source.id, !source.active))}
-            className="rounded border border-zinc-300 px-2 py-1 text-xs disabled:opacity-50 dark:border-zinc-700"
+            variant="secondary"
+            size="xs"
           >
             {source.active ? "Pause" : "Resume"}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             disabled={pending}
             onClick={() => onRun(() => deleteIncomeSourceAction(source.id))}
-            className="rounded border border-red-300 px-2 py-1 text-red-700 text-xs disabled:opacity-50 dark:border-red-800 dark:text-red-300"
+            variant="danger-quiet"
+            size="xs"
           >
             Delete
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -270,14 +265,14 @@ function SourceCard({
         {!source.rule && !editingRule && (
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-sm text-zinc-500">No 401k contribution defined for this paycheck.</p>
-            <button
+            <Button
               type="button"
               disabled={accounts.length === 0}
               onClick={() => setEditingRule(true)}
-              className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-zinc-700"
+              variant="secondary"
             >
               {accounts.length === 0 ? "Create an investment account first" : "Add contribution"}
-            </button>
+            </Button>
           </div>
         )}
 
@@ -379,29 +374,27 @@ function RuleSummary({
         )}
       </div>
       <div className="flex flex-wrap gap-1.5">
-        <button
-          type="button"
-          onClick={onEdit}
-          className="rounded border border-zinc-300 px-2 py-1 text-xs dark:border-zinc-700"
-        >
+        <Button type="button" onClick={onEdit} variant="secondary" size="xs">
           Edit
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           disabled={pending}
           onClick={() => onRun(() => setContributionRuleActiveAction(rule.id, !rule.active))}
-          className="rounded border border-zinc-300 px-2 py-1 text-xs disabled:opacity-50 dark:border-zinc-700"
+          variant="secondary"
+          size="xs"
         >
           {rule.active ? "Pause" : "Resume"}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
           disabled={pending}
           onClick={() => onRun(() => deleteContributionRuleAction(rule.id))}
-          className="rounded border border-red-300 px-2 py-1 text-red-700 text-xs disabled:opacity-50 dark:border-red-800 dark:text-red-300"
+          variant="danger-quiet"
+          size="xs"
         >
           Delete
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -563,21 +556,12 @@ function SourceFields({
       </label>
 
       <div className="mt-4 flex gap-2">
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={submit}
-          className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
-        >
+        <Button type="button" disabled={disabled} onClick={submit} variant="commit">
           {submitLabel}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm dark:border-zinc-700"
-        >
+        </Button>
+        <Button type="button" onClick={onCancel} variant="secondary">
           Cancel
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -659,14 +643,16 @@ function TakeHomeField({
               key={`${s.payee}-${s.amount}`}
               className="flex flex-wrap items-center gap-x-2 text-xs text-zinc-500"
             >
-              <button
+              <Button
                 type="button"
                 onClick={() => onChange(s.amount)}
                 disabled={value === s.amount}
-                className="rounded border border-zinc-300 px-1.5 py-0.5 font-mono text-zinc-800 disabled:opacity-50 dark:border-zinc-700 dark:text-zinc-200"
+                variant="secondary"
+                size="xs"
+                className="font-mono"
               >
                 {value === s.amount ? `Using ${s.amountDisplay}` : `Use ${s.amountDisplay}`}
-              </button>
+              </Button>
               <span>
                 {s.payee} · {s.matchedPaydays} of {s.expectedPaydays} paydays · latest{" "}
                 {s.latestDisplay} on {s.latestDate}

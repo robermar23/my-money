@@ -1,4 +1,5 @@
 import { SearchInput } from "@/components/search-input.tsx";
+import { buttonClass } from "@/components/ui/button-styles.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { Money } from "@/lib/money/money.ts";
 import { assetClassLabel } from "@/lib/watchlist/display.ts";
@@ -39,10 +40,7 @@ export default async function WatchlistPage(props: WatchlistPageProps): Promise<
             count toward net worth.
           </p>
         </div>
-        <Link
-          href="/watchlist/new"
-          className="rounded-md bg-zinc-900 px-4 py-2 font-medium text-sm text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-        >
+        <Link href="/watchlist/new" className={buttonClass({ variant: "secondary", size: "md" })}>
           Add symbol
         </Link>
       </div>

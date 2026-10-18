@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button.tsx";
 import { db } from "@/db/client.ts";
 import { importBatches } from "@/db/schema/index.ts";
 import { getAccount } from "@/lib/accounts/queries.ts";
@@ -53,7 +54,7 @@ export default async function ImportProgressPage(props: PageProps): Promise<Reac
       </Link>
       <h1 className="mt-2 font-semibold text-2xl">Processing import</h1>
       <p className="mt-1 text-sm text-zinc-500">
-        File: <span className="font-mono">{batch.filename}</span>
+        File: <span className="font-code">{batch.filename}</span>
       </p>
 
       {!failed && (
@@ -69,7 +70,7 @@ export default async function ImportProgressPage(props: PageProps): Promise<Reac
       {failed && (
         <section className="mt-6 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950">
           <p className="font-medium text-red-800 text-sm dark:text-red-200">Import failed</p>
-          <p className="mt-1 font-mono text-red-700 text-xs dark:text-red-300">{batch.error}</p>
+          <p className="mt-1 font-code text-red-700 text-xs dark:text-red-300">{batch.error}</p>
           <form
             action={async () => {
               "use server";
@@ -77,12 +78,9 @@ export default async function ImportProgressPage(props: PageProps): Promise<Reac
             }}
             className="mt-4"
           >
-            <button
-              type="submit"
-              className="rounded-md border border-red-400 px-3 py-1.5 text-red-800 text-xs hover:bg-red-100 dark:border-red-700 dark:text-red-200 dark:hover:bg-red-900"
-            >
+            <Button type="submit" variant="danger" size="xs">
               Delete batch &amp; try again
-            </button>
+            </Button>
           </form>
         </section>
       )}

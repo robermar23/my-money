@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { useRouter } from "next/navigation";
 import { useActionState, useTransition } from "react";
 import { type ActionResult, addLotAction, deleteLotAction } from "./actions.ts";
@@ -68,7 +69,7 @@ export function LotsEditor({
 
   return (
     <details className="mt-2">
-      <summary className="cursor-pointer text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
+      <summary className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
         <span className="font-mono">{symbol}</span> — {lots.length} lot
         {lots.length === 1 ? "" : "s"}
         {coverageNote && (
@@ -103,14 +104,15 @@ export function LotsEditor({
                       {LOT_SOURCE_LABEL[lot.source] ?? lot.source}
                     </td>
                     <td className="py-1 text-right">
-                      <button
+                      <Button
                         type="button"
                         onClick={() => onDelete(lot.id)}
                         disabled={deleting}
-                        className="text-red-600 text-xs hover:underline disabled:opacity-50 dark:text-red-400"
+                        variant="danger-quiet"
+                        size="xs"
                       >
                         Delete
-                      </button>
+                      </Button>
                     </td>
                   </tr>
                 ))}
@@ -165,13 +167,16 @@ export function LotsEditor({
             </p>
           )}
           <div className="col-span-full">
-            <button
+            <Button
               type="submit"
-              disabled={pending}
-              className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+              variant="commit"
+              pending={pending}
+              pendingLabel="Adding…"
+              succeeded={!state.error}
+              successLabel="Added"
             >
-              {pending ? "Adding…" : "Add lot"}
-            </button>
+              Add lot
+            </Button>
           </div>
         </form>
       </div>

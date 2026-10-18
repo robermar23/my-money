@@ -60,7 +60,7 @@ export default async function PreviewPage(props: PageProps): Promise<React.JSX.E
       </Link>
       <h1 className="mt-2 font-semibold text-2xl tracking-tight">Preview import</h1>
       <p className="mt-1 text-sm text-zinc-500">
-        File: <span className="font-mono">{batch.filename}</span> · Source: {batch.source}
+        File: <span className="font-code">{batch.filename}</span> · Source: {batch.source}
         {batch.statementStart && batch.statementEnd && (
           <>
             {" "}
@@ -192,7 +192,7 @@ export default async function PreviewPage(props: PageProps): Promise<React.JSX.E
           <h2 className="font-medium text-red-700 dark:text-red-300">Invalid rows</h2>
           <ul className="mt-2 space-y-1 text-sm">
             {preview.invalid.map((row) => (
-              <li key={`${row.fitid}-${row.reason}`} className="font-mono text-xs">
+              <li key={`${row.fitid}-${row.reason}`} className="font-code text-xs">
                 {row.fitid || "(no fitid)"} — {row.reason}
               </li>
             ))}

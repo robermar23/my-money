@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { CATEGORY_NECESSITIES } from "@/db/schema/categories.ts";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
@@ -138,18 +139,19 @@ export function BulkClassify({ categories }: Props): React.JSX.Element | null {
         </p>
       )}
 
-      <button
+      <Button
         type="button"
-        disabled={pending || selected.length === 0}
+        disabled={selected.length === 0}
         onClick={apply}
-        className="mt-4 rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+        variant="commit"
+        className="mt-4"
+        pending={pending}
+        pendingLabel="Classifying…"
       >
-        {pending
-          ? "Classifying…"
-          : selected.length === 0
-            ? "Choose a classification above"
-            : `Classify ${selected.length} categor${selected.length === 1 ? "y" : "ies"}`}
-      </button>
+        {selected.length === 0
+          ? "Choose a classification above"
+          : `Classify ${selected.length} categor${selected.length === 1 ? "y" : "ies"}`}
+      </Button>
     </section>
   );
 }

@@ -33,6 +33,8 @@
     "plaid:rotate-key": "node --env-file=.env.local --import tsx --import ./scripts/loaders/register.mjs scripts/rotate-encryption.ts"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "5.3.0",
+    "@fontsource-variable/source-serif-4": "5.3.1",
     "@node-rs/argon2": "2.0.2",
     "bullmq": "5.34.10",
     "decimal.js": "10.4.3",

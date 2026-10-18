@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { useState } from "react";
 import { useActionState } from "react";
 import { type ImportUploadResult, uploadImportAction } from "./actions.ts";
@@ -85,7 +86,7 @@ export function UploadForm({ accountId, accountType }: Props): React.JSX.Element
           type="file"
           accept=".qfx,.ofx,.csv,application/x-ofx,text/csv"
           required
-          className={`${fieldClass} cursor-pointer`}
+          className={fieldClass}
           onChange={(e) => {
             const name = e.target.files?.[0]?.name?.toLowerCase() ?? "";
             setShowCsvMapping(name.endsWith(".csv"));
@@ -131,7 +132,7 @@ export function UploadForm({ accountId, accountType }: Props): React.JSX.Element
                 setMappingJson(e.target.value);
                 setPresetKey("custom");
               }}
-              className={`${fieldClass} font-mono text-xs`}
+              className={`${fieldClass} font-code text-xs`}
             />
             <p className="mt-1 text-xs text-zinc-500">
               For headerless CSVs (like M&amp;T) set <code>hasHeader: false</code> and reference
@@ -147,14 +148,15 @@ export function UploadForm({ accountId, accountType }: Props): React.JSX.Element
         </p>
       )}
 
-      <button
+      <Button
         type="submit"
         data-tour="import-upload"
-        disabled={pending}
-        className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+        variant="commit"
+        pending={pending}
+        pendingLabel="Uploading…"
       >
-        {pending ? "Uploading…" : "Upload & preview"}
-      </button>
+        Upload & preview
+      </Button>
     </form>
   );
 }

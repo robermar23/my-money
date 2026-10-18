@@ -1,4 +1,5 @@
 import { SearchInput } from "@/components/search-input.tsx";
+import { buttonClass } from "@/components/ui/button-styles.ts";
 import { db } from "@/db/client.ts";
 import { accountSnapshots } from "@/db/schema/index.ts";
 import { listAccounts } from "@/lib/accounts/queries.ts";
@@ -111,7 +112,7 @@ export default async function AccountsPage(props: AccountsPageProps): Promise<Re
           <Link
             href="/accounts/new"
             data-tour="accounts-add"
-            className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            className={buttonClass({ variant: "secondary" })}
           >
             Add account
           </Link>

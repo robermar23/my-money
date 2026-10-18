@@ -1,6 +1,7 @@
 "use client";
 
 import type { CategoryOption } from "@/components/category-picker.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { UNCATEGORIZED } from "@/lib/schemas/search.ts";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
@@ -198,17 +199,13 @@ export function TransactionFilters({ categories, accounts }: Props): React.JSX.E
       )}
 
       <div data-tour="transactions-apply" className="flex items-center gap-3">
-        <button
-          type="submit"
-          disabled={badDateRange}
-          className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-900"
-        >
+        <Button type="submit" disabled={badDateRange} variant="secondary">
           Apply filters
-        </button>
+        </Button>
         {activeCount > 0 && (
-          <button type="button" onClick={clear} className="text-sm text-zinc-500 hover:underline">
+          <Button type="button" onClick={clear} variant="quiet">
             Clear filters ({activeCount})
-          </button>
+          </Button>
         )}
       </div>
       {badDateRange && (

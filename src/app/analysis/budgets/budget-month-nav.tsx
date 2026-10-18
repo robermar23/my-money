@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 interface Props {
@@ -41,28 +42,15 @@ export function BudgetMonthNav({ month }: Props): React.JSX.Element {
     router.push(`${pathname}?${sp.toString()}`);
   }
 
-  const btn =
-    "rounded-md border border-zinc-300 px-2 py-1 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800";
-
   return (
     <div className="flex items-center gap-2">
-      <button
-        type="button"
-        className={btn}
-        onClick={() => go(shiftMonth(month, -1))}
-        aria-label="Previous month"
-      >
+      <Button type="button" onClick={() => go(shiftMonth(month, -1))} aria-label="Previous month">
         ←
-      </button>
+      </Button>
       <span className="min-w-36 text-center font-medium text-sm">{label(month)}</span>
-      <button
-        type="button"
-        className={btn}
-        onClick={() => go(shiftMonth(month, 1))}
-        aria-label="Next month"
-      >
+      <Button type="button" onClick={() => go(shiftMonth(month, 1))} aria-label="Next month">
         →
-      </button>
+      </Button>
     </div>
   );
 }

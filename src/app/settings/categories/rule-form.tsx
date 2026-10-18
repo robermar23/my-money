@@ -1,6 +1,7 @@
 "use client";
 
 import { type CategoryOption, CategoryPicker } from "@/components/category-picker.tsx";
+import { Button } from "@/components/ui/button.tsx";
 import { useActionState, useState } from "react";
 import { type RuleActionResult, createRuleAction } from "./actions.ts";
 
@@ -28,7 +29,7 @@ export function NewRuleForm({ categories }: Props): React.JSX.Element {
           id="pattern"
           name="pattern"
           required
-          className={`${fieldClass} font-mono`}
+          className={`${fieldClass} font-code`}
           placeholder="STARBUCKS|DUNKIN"
         />
       </div>
@@ -36,7 +37,7 @@ export function NewRuleForm({ categories }: Props): React.JSX.Element {
         <label htmlFor="flags" className="block font-medium text-xs">
           Flags
         </label>
-        <input id="flags" name="flags" defaultValue="i" className={`${fieldClass} font-mono`} />
+        <input id="flags" name="flags" defaultValue="i" className={`${fieldClass} font-code`} />
       </div>
       <div className="col-span-2">
         <label htmlFor="field" className="block font-medium text-xs">
@@ -72,13 +73,17 @@ export function NewRuleForm({ categories }: Props): React.JSX.Element {
             {state.error}
           </p>
         )}
-        <button
+        <Button
           type="submit"
-          disabled={pending}
-          className="mt-2 rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          variant="commit"
+          className="mt-2"
+          pending={pending}
+          pendingLabel="Adding…"
+          succeeded={!state.error}
+          successLabel="Added"
         >
-          {pending ? "Adding…" : "Add rule"}
-        </button>
+          Add rule
+        </Button>
       </div>
     </form>
   );

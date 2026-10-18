@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { useActionState } from "react";
 import type { WatchlistActionResult } from "./actions.ts";
 
@@ -14,9 +15,6 @@ const ASSET_CLASS_OPTIONS = [
 
 const fieldClass =
   "mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 text-sm shadow-sm focus:border-zinc-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-900";
-
-const submitClass =
-  "w-full rounded-md bg-zinc-900 px-4 py-2 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200";
 
 export interface WatchlistFormDefaults {
   readonly symbol?: string;
@@ -191,9 +189,16 @@ export function WatchlistItemForm({ action, defaults, submitLabel }: Props): Rea
         </p>
       )}
 
-      <button type="submit" disabled={pending} className={submitClass}>
-        {pending ? "Saving…" : submitLabel}
-      </button>
+      <Button
+        type="submit"
+        variant="commit"
+        size="md"
+        className="w-full"
+        pending={pending}
+        pendingLabel="Saving…"
+      >
+        {submitLabel}
+      </Button>
     </form>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { CATEGORY_NECESSITIES } from "@/db/schema/categories.ts";
 import { CATEGORY_KINDS } from "@/lib/schemas/category.ts";
 import { useRouter } from "next/navigation";
@@ -200,14 +201,9 @@ function NewCategoryForm({
           </option>
         ))}
       </select>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={submit}
-        className="rounded-md bg-zinc-900 px-3 py-1.5 text-sm text-white disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
-      >
+      <Button type="button" disabled={disabled} onClick={submit} variant="commit">
         Add
-      </button>
+      </Button>
     </div>
   );
 }
@@ -243,14 +239,9 @@ function NewGroupForm({
           className={`mt-1 ${inputClass}`}
         />
       </div>
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={submit}
-        className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm disabled:opacity-50 dark:border-zinc-700"
-      >
+      <Button type="button" disabled={disabled} onClick={submit} variant="secondary">
         Add group
-      </button>
+      </Button>
     </div>
   );
 }
@@ -320,21 +311,12 @@ function CategoryRow({
         <td className="py-1.5 text-xs text-zinc-400">—</td>
         <td className="py-1.5">
           <div className="flex justify-end gap-1.5">
-            <button
-              type="button"
-              disabled={disabled}
-              onClick={save}
-              className="rounded bg-zinc-900 px-2 py-0.5 text-white text-xs disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900"
-            >
+            <Button type="button" disabled={disabled} onClick={save} variant="commit" size="xs">
               Save
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditing(false)}
-              className="rounded border border-zinc-300 px-2 py-0.5 text-xs dark:border-zinc-700"
-            >
+            </Button>
+            <Button type="button" onClick={() => setEditing(false)} variant="secondary" size="xs">
               Cancel
-            </button>
+            </Button>
           </div>
         </td>
       </tr>
@@ -366,29 +348,27 @@ function CategoryRow({
                 </option>
               ))}
           </select>
-          <button
+          <Button
             type="button"
             disabled={disabled || mergeId === ""}
             onClick={() => onRun(() => mergeCategoryAction(category.id, mergeId))}
-            className="rounded border border-zinc-300 px-2 py-0.5 text-xs disabled:opacity-40 dark:border-zinc-700"
+            variant="secondary"
+            size="xs"
           >
             Merge
-          </button>
-          <button
-            type="button"
-            onClick={() => setEditing(true)}
-            className="rounded border border-zinc-300 px-2 py-0.5 text-xs dark:border-zinc-700"
-          >
+          </Button>
+          <Button type="button" onClick={() => setEditing(true)} variant="secondary" size="xs">
             Edit
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
             disabled={disabled}
             onClick={() => onRun(() => archiveCategoryAction(category.id, true))}
-            className="rounded border border-red-300 px-2 py-0.5 text-red-700 text-xs disabled:opacity-50 dark:border-red-800 dark:text-red-300"
+            variant="danger-quiet"
+            size="xs"
           >
             Archive
-          </button>
+          </Button>
         </div>
       </td>
     </tr>

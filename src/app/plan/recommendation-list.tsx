@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import type { Confidence, Recommendation, Severity } from "@/lib/advice/types.ts";
 import { Money } from "@/lib/money/money.ts";
 import { useRouter } from "next/navigation";
@@ -183,16 +184,18 @@ function RecommendationCard({
         </div>
 
         <div className="relative shrink-0">
-          <button
+          <Button
             type="button"
             data-tour="plan-hide"
-            disabled={pending}
             aria-expanded={menuOpen}
             onClick={() => setMenuOpen((open) => !open)}
-            className="rounded-md border border-zinc-300 px-2 py-1 text-xs hover:bg-zinc-100 disabled:opacity-40 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            variant="secondary"
+            size="xs"
+            pending={pending}
+            pendingLabel="Hiding…"
           >
-            {pending ? "Hiding…" : "Hide"}
-          </button>
+            Hide
+          </Button>
           {menuOpen && (
             <div className="absolute right-0 z-10 mt-1 w-56 rounded-md border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-950">
               {SNOOZE_CHOICES.map((choice) => (

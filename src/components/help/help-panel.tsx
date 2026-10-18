@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import {
   OPEN_HELP_EVENT,
   type OpenHelpDetail,
@@ -210,12 +211,8 @@ interface TakeTourProps {
 
 function TakeTour({ tour, onTake }: TakeTourProps): React.JSX.Element {
   return (
-    <button
-      type="button"
-      onClick={() => onTake(tour)}
-      className="mb-4 w-full rounded-md bg-zinc-900 px-3 py-2 font-medium text-sm text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
-    >
+    <Button type="button" onClick={() => onTake(tour)} variant="secondary" className="mb-4 w-full">
       Take the tour
-    </button>
+    </Button>
   );
 }

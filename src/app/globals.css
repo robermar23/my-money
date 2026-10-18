@@ -1,5 +1,78 @@
 @import "tailwindcss";
 
+/* Typography (src/app/fonts.ts). Inter for the interface, Source Serif 4 for
+ * headings. `font-mono` has always marked figures here (amounts, dates,
+ * quantities, numeric inputs), so it now means "a figure": Inter with
+ * equal-width digits, which line up in columns without reading like code.
+ * (Fontsource's Inter subset keeps `tnum` but drops the slashed-zero feature.)
+ * Real code (regex patterns, IDs, filenames, raw detail) uses `font-code`, and
+ * so do <code>, <kbd> and <pre>. */
+@theme inline {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-source-serif), ui-serif, Georgia, serif;
+  --font-mono: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-mono--font-feature-settings: "tnum";
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --default-mono-font-family: var(--font-code);
+}
+
+/* Ink navy: the color of a button that writes to the financial record
+ * (src/components/ui/button-styles.ts). Kept apart from the gain/loss green and
+ * red so a Save never reads as "up". */
+@theme {
+  --color-ink-50: #f2f5fa;
+  --color-ink-100: #e1e8f3;
+  --color-ink-200: #c5d3e8;
+  --color-ink-300: #9db4d6;
+  --color-ink-400: #6f8fc0;
+  --color-ink-500: #4d6fa8;
+  --color-ink-600: #3a578c;
+  --color-ink-700: #2f4672;
+  --color-ink-800: #24375a;
+  --color-ink-900: #1b2a45;
+  --color-ink-950: #111b2e;
+}
+
+/* Small uppercase eyebrow labels that happen to be headings stay in Inter. */
+@layer base {
+  h1:not(.uppercase),
+  h2:not(.uppercase),
+  h3:not(.uppercase) {
+    font-family: var(--font-serif);
+    letter-spacing: -0.01em;
+  }
+}
+
+/* Tailwind v4 dropped the pointer cursor from buttons, so most of the app's
+ * clickable controls showed the arrow while links showed the hand. One rule
+ * puts the hand back on everything that acts on a click, and keeps the
+ * not-allowed cursor on disabled controls. A `cursor-*` utility still wins
+ * because utilities sit in a later layer. */
+@layer base {
+  button,
+  [role="button"],
+  [role="option"],
+  [role="tab"],
+  [role="switch"],
+  [role="menuitem"],
+  summary,
+  select,
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="file"],
+  input[type="submit"],
+  input[type="reset"],
+  label:has(> input[type="checkbox"], > input[type="radio"]) {
+    cursor: pointer;
+  }
+
+  :disabled,
+  [aria-disabled="true"],
+  label:has(> input:disabled) {
+    cursor: not-allowed;
+  }
+}
+
 :root {
   color-scheme: light dark;
 }

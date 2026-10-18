@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { useActionState, useRef } from "react";
 import { type ActionResult, uploadAssetDocumentAction } from "./actions.ts";
 
@@ -69,13 +70,15 @@ export function AssetDocumentForm({ accountId }: Props): React.JSX.Element {
           Uploaded.
         </p>
       )}
-      <button
+      <Button
         type="submit"
-        disabled={pending}
-        className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+        variant="commit"
+        pending={pending}
+        pendingLabel="Uploading…"
+        succeeded={state.ok === true}
       >
-        {pending ? "Uploading…" : "Upload document"}
-      </button>
+        Upload document
+      </Button>
     </form>
   );
 }

@@ -170,7 +170,7 @@ export default async function ConnectionsPage(): Promise<React.JSX.Element> {
                       <h3 className="font-medium">{item.institutionName}</h3>
                       {statusBadge(item.status)}
                     </div>
-                    <p className="mt-1 font-mono text-xs text-zinc-500">{item.plaidItemId}</p>
+                    <p className="mt-1 font-code text-xs text-zinc-500">{item.plaidItemId}</p>
                     {item.errorCode && (
                       <p className="mt-1 text-red-600 text-xs dark:text-red-400">
                         {item.errorCode}
@@ -240,7 +240,7 @@ export default async function ConnectionsPage(): Promise<React.JSX.Element> {
 function SyncRunsPanel({ runs }: { runs: RecentSyncRun[] }): React.JSX.Element {
   return (
     <details className="mt-3">
-      <summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
+      <summary className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300">
         Last {runs.length} sync run{runs.length === 1 ? "" : "s"}
       </summary>
       <div className="mt-2 overflow-x-auto rounded border border-zinc-200 dark:border-zinc-800">

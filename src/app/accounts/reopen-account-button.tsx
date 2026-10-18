@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { reopenAccountAction } from "./[id]/actions.ts";
@@ -28,14 +29,16 @@ export function ReopenAccountButton({
 
   return (
     <>
-      <button
+      <Button
         type="button"
         onClick={onReopen}
-        disabled={pending}
-        className="text-xs text-zinc-600 hover:underline disabled:opacity-50 dark:text-zinc-400"
+        variant="quiet"
+        size="xs"
+        pending={pending}
+        pendingLabel="Reopening…"
       >
-        {pending ? "Reopening…" : "Reopen"}
-      </button>
+        Reopen
+      </Button>
       {error && <span className="ml-1 text-red-600 text-xs dark:text-red-400">{error}</span>}
     </>
   );

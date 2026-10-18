@@ -1,3 +1,4 @@
+import { buttonClass } from "@/components/ui/button-styles.ts";
 import type { ChecklistItem } from "@/lib/help/checklist.ts";
 import Link from "next/link";
 import { ChecklistList } from "./checklist-list.tsx";
@@ -36,7 +37,7 @@ export function FirstRunDashboard({
         </p>
         <Link
           href="/accounts/new"
-          className="mt-6 inline-block rounded-md bg-zinc-900 px-4 py-2 font-medium text-sm text-white hover:bg-zinc-800 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          className={buttonClass({ variant: "commit", size: "md", className: "mt-6" })}
         >
           Add an account
         </Link>

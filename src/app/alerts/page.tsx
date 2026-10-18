@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button.tsx";
 import type { Alert } from "@/db/schema/index.ts";
 import { listOpenAlerts, listResolvedAlerts } from "@/lib/alerts/queries.ts";
 import { requireUser } from "@/lib/auth/require-user.ts";
@@ -33,8 +34,8 @@ function AlertCard({ alert }: { readonly alert: Alert }): React.JSX.Element {
           <dl className="mt-2 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-sm text-zinc-600 dark:text-zinc-400">
             {formatDetail(alert.detail).map(([k, v]) => (
               <div key={k} className="contents">
-                <dt className="font-mono text-xs">{k}</dt>
-                <dd className="font-mono text-xs">{v}</dd>
+                <dt className="font-code text-xs">{k}</dt>
+                <dd className="font-code text-xs">{v}</dd>
               </div>
             ))}
           </dl>
@@ -45,12 +46,9 @@ function AlertCard({ alert }: { readonly alert: Alert }): React.JSX.Element {
         </div>
         {open && (
           <form action={dismissAlertAction.bind(null, alert.id)}>
-            <button
-              type="submit"
-              className="rounded-md border border-zinc-300 px-3 py-1 text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
-            >
+            <Button type="submit" variant="secondary">
               Dismiss
-            </button>
+            </Button>
           </form>
         )}
       </div>

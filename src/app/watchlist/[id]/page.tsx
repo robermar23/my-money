@@ -1,3 +1,5 @@
+import { buttonClass } from "@/components/ui/button-styles.ts";
+import { Button } from "@/components/ui/button.tsx";
 import { requireUser } from "@/lib/auth/require-user.ts";
 import { Money } from "@/lib/money/money.ts";
 import { assetClassLabel } from "@/lib/watchlist/display.ts";
@@ -152,18 +154,15 @@ export default async function WatchlistDetailPage(props: PageProps): Promise<Rea
                     <td className="py-2">
                       <div className="flex items-center justify-end gap-2">
                         <form action={togglePriceTargetAction.bind(null, t.id, item.id)}>
-                          <button
-                            type="submit"
-                            className="rounded-md border border-zinc-300 px-2.5 py-1 text-xs hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
-                          >
+                          <Button type="submit" variant="secondary" size="xs">
                             {t.active ? "Pause" : "Re-arm"}
-                          </button>
+                          </Button>
                         </form>
                         <ConfirmButton
                           action={deletePriceTargetAction.bind(null, t.id, item.id)}
                           confirmMessage="Delete this price target?"
                           label="Delete"
-                          className="rounded-md border border-red-300 px-2.5 py-1 text-red-700 text-xs hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+                          size="xs"
                         />
                       </div>
                     </td>
@@ -180,7 +179,7 @@ export default async function WatchlistDetailPage(props: PageProps): Promise<Rea
       <section className="mt-10 flex flex-wrap items-center justify-between gap-3 border-zinc-100 border-t pt-6 dark:border-zinc-900">
         <Link
           href={`/watchlist/${item.id}/edit`}
-          className="rounded-md border border-zinc-300 px-4 py-2 font-medium text-sm hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          className={buttonClass({ variant: "secondary", size: "md" })}
         >
           Edit
         </Link>

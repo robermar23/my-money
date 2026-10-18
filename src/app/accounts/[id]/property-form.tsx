@@ -1,5 +1,7 @@
 "use client";
 
+import { Button } from "@/components/ui/button.tsx";
+import { useTypedAmount } from "@/components/ui/use-typed-amount.tsx";
 import { useActionState } from "react";
 import { type ActionResult, recordPropertyValueAction } from "./actions.ts";
 
@@ -10,15 +12,22 @@ const fieldClass =
 
 interface Props {
   readonly accountId: string;
+  /** The account currency, for the amount named on the save button. */
+  readonly currency: string;
 }
 
-export function PropertyForm({ accountId }: Props): React.JSX.Element {
+export function PropertyForm({ accountId, currency }: Props): React.JSX.Element {
   const bound = recordPropertyValueAction.bind(null, accountId);
   const [state, action, pending] = useActionState(bound, initial);
+  const amount = useTypedAmount(currency);
   const today = new Date().toISOString().slice(0, 10);
 
   return (
-    <form action={action} className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+    <form
+      action={action}
+      onReset={amount.onReset}
+      className="grid grid-cols-1 gap-3 sm:grid-cols-2"
+    >
       <div>
         <label htmlFor="prop-date" className="block font-medium text-xs">
           Valuation date
@@ -39,6 +48,7 @@ export function PropertyForm({ accountId }: Props): React.JSX.Element {
         <input
           id="prop-value"
           name="value"
+          onChange={amount.onChange}
           type="text"
           inputMode="decimal"
           required
@@ -57,13 +67,15 @@ export function PropertyForm({ accountId }: Props): React.JSX.Element {
         </p>
       )}
       <div className="col-span-full">
-        <button
+        <Button
           type="submit"
-          disabled={pending}
-          className="rounded-md bg-zinc-900 px-3 py-1.5 font-medium text-sm text-white hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+          variant="commit"
+          pending={pending}
+          pendingLabel="Saving…"
+          succeeded={state.ok === true}
         >
-          {pending ? "Saving…" : "Save valuation"}
-        </button>
+          Save valuation{amount.suffix}
+        </Button>
       </div>
     </form>
   );

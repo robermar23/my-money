@@ -1,4 +1,5 @@
 "use client";
+import { type ButtonSize, buttonClass } from "@/components/ui/button-styles.ts";
 
 /**
  * P11-18/19 — a submit button that guards a (void) server action behind a native
@@ -10,14 +11,14 @@ interface Props {
   readonly action: () => Promise<void>;
   readonly confirmMessage: string;
   readonly label: string;
-  readonly className?: string;
+  readonly size?: ButtonSize;
 }
 
 export function ConfirmButton({
   action,
   confirmMessage,
   label,
-  className,
+  size = "sm",
 }: Props): React.JSX.Element {
   return (
     <form action={action}>
@@ -26,10 +27,7 @@ export function ConfirmButton({
         onClick={(e) => {
           if (!window.confirm(confirmMessage)) e.preventDefault();
         }}
-        className={
-          className ??
-          "rounded-md border border-red-300 px-3 py-1.5 font-medium text-red-700 text-sm hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
-        }
+        className={buttonClass({ variant: "danger", size })}
       >
         {label}
       </button>
