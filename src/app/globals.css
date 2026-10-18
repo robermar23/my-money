@@ -43,6 +43,36 @@
   }
 }
 
+/* Tailwind v4 dropped the pointer cursor from buttons, so most of the app's
+ * clickable controls showed the arrow while links showed the hand. One rule
+ * puts the hand back on everything that acts on a click, and keeps the
+ * not-allowed cursor on disabled controls. A `cursor-*` utility still wins
+ * because utilities sit in a later layer. */
+@layer base {
+  button,
+  [role="button"],
+  [role="option"],
+  [role="tab"],
+  [role="switch"],
+  [role="menuitem"],
+  summary,
+  select,
+  input[type="checkbox"],
+  input[type="radio"],
+  input[type="file"],
+  input[type="submit"],
+  input[type="reset"],
+  label:has(> input[type="checkbox"], > input[type="radio"]) {
+    cursor: pointer;
+  }
+
+  :disabled,
+  [aria-disabled="true"],
+  label:has(> input:disabled) {
+    cursor: not-allowed;
+  }
+}
+
 :root {
   color-scheme: light dark;
 }

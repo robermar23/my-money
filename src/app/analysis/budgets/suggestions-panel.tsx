@@ -117,7 +117,7 @@ export function SuggestionsPanel({ preview, currency }: Props): React.JSX.Elemen
       data-tour="budgets-suggestions"
       className="mt-6 rounded-lg border border-zinc-200 p-4 dark:border-zinc-800"
     >
-      <summary className="cursor-pointer font-medium text-sm">
+      <summary className="font-medium text-sm">
         Suggest budgets from your spending ({preview.rows.length})
       </summary>
 

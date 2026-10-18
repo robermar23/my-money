@@ -90,7 +90,7 @@ export function AccountAdmin({
     <div className="mt-4 flex flex-wrap items-start gap-3 text-sm">
       {/* Edit */}
       <details className="w-full rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
-        <summary className="cursor-pointer font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
+        <summary className="font-medium text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
           Edit account
         </summary>
         <form action={editAction} className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -192,7 +192,7 @@ export function AccountAdmin({
 
       {/* Delete */}
       <details className="w-full rounded-lg border border-red-200 p-3 dark:border-red-900">
-        <summary className="cursor-pointer font-medium text-red-600 hover:text-red-700 dark:text-red-400">
+        <summary className="font-medium text-red-600 hover:text-red-700 dark:text-red-400">
           Delete account
         </summary>
         {isPlaidLinked ? (

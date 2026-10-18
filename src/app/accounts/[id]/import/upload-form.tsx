@@ -86,7 +86,7 @@ export function UploadForm({ accountId, accountType }: Props): React.JSX.Element
           type="file"
           accept=".qfx,.ofx,.csv,application/x-ofx,text/csv"
           required
-          className={`${fieldClass} cursor-pointer`}
+          className={fieldClass}
           onChange={(e) => {
             const name = e.target.files?.[0]?.name?.toLowerCase() ?? "";
             setShowCsvMapping(name.endsWith(".csv"));

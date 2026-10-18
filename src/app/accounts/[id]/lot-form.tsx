@@ -69,7 +69,7 @@ export function LotsEditor({
 
   return (
     <details className="mt-2">
-      <summary className="cursor-pointer text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
+      <summary className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
         <span className="font-mono">{symbol}</span> — {lots.length} lot
         {lots.length === 1 ? "" : "s"}
         {coverageNote && (
