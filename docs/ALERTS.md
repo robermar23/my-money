@@ -39,6 +39,7 @@ View everything at **`/alerts`** (severity-colored; dismiss to resolve manually)
 | `sync_failure` | warning | a Plaid sync run recorded an error in the last day | — | sync-run id + started date |
 | `backup_failure` | critical | the nightly backup job threw | — | per day; **cleared only by a successful backup**, never by this job |
 | `backup_not_configured` | warning | the nightly backup job skipped because `BACKUP_AGE_RECIPIENT` is unset — see [BACKUP.md](BACKUP.md#you-will-be-warned-while-it-is-off) | — | per calendar month, and **never a second open row**: one standing alert however long it stays unset, back the next month if dismissed unfixed. **Cleared only by a successful backup**, never by this job |
+| `job_failure` | warning | a background job failed its **last** retry (BullMQ tries each job 3 times). The title names the job; the error text is in the detail | — | queue + date, so at most one per job per day. **Cleared by that job's next success**, never by this job |
 | `advice` | inherits the recommendation's (critical/warning only) | household guidance changes state — see [GUIDANCE.md](GUIDANCE.md) | `household_profile.high_interest_threshold_apr` and the other tunables | rule + subject + `severity\|status`, **deliberately excluding the amount** |
 | `projected_shortfall` | **critical** if the balance goes negative, else warning | the daily cash-flow projection dips below your cash floor inside the horizon — see [CASHFLOW.md](CASHFLOW.md) | `household_profile.cash_floor` / `projection_horizon_days` | the low-water **date** (so a moving shortfall re-fires, a standing one does not) |
 | `obligation_missed` | warning | a confirmed obligation's match window closed with nothing found. Fires for receipts too — an expected payment that never arrived leaves the projection wrong in the optimistic direction | ±5 days (`DEFAULT_MATCH_TOLERANCE`) | occurrence + due date, so it fires exactly once |
@@ -56,6 +57,11 @@ Notes:
   so either stays open until a backup actually succeeds. They are separate on
   purpose: "your backup broke" and "you never set one up" have different fixes,
   and a configured-but-failing instance shows both until a run succeeds.
+- `job_failure` is written **directly by the worker** for every job except the
+  once-a-minute heartbeat, whose liveness `/settings/instance` already shows.
+  It covers the jobs that have no failure signal of their own, including this
+  detection job: if it fails, the alert still appears on `/alerts`, and the
+  email follows the next night it succeeds.
 - **No alert for the Beancount mirror or for email being off** (ADR-052 §4). The
   mirror is a second copy of data Postgres still holds, so its absence risks no
   data, and "your alert email is off" cannot usefully be sent by email. Both

@@ -404,6 +404,9 @@ describe("P18-33 — planned expenses cannot reach the alert email", () => {
       // P19-06 (ADR-052): a configuration fact about the deployment. It carries
       // no figure and no name — its `detail` is the unset variable's name only.
       backup_not_configured: true,
+      // A job's final retry failed. The title names the queue only; the error
+      // text lives in `detail`, which is never emailed.
+      job_failure: true,
     };
     for (const type of Object.keys(everyAlertType)) {
       expect(type, `${type} looks like a sinking-fund alert`).not.toMatch(/sinking|planned/i);

@@ -36,7 +36,13 @@ export type AlertType =
    * `BACKUP_AGE_RECIPIENT` is unset. Written and cleared by the backup job,
    * like `backup_failure`, so it is NOT in {@link RULE_ALERT_TYPES}.
    */
-  | "backup_not_configured";
+  | "backup_not_configured"
+  /**
+   * A background job failed its final retry. Written by the worker and cleared
+   * by that queue's next success (`./job-failure-alert.ts`), so it is NOT in
+   * {@link RULE_ALERT_TYPES}.
+   */
+  | "job_failure";
 
 export type AlertSeverity = "info" | "warning" | "critical";
 
@@ -59,6 +65,7 @@ export interface AlertThresholds {
  * The rule-managed types swept by the anomaly resolve-loop. Excludes the
  * externally/one-shot-written types: `backup_failure` and `backup_not_configured`
  * (both written by the backup job, cleared only on a successful backup — P19-06),
+ * `job_failure` (written by the worker, cleared by that queue's next success),
  * `price_target` (one-shot, written by the
  * price-target evaluator and never re-armed automatically — ADR-026), `advice`
  * (P15-36 — see `src/lib/advice/alerts.ts` on why a guidance alert must not

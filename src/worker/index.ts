@@ -1,3 +1,8 @@
+import {
+  clearJobFailure,
+  isFinalAttempt,
+  recordJobFailure,
+} from "@/lib/alerts/job-failure-alert.ts";
 import { redisConnection } from "@/lib/queue/connection.ts";
 import {
   QUEUE_NAMES,
@@ -52,6 +57,35 @@ import { repeatFor } from "./schedule.ts";
  * add `compute-snapshots-daily`; later phases add Plaid sync + price fetch.
  */
 
+/**
+ * Log every failed attempt of `worker`'s jobs, and raise a `job_failure` alert
+ * when the last retry fails, so a dead job reaches `/alerts` and the
+ * notification email instead of only this log. The queue's next successful job
+ * resolves the alert. Alert writes are best-effort: a database outage (often
+ * the reason the job failed) must not crash the worker.
+ *
+ * Not used for the heartbeat: it never touches Postgres, `/settings/instance`
+ * already reports its liveness, and a completion hook would cost a write a
+ * minute.
+ *
+ * @param worker - A worker whose `name` is its queue name.
+ */
+function watchFailures(worker: Worker): void {
+  const queue = worker.name;
+  worker.on("failed", (job, err) => {
+    console.error(`[worker] ${queue} job ${job?.id} failed:`, err);
+    if (!isFinalAttempt(job)) return;
+    recordJobFailure(queue, job?.id, err.message, new Date()).catch((alertErr: unknown) => {
+      console.error(`[worker] could not record a job_failure alert for ${queue}:`, alertErr);
+    });
+  });
+  worker.on("completed", () => {
+    clearJobFailure(queue, new Date()).catch((alertErr: unknown) => {
+      console.error(`[worker] could not clear job_failure alerts for ${queue}:`, alertErr);
+    });
+  });
+}
+
 const heartbeatWorker = new Worker(QUEUE_NAMES.HEARTBEAT, heartbeatProcessor, {
   connection: redisConnection,
   concurrency: 1,
@@ -80,9 +114,7 @@ const computeSnapshotsWorker = new Worker(
   },
   { connection: redisConnection, concurrency: 1 },
 );
-computeSnapshotsWorker.on("failed", (job, err) => {
-  console.error(`[worker] compute-snapshots-daily job ${job?.id} failed:`, err);
-});
+watchFailures(computeSnapshotsWorker);
 
 const fetchPricesWorker = new Worker(
   QUEUE_NAMES.FETCH_PRICES_DAILY,
@@ -98,9 +130,7 @@ const fetchPricesWorker = new Worker(
   },
   { connection: redisConnection, concurrency: 1 },
 );
-fetchPricesWorker.on("failed", (job, err) => {
-  console.error(`[worker] fetch-prices-daily job ${job?.id} failed:`, err);
-});
+watchFailures(fetchPricesWorker);
 
 // Phase 11 (P11-11): one-shot watchlist price-target evaluator. No cron — it is
 // enqueued by the fetch worker above once the day's closes are in `prices`.
@@ -111,9 +141,7 @@ const evaluatePriceTargetsWorker = new Worker(
   },
   { connection: redisConnection, concurrency: 1 },
 );
-evaluatePriceTargetsWorker.on("failed", (job, err) => {
-  console.error(`[worker] evaluate-price-targets job ${job?.id} failed:`, err);
-});
+watchFailures(evaluatePriceTargetsWorker);
 
 // Phase 15 (P15-36): daily guidance evaluation. No cron — it rides the 02:00
 // snapshot job above, so it always reads fresh balances.
@@ -124,9 +152,7 @@ const evaluateAdviceWorker = new Worker(
   },
   { connection: redisConnection, concurrency: 1 },
 );
-evaluateAdviceWorker.on("failed", (job, err) => {
-  console.error(`[worker] evaluate-advice job ${job?.id} failed:`, err);
-});
+watchFailures(evaluateAdviceWorker);
 
 // Phase 16 (P16-27): daily materialize + match sweep + projection alerts. No
 // cron — it rides the 02:00 snapshot job above, so the walk always opens on
@@ -138,9 +164,7 @@ const projectCashFlowDailyWorker = new Worker(
   },
   { connection: redisConnection, concurrency: 1 },
 );
-projectCashFlowDailyWorker.on("failed", (job, err) => {
-  console.error(`[worker] project-cashflow-daily job ${job?.id} failed:`, err);
-});
+watchFailures(projectCashFlowDailyWorker);
 
 // Phase 16 (P16-26): weekly recurring-obligation detection. Writes nothing —
 // it re-derives the candidate list, which is the canary on the detector and the
@@ -152,25 +176,19 @@ const detectObligationsWeeklyWorker = new Worker(
   },
   { connection: redisConnection, concurrency: 1 },
 );
-detectObligationsWeeklyWorker.on("failed", (job, err) => {
-  console.error(`[worker] detect-obligations-weekly job ${job?.id} failed:`, err);
-});
+watchFailures(detectObligationsWeeklyWorker);
 
 const processImportWorker = new Worker(QUEUE_NAMES.PROCESS_IMPORT, processImportProcessor, {
   connection: redisConnection,
   concurrency: 2,
 });
-processImportWorker.on("failed", (job, err) => {
-  console.error(`[worker] process-import job ${job?.id} failed:`, err);
-});
+watchFailures(processImportWorker);
 
 const recategorizeAllWorker = new Worker(QUEUE_NAMES.RECATEGORIZE_ALL, recategorizeAllProcessor, {
   connection: redisConnection,
   concurrency: 1,
 });
-recategorizeAllWorker.on("failed", (job, err) => {
-  console.error(`[worker] recategorize-all job ${job?.id} failed:`, err);
-});
+watchFailures(recategorizeAllWorker);
 
 // Phase 4: Plaid sync. concurrency=1 so a webhook burst doesn't blow Plaid's
 // rate limit (their app-wide budget is shared across all in-flight calls).
@@ -178,9 +196,7 @@ const syncPlaidItemWorker = new Worker(QUEUE_NAMES.SYNC_PLAID_ITEM, syncPlaidIte
   connection: redisConnection,
   concurrency: 1,
 });
-syncPlaidItemWorker.on("failed", (job, err) => {
-  console.error(`[worker] sync-plaid-item job ${job?.id} failed:`, err);
-});
+watchFailures(syncPlaidItemWorker);
 
 // Phase 5: Plaid Investments sync (holdings + investment transactions).
 // concurrency=1 for the same Plaid rate-limit reason as the transactions sync.
@@ -189,9 +205,7 @@ const syncInvestmentsItemWorker = new Worker(
   syncInvestmentsItemProcessor,
   { connection: redisConnection, concurrency: 1 },
 );
-syncInvestmentsItemWorker.on("failed", (job, err) => {
-  console.error(`[worker] sync-investments-item job ${job?.id} failed:`, err);
-});
+watchFailures(syncInvestmentsItemWorker);
 
 // P4-27: 03:00 daily fan-out — enqueues a cron sync for every active Item.
 // Lightweight; runs in series with the heavier sync queue so we don't race the
@@ -201,9 +215,7 @@ const enqueuePlaidSyncsDailyWorker = new Worker(
   enqueuePlaidSyncsDailyProcessor,
   { connection: redisConnection, concurrency: 1 },
 );
-enqueuePlaidSyncsDailyWorker.on("failed", (job, err) => {
-  console.error(`[worker] enqueue-plaid-syncs-daily job ${job?.id} failed:`, err);
-});
+watchFailures(enqueuePlaidSyncsDailyWorker);
 
 // Phase 6 (P6-05): nightly encrypted backup. concurrency=1 — one pg_dump at a
 // time is plenty for a single DB; a failed run retries via BullMQ backoff.
@@ -216,9 +228,7 @@ const backupDatabaseDailyWorker = new Worker(
   },
   { connection: redisConnection, concurrency: 1 },
 );
-backupDatabaseDailyWorker.on("failed", (job, err) => {
-  console.error(`[worker] backup-database-daily job ${job?.id} failed:`, err);
-});
+watchFailures(backupDatabaseDailyWorker);
 
 // Phase 6 (P6-10): nightly beancount export. Wrapped for the same (job, token)
 // reason; concurrency 1 — a single deterministic file write.
@@ -229,9 +239,7 @@ const exportBeancountDailyWorker = new Worker(
   },
   { connection: redisConnection, concurrency: 1 },
 );
-exportBeancountDailyWorker.on("failed", (job, err) => {
-  console.error(`[worker] export-beancount-daily job ${job?.id} failed:`, err);
-});
+watchFailures(exportBeancountDailyWorker);
 
 // Phase 6 (P6-16): nightly anomaly detection → alerts + notification email.
 const detectAnomaliesDailyWorker = new Worker(
@@ -241,9 +249,7 @@ const detectAnomaliesDailyWorker = new Worker(
   },
   { connection: redisConnection, concurrency: 1 },
 );
-detectAnomaliesDailyWorker.on("failed", (job, err) => {
-  console.error(`[worker] detect-anomalies-daily job ${job?.id} failed:`, err);
-});
+watchFailures(detectAnomaliesDailyWorker);
 
 // Phase 9 (P9-07): weekly security-enrichment refresh. concurrency=1 — a single
 // rate-limited pass over stale securities; failures retry via BullMQ backoff.
@@ -254,9 +260,7 @@ const refreshFundamentalsWeeklyWorker = new Worker(
   },
   { connection: redisConnection, concurrency: 1 },
 );
-refreshFundamentalsWeeklyWorker.on("failed", (job, err) => {
-  console.error(`[worker] refresh-fundamentals-weekly job ${job?.id} failed:`, err);
-});
+watchFailures(refreshFundamentalsWeeklyWorker);
 
 // Phase 11 (P11-08): on-demand watchlist history backfill. No cron — enqueued by
 // the create-watchlist-item server action. concurrency=1 keeps it off the
@@ -268,9 +272,7 @@ const backfillWatchlistSymbolWorker = new Worker(
   },
   { connection: redisConnection, concurrency: 1 },
 );
-backfillWatchlistSymbolWorker.on("failed", (job, err) => {
-  console.error(`[worker] backfill-watchlist-symbol job ${job?.id} failed:`, err);
-});
+watchFailures(backfillWatchlistSymbolWorker);
 
 // Phase 14 (P14-09): nightly payroll-contribution materialization. concurrency=1
 // — a single sequential pass over the user's rules, each contribution in its own
@@ -284,9 +286,7 @@ const materializeContributionsWorker = new Worker(
   },
   { connection: redisConnection, concurrency: 1 },
 );
-materializeContributionsWorker.on("failed", (job, err) => {
-  console.error(`[worker] materialize-contributions job ${job?.id} failed:`, err);
-});
+watchFailures(materializeContributionsWorker);
 
 // P19-24 — Each cron job below names its clock in `./schedule.ts`: the data
 // chain on UTC, the backup and Beancount export on the operator's `TZ`. An

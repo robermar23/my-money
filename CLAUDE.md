@@ -282,7 +282,7 @@ These are CRITICAL/ERROR-severity rules — violating them is a security bug, no
   - `fetch-prices-daily` (nightly, fetches all held symbols)
   - `compute-snapshots-daily` (nightly, after prices, writes `account_snapshots`)
   - `process-qfx-import` (triggered by user upload)
-- Failures: retry with exponential backoff; after N attempts surface to a `failed_jobs` table the UI can show.
+- Failures: retry with exponential backoff; after the last attempt the worker raises a `job_failure` alert (`src/lib/alerts/job-failure-alert.ts`), shown on `/alerts` and cleared by that queue's next success. There is no `failed_jobs` table.
 
 ## Database & Drizzle Specifics
 
