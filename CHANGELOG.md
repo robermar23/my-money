@@ -22,9 +22,28 @@ never tagged, and their dates are when each phase finished.
 
 ## [Unreleased]
 
-**Migrations:** `0027_jazzy_matthew_murdock` (unchanged).
+**Migrations:** `0028_alerts_job_failure` — widens the `alerts` type check to
+allow `job_failure`. No rows change.
 
-Nothing yet.
+### Added
+
+- **A `job_failure` alert** when a background job fails its last retry. Until
+  now those failures reached only the worker log, and several jobs (the
+  anomaly detector itself, guidance, cash-flow, the Beancount export) had no
+  other signal. It shows on `/alerts` and in the notification email, and
+  clears when that job next succeeds. See [docs/ALERTS.md](docs/ALERTS.md).
+- **Error and not-found pages.** A page that fails on the server, most often
+  because the database or Redis is down, now says so inside the app with a
+  retry button instead of Next's bare default page. Unknown URLs get a 404
+  page that links back to the dashboard.
+- **A test that every page, server action and route handler checks the
+  session**, apart from a short list of intentionally public ones (login,
+  logout, health, the signed Plaid webhook).
+
+### Removed
+
+- `assertItemExists`, an unused server action on the connections page that
+  had no session check.
 
 ## [0.20.1] - 2026-10-18
 
