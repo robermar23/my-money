@@ -233,23 +233,6 @@ function redactPlaidError(err: unknown, operation: string): string {
   return `Plaid ${operation} failed (see server logs).`;
 }
 
-/**
- * Internal helper for `mapAccountsAction` to assert that the linked Item
- * belongs to a request the requireUser() check already validated. Single-user
- * app — anyone authenticated has access to every Item — but kept as a
- * deliberate hook so the multi-user assumption stays falsifiable.
- */
-export async function assertItemExists(plaidItemPk: string): Promise<void> {
-  const rows = await db
-    .select({ id: plaidItems.id })
-    .from(plaidItems)
-    .where(eq(plaidItems.id, plaidItemPk))
-    .limit(1);
-  if (rows.length === 0) {
-    throw new Error(`No plaid_items row with id=${plaidItemPk}`);
-  }
-}
-
 /* ---------------------------------------------------------------------------
  * P4-25 — finalizeReauthAction
  * --------------------------------------------------------------------------- */
